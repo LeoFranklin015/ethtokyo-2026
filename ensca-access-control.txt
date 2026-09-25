@@ -1,0 +1,26 @@
+ENSCA — Org Registration & Access Control
+==========================================
+
+```mermaid
+flowchart TD
+    ORG["ethglobal.eth"] -->|"creates event domain"| EVT["tokyo2026.ethglobal.eth"]
+
+    EVT -->|"mint at check-in"| SUBNAME["philo.tokyo2026.ethglobal.eth — role · wifi-vlan · ssh-pubkey · tool-quotas"]
+
+    SUBNAME -->|"wallet signs in"| WIFI["WiFi — Captive portal · sign · VLAN assigned by role"]
+    SUBNAME -->|"ssh-pubkey record"| SSH["SSH — ssh user@devbox.ensca.eth"]
+    SUBNAME -->|"quota records"| RES["Developer Resources — RPC · Faucet · IPFS · Indexer · Sponsor API keys"]
+
+    subgraph ROLES["Roles  (set at mint)"]
+        direction LR
+        H["hacker — 50 Mbps · 10k RPC · 0.5 ETH"]
+        M["mentor — 100 Mbps · 50k RPC · 2 ETH"]
+        P["pragma — 100 Mbps · 100k RPC · 5 ETH"]
+        O["organizer — unlimited · sudo"]
+        V["volunteer — 20 Mbps · 2k RPC · time-gated"]
+    end
+
+    SUBNAME --> ROLES
+
+    ORG -->|"revoke: owner = 0x0"| REVOKE["Access revoked\nWiFi · SSH · APIs all denied"]
+```
