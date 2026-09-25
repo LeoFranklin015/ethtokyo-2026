@@ -8,9 +8,6 @@ iptables -t nat -F
 
 iptables -t nat -A POSTROUTING -o enp2s0 -j MASQUERADE
 iptables -t nat -A PREROUTING -i enp10s0u1 -p tcp --dport 80 -j REDIRECT --to-port 8080
-# Redirect unauthenticated DNS to dnsmasq (captive portal wildcard DNS)
-# Per-IP DNAT rules inserted above this by grant_access bypass to real DNS
-iptables -t nat -A PREROUTING -i enp10s0u1 -p udp --dport 53 -j REDIRECT --to-port 53
 iptables -A FORWARD -i enp2s0 -o enp10s0u1 -m state --state RELATED,ESTABLISHED -j ACCEPT
 iptables -A INPUT -i enp10s0u1 -p tcp --dport 8080 -j ACCEPT
 iptables -A INPUT -i enp10s0u1 -p udp --dport 53 -j ACCEPT
