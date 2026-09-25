@@ -22,7 +22,9 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 ///
 ///   forge test --match-path test/Lifecycle.fork.t.sol --fork-url $SEPOLIA_RPC_URL -vv
 contract LifecycleForkTest is Test {
-    string constant BRANCH_LABEL = "ethglobal2";
+    /// @dev A fresh label each run: the rehearsal registers it for real on the fork, and
+    ///      `ethglobal2` is now taken on live Sepolia by the actual deployment.
+    string internal BRANCH_LABEL;
 
     IPermissionedRegistry ethRegistry = IPermissionedRegistry(SepoliaENSv2.ETH_REGISTRY);
     IETHRegistrar ethRegistrar = IETHRegistrar(SepoliaENSv2.ETH_REGISTRAR);
@@ -35,6 +37,7 @@ contract LifecycleForkTest is Test {
 
     function setUp() public {
         vm.skip(block.chainid != 11155111, "requires a Sepolia fork");
+        BRANCH_LABEL = string.concat("ensca-rehearsal-", vm.toString(block.number));
     }
 
     function test_full_branch_lifecycle() public {
@@ -166,7 +169,12 @@ contract LifecycleForkTest is Test {
         registrar.onboard("ann", ann, BranchRegistrar.Role.Organizer);
 
         // ── 6b. Entitlements as text records ──────────────────────────────
-        bytes32 leoNode = keccak256(abi.encodePacked(bytes32(0), keccak256("leo")));
+        // The full ENS namehash, not just the label: the resolver keys records by namehash, so
+        // hashing the label alone writes to a node nothing resolves to.
+        bytes32 ethNode = keccak256(abi.encodePacked(bytes32(0), keccak256("eth")));
+        bytes32 branchNode = keccak256(abi.encodePacked(ethNode, keccak256(bytes(BRANCH_LABEL))));
+        bytes32 leoNode = keccak256(abi.encodePacked(branchNode, keccak256("leo")));
+
         vm.startPrank(organizer);
         PermissionedResolver(branchResolver).setText(leoNode, "role", "hacker");
         PermissionedResolver(branchResolver).setText(leoNode, "wifi.group", "hacker");
@@ -194,5 +202,71 @@ contract LifecycleForkTest is Test {
         console.log("branch registry:", branchRegistry);
         console.log("registrar:      ", address(registrar));
         console.log("branch resolver:", branchResolver);
+    }
+}
+
+/// @notice Asserts the live Sepolia deployment of ethglobal2.eth is intact.
+///
+/// This is the end-to-end regression test for what was actually shipped: the hierarchy, the
+/// membership, the role bitmap, and the entitlements read back through the ENS UniversalResolver
+/// exactly as any client would read them.
+///
+///   forge test --match-contract LiveDeploymentTest --fork-url $SEPOLIA_RPC_URL -vv
+contract LiveDeploymentTest is Test {
+    address constant BRANCH_REGISTRY = 0xEb716b3fB749f357be2B74a10647675D11a94517;
+    address constant BRANCH_RESOLVER = 0x9D8f1376aED12F6F7Ba041285Cce833AcED13092;
+    address constant REGISTRAR = 0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A;
+    address constant OWNER = 0xE08224B2CfaF4f27E2DC7cB3f6B99AcC68Cf06c0;
+
+    bytes32 constant LEO_NODE = 0x849603a21f59f0fcf34170db77da66501b069223229b77303ea7df0fea86cafd;
+
+    function setUp() public {
+        vm.skip(block.chainid != 11155111, "requires a Sepolia fork");
+    }
+
+    function test_branch_is_attached_to_ethglobal2() public view {
+        IPermissionedRegistry ethRegistry = IPermissionedRegistry(SepoliaENSv2.ETH_REGISTRY);
+        assertEq(
+            uint8(ethRegistry.getStatus(uint256(keccak256("ethglobal2")))),
+            uint8(IPermissionedRegistry.Status.REGISTERED),
+            "ethglobal2.eth registered"
+        );
+        assertEq(
+            address(ethRegistry.getSubregistry("ethglobal2")),
+            BRANCH_REGISTRY,
+            "branch registry attached"
+        );
+
+        (IRegistry parent, string memory label) = PermissionedRegistry(BRANCH_REGISTRY).getParent();
+        assertEq(address(parent), SepoliaENSv2.ETH_REGISTRY, "canonical parent");
+        assertEq(label, "ethglobal2");
+    }
+
+    function test_membership_and_its_entitlements() public view {
+        IPermissionedRegistry branch = IPermissionedRegistry(BRANCH_REGISTRY);
+        uint256 leo = uint256(keccak256("leo"));
+
+        assertEq(
+            uint8(branch.getStatus(leo)), uint8(IPermissionedRegistry.Status.REGISTERED), "leo minted"
+        );
+        assertEq(branch.getOwner(leo), OWNER, "leo owned");
+        assertEq(branch.roles(leo, OWNER), 0, "hacker holds no registry roles over its own name");
+
+        BranchRegistrar registrar = BranchRegistrar(REGISTRAR);
+        assertTrue(
+            branch.hasRootRoles(registrar.REQUIRED_REGISTRY_ROLES(), REGISTRAR),
+            "registrar still authorised"
+        );
+        assertEq(
+            uint8(registrar.roleOf(branch.getResource(leo))),
+            uint8(BranchRegistrar.Role.Hacker),
+            "role recorded"
+        );
+
+        PermissionedResolver resolver = PermissionedResolver(BRANCH_RESOLVER);
+        assertEq(resolver.text(LEO_NODE, "role"), "hacker");
+        assertEq(resolver.text(LEO_NODE, "wifi.group"), "hacker");
+        assertEq(resolver.text(LEO_NODE, "wifi.rate"), "5mbps");
+        assertEq(resolver.text(LEO_NODE, "wifi.ceil"), "20mbps");
     }
 }

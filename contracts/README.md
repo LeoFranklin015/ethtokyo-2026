@@ -63,17 +63,66 @@ Otherwise a volunteer could sell their badge.
 ```
 src/BranchRegistrar.sol      the registrar
 test/BranchRegistrar.t.sol   unit tests against a local registry
-test/Fork.t.sol              fork tests against live Sepolia ENSv2
+test/Lifecycle.fork.t.sol    rehearsal + live-deployment regression, against Sepolia
 script/                      the lifecycle, one script per step
 deployments/sepolia.json     written by the scripts
 ```
+
+## Deployed — Sepolia
+
+Live as of 2026-09-25. `ethglobal2.eth` is registered, its branch is attached, and one membership
+exists with entitlements readable through the ENS UniversalResolver.
+
+| | |
+|---|---|
+| Branch name | `ethglobal2.eth` (expiry `1821903888`) |
+| Branch registry | [`0xEb716b3fB749f357be2B74a10647675D11a94517`](https://sepolia.etherscan.io/address/0xEb716b3fB749f357be2B74a10647675D11a94517) |
+| Branch resolver | [`0x9D8f1376aED12F6F7Ba041285Cce833AcED13092`](https://sepolia.etherscan.io/address/0x9D8f1376aED12F6F7Ba041285Cce833AcED13092) |
+| BranchRegistrar | [`0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A`](https://sepolia.etherscan.io/address/0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A) |
+| Owner | `0xE08224B2CfaF4f27E2DC7cB3f6B99AcC68Cf06c0` |
+| First membership | `leo.ethglobal2.eth` — role `hacker`, registry bitmap `0` |
+
+Verified through the canonical read path — `UniversalResolverV2.resolve()` on the DNS-encoded name
+returns our resolver and these records:
+
+```
+role = hacker · wifi.group = hacker · wifi.rate = 5mbps · wifi.ceil = 20mbps
+```
+
+`LiveDeploymentTest` in `test/Lifecycle.fork.t.sol` asserts all of the above and is the regression
+test for the deployment.
+
+## What the docs get wrong
+
+Verified against the pinned `ensdomains/contracts-v2` checkout and live Sepolia:
+
+| Claim | Reality |
+|---|---|
+| `ROLE_RENEW` is nybble 4 (architecture writeup) | `RegistryRolesLib` says `1 << 16`. Read constants from the source. |
+| `UserRegistry.initialize(address,uint256)` via VerifiableFactory | The deployed Sepolia `UserRegistryImpl` does **not** expose that selector — the delegatecall reverts in ~210 gas. The deployed beta build differs from the published source. We deploy a `PermissionedRegistry` directly instead. |
+| `PermissionedResolver.initialize(grants, calls)` | Pinned source is `initialize(address,uint256,bytes[])`, and `setText` takes `bytes32 node`, not a DNS-encoded name. |
+| `type(uint256).max` as an "all roles" bitmap | EAC bitmaps are nybble-packed; all-ones is invalid. Use `EACBaseRolesLib.ALL_ROLES` (`0x1111…`). |
+
+## Two constraints worth knowing
+
+**Memberships hold no admin roles.** `PermissionedRegistry._getSettableRoles` only permits *regular*
+roles to be granted on an already-registered name — admin roles are registration-time only, to stop
+an owner escalating their own permissions. A membership that held one could therefore never be
+demoted out of it, so `registryBitmapFor` grants none.
+
+**The branch registry is not emancipated.** `promote` and `revoke` need `ROLE_UNREGISTER`,
+`ROLE_SET_RESOLVER_ADMIN` and `ROLE_SET_SUBREGISTRY_ADMIN` on `ROOT_RESOURCE`, and three of those
+are ENS's "dangerous" roles, so `isEmancipated()` is false. That is the correct trade for an event
+branch — the organization must be able to revoke — but it means members are trusting the org, not
+just the chain. A branch that wants emancipation gives up `promote`/`revoke` and must reissue
+instead.
 
 ## Running
 
 ```bash
 export SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
 forge test -vv                                    # unit
-forge test --match-path test/Fork.t.sol --fork-url $SEPOLIA_RPC_URL   # fork
+forge test --match-path test/Lifecycle.fork.t.sol --fork-url $SEPOLIA_RPC_URL  # fork
 ```
 
 Deployment scripts read `PRIVATE_KEY` from `../.env`, which is gitignored and must stay that way.
