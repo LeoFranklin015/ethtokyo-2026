@@ -1,4 +1,9 @@
 #!/bin/bash
+# Flush before apply — makes script idempotent across NM events
+iptables -F FORWARD
+iptables -F INPUT
+iptables -t nat -F
+
 # NAT masquerade
 iptables -t nat -A POSTROUTING -o enp2s0 -j MASQUERADE
 
