@@ -215,7 +215,9 @@ contract LifecycleForkTest is Test {
 contract LiveDeploymentTest is Test {
     address constant BRANCH_REGISTRY = 0xEb716b3fB749f357be2B74a10647675D11a94517;
     address constant BRANCH_RESOLVER = 0x9D8f1376aED12F6F7Ba041285Cce833AcED13092;
-    address constant REGISTRAR = 0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A;
+    address constant REGISTRAR = 0x391554c4e72Ab1f10e1228aB8068F90a7Fb58fd5;
+    /// @dev Superseded build, left disarmed on-chain: `onboard` was reentrant via the ERC1155 mint.
+    address constant SUPERSEDED_REGISTRAR = 0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A;
     address constant OWNER = 0xE08224B2CfaF4f27E2DC7cB3f6B99AcC68Cf06c0;
 
     bytes32 constant LEO_NODE = 0x849603a21f59f0fcf34170db77da66501b069223229b77303ea7df0fea86cafd;
@@ -262,6 +264,14 @@ contract LiveDeploymentTest is Test {
             uint8(BranchRegistrar.Role.Hacker),
             "role recorded"
         );
+
+        assertFalse(
+            branch.hasRootRoles(registrar.REQUIRED_REGISTRY_ROLES(), SUPERSEDED_REGISTRAR),
+            "the superseded registrar is disarmed"
+        );
+        (bool exists,, BranchRegistrar.Role none) = registrar.membership(address(0xdead));
+        assertFalse(exists);
+        assertEq(uint8(none), uint8(BranchRegistrar.Role.None), "strangers deny by default");
 
         PermissionedResolver resolver = PermissionedResolver(BRANCH_RESOLVER);
         assertEq(resolver.text(LEO_NODE, "role"), "hacker");

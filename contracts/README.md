@@ -47,13 +47,17 @@ the registrar holds it, and humans hold `ROLE_ONBOARD` on the registrar.
 
 ### Membership role bitmaps on the registry
 
+No membership holds an **admin** role: ENSv2 only allows admin roles to be set at registration
+time, so a membership carrying one could never be demoted out of it.
+
 | Role | Registry bitmap | Effect |
 |---|---|---|
+| `None` | — | sentinel at ordinal 0, so an unset record denies by default |
 | `Hacker` | `0` | owns the name, holds no roles — `setText` reverts `EACUnauthorizedAccountRoles` |
 | `Volunteer` | `0` | same on-chain; console permission comes from `ROLE_ONBOARD` on the registrar |
 | `Mentor` | `0` | record rights come from the resolver, not the registry |
-| `Partner` | `ROLE_SET_RESOLVER \| ROLE_SET_RESOLVER_ADMIN` | may point the name at its own resolver |
-| `Organizer` | `ROLE_SET_RESOLVER \| ROLE_SET_SUBREGISTRY \| admins` | full structural control of its own name |
+| `Partner` | `ROLE_SET_RESOLVER` | may point the name at its own resolver |
+| `Organizer` | `ROLE_SET_RESOLVER \| ROLE_SET_SUBREGISTRY` | full structural control of its own name |
 
 `ROLE_CAN_TRANSFER_ADMIN` is withheld from every membership, which makes them **soulbound**.
 Otherwise a volunteer could sell their badge.
@@ -78,7 +82,8 @@ exists with entitlements readable through the ENS UniversalResolver.
 | Branch name | `ethglobal2.eth` (expiry `1821903888`) |
 | Branch registry | [`0xEb716b3fB749f357be2B74a10647675D11a94517`](https://sepolia.etherscan.io/address/0xEb716b3fB749f357be2B74a10647675D11a94517) |
 | Branch resolver | [`0x9D8f1376aED12F6F7Ba041285Cce833AcED13092`](https://sepolia.etherscan.io/address/0x9D8f1376aED12F6F7Ba041285Cce833AcED13092) |
-| BranchRegistrar | [`0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A`](https://sepolia.etherscan.io/address/0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A) |
+| BranchRegistrar | [`0x391554c4e72Ab1f10e1228aB8068F90a7Fb58fd5`](https://sepolia.etherscan.io/address/0x391554c4e72Ab1f10e1228aB8068F90a7Fb58fd5) |
+| ~~Superseded registrar~~ | `0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A` — disarmed, see below |
 | Owner | `0xE08224B2CfaF4f27E2DC7cB3f6B99AcC68Cf06c0` |
 | First membership | `leo.ethglobal2.eth` — role `hacker`, registry bitmap `0` |
 
@@ -91,6 +96,43 @@ role = hacker · wifi.group = hacker · wifi.rate = 5mbps · wifi.ceil = 20mbps
 
 `LiveDeploymentTest` in `test/Lifecycle.fork.t.sol` asserts all of the above and is the regression
 test for the deployment.
+
+## Review findings, and what changed
+
+A two-axis review (standards + spec) ran against the first deployment. It found a real
+vulnerability, so the registrar was rebuilt, redeployed, and the original disarmed by revoking its
+registry roles.
+
+**Reentrancy in `onboard` (fixed).** `REGISTRY.register` mints an ERC1155 to the new owner, which
+invokes `onERC1155Received` on it *before* the registrar had written `membershipOf`. A contract
+holding `ROLE_ONBOARD` could reenter from that callback, walk past the one-membership-per-wallet
+check, and mint a second name — orphaning the first so it could never be promoted or revoked.
+`onboard`, `promote` and `revoke` are now `nonReentrant`, and
+`test_reentrancy_cannot_mint_a_second_membership` drives a real attacker contract at it.
+
+**Expiry bricked every membership (fixed).** `_requireOnboarded` read the owner back from the
+registry, but `getOwner` returns the zero address once a name expires — so after `BRANCH_EXPIRY`
+nothing could be revoked, `membershipOf` never cleared, and those wallets could never be onboarded
+again. The registrar now records `memberOf[resource]` itself. Two related traps came with it:
+`getResource` returns a *different* id once expired (`eacVersionId + 1`), so `_resolveResource`
+falls back to the recorded id; and the registry rejects unregistering an already-expired name, so
+`revoke` skips that call and just clears bookkeeping.
+
+**`Role.None` sentinel (fixed).** `Hacker` was ordinal 0, so `membership()` reported a stranger as
+a hacker. Ordinal 0 is now `None` — deny by default.
+
+**`renew` added.** `ROLE_RENEW` was granted to the registrar but no entrypoint used it, so every
+membership was condemned to die at `BRANCH_EXPIRY`.
+
+**`releaseMembership` added** as an escape hatch for bookkeeping that desyncs from the registry.
+
+**Commit secret moved to `REGISTRATION_SECRET`.** It had been a committed constant, which makes the
+commitment reconstructable and the registration front-runnable.
+
+Still open, deliberately: there is **no Member layer and no org-scoped role fallback** on-chain
+(`docs/13` §1 and §5 describe both) — this deployment covers the Branch and Membership layers only.
+`revoke` also leaves the resolver's text records in place; they are unreachable through ENS once the
+name is gone, but they are not erased.
 
 ## What the docs get wrong
 

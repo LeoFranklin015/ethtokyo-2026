@@ -18,7 +18,11 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 abstract contract LifecycleBase is Script {
     string constant BRANCH_LABEL = "ethglobal2";
     uint64 constant DURATION = 365 days;
-    bytes32 constant SECRET = keccak256("ensca.ethglobal2.v1");
+    /// @dev Never a committed constant: the commitment is public, so a hardcoded secret lets
+    ///      anyone reconstruct it and front-run the registration.
+    function secret() internal view returns (bytes32) {
+        return vm.envBytes32("REGISTRATION_SECRET");
+    }
 
     IPermissionedRegistry ethRegistry = IPermissionedRegistry(SepoliaENSv2.ETH_REGISTRY);
     IETHRegistrar ethRegistrar = IETHRegistrar(SepoliaENSv2.ETH_REGISTRAR);
@@ -36,7 +40,7 @@ abstract contract LifecycleBase is Script {
 
     function commitment(address owner) internal view returns (bytes32) {
         return ethRegistrar.makeCommitment(
-            BRANCH_LABEL, owner, SECRET, IRegistry(address(0)), address(0), DURATION, bytes32(0)
+            BRANCH_LABEL, owner, secret(), IRegistry(address(0)), address(0), DURATION, bytes32(0)
         );
     }
 }
@@ -119,14 +123,15 @@ contract Deploy is LifecycleBase {
         console.log("registrar     :", address(registrar));
         console.log("expiry        :", branchExpiry);
 
-        string memory json = string.concat(
-            '{\n  "chainId": 11155111,\n  "branch": "', BRANCH_LABEL, '.eth",\n  "branchRegistry": "',
-            vm.toString(address(branchRegistry)), '",\n  "branchResolver": "', vm.toString(branchResolver),
-            '",\n  "registrar": "', vm.toString(address(registrar)), '",\n  "resolverImpl": "',
-            vm.toString(resolverImpl), '",\n  "owner": "', vm.toString(me),
-            '",\n  "expiry": ', vm.toString(uint256(branchExpiry)), "\n}\n"
-        );
-        vm.writeFile("deployments/sepolia.json", json);
+        string memory obj = "ensca";
+        vm.serializeUint(obj, "chainId", block.chainid);
+        vm.serializeString(obj, "branch", string.concat(BRANCH_LABEL, ".eth"));
+        vm.serializeAddress(obj, "branchRegistry", address(branchRegistry));
+        vm.serializeAddress(obj, "branchResolver", branchResolver);
+        vm.serializeAddress(obj, "resolverImpl", resolverImpl);
+        vm.serializeAddress(obj, "owner", me);
+        vm.serializeUint(obj, "expiry", branchExpiry);
+        vm.writeJson(vm.serializeAddress(obj, "registrar", address(registrar)), "deployments/sepolia.json");
     }
 }
 

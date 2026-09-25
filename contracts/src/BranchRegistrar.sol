@@ -37,7 +37,9 @@ contract BranchRegistrar is EnhancedAccessControl {
     // Types
     ////////////////////////////////////////////////////////////////////////
 
+    /// @dev `None` is ordinal 0 so an unset mapping reads as "no role", not as Hacker.
     enum Role {
+        None,
         Hacker,
         Volunteer,
         Mentor,
@@ -79,6 +81,16 @@ contract BranchRegistrar is EnhancedAccessControl {
     /// @notice One membership per wallet per branch.
     mapping(address account => uint256 resource) public membershipOf;
 
+    /// @notice The wallet a membership was minted for.
+    /// @dev Recorded here rather than read back from the registry: `getOwner` returns the zero
+    ///      address once a name expires, which would otherwise strand every membership as
+    ///      un-promotable and un-revokable the moment the branch window closes.
+    mapping(uint256 resource => address member) public memberOf;
+
+    /// @dev Reentrancy latch. `REGISTRY.register` mints an ERC1155 to `owner`, which calls
+    ///      `onERC1155Received` on it before this contract has written its bookkeeping.
+    uint256 private _entered;
+
     ////////////////////////////////////////////////////////////////////////
     // Events
     ////////////////////////////////////////////////////////////////////////
@@ -86,19 +98,32 @@ contract BranchRegistrar is EnhancedAccessControl {
     event Onboarded(uint256 indexed resource, string label, address indexed owner, Role role);
     event Promoted(uint256 indexed resource, Role oldRole, Role newRole);
     event Revoked(uint256 indexed resource, address indexed owner);
+    event Renewed(uint256 indexed resource, uint64 newExpiry);
+    event Released(uint256 indexed resource, address indexed account);
 
     ////////////////////////////////////////////////////////////////////////
     // Errors
     ////////////////////////////////////////////////////////////////////////
 
+    error Reentrancy();
+    error InvalidRole();
     error NotAnOnboarder(address account);
     error CannotGrantRole(address account, Role role);
     error NotARevoker(address account);
+    error NotARenewer(address account);
     error LabelUnavailable(string label);
     error InvalidLabel(string label);
     error AlreadyOnboarded(address account, uint256 resource);
     error NotOnboarded(uint256 resource);
     error InvalidOwner();
+    error InvalidExpiry(uint64 branchExpiry);
+
+    modifier nonReentrant() {
+        if (_entered == 1) revert Reentrancy();
+        _entered = 1;
+        _;
+        _entered = 0;
+    }
 
     ////////////////////////////////////////////////////////////////////////
     // Construction
@@ -109,7 +134,10 @@ contract BranchRegistrar is EnhancedAccessControl {
     /// @param branchExpiry Absolute unix timestamp the branch closes at.
     /// @param admin Receives every role plus its admin counterpart, contract-wide.
     constructor(IPermissionedRegistry registry, address resolver, uint64 branchExpiry, address admin) {
-        if (admin == address(0)) revert InvalidOwner();
+        if (admin == address(0) || address(registry) == address(0) || resolver == address(0)) {
+            revert InvalidOwner();
+        }
+        if (branchExpiry <= block.timestamp) revert InvalidExpiry(branchExpiry);
         REGISTRY = registry;
         RESOLVER = resolver;
         BRANCH_EXPIRY = branchExpiry;
@@ -132,8 +160,10 @@ contract BranchRegistrar is EnhancedAccessControl {
     ///      `ROLE_PROMOTE`, which is what keeps a volunteer from minting themselves an organizer.
     function onboard(string calldata label, address owner, Role role)
         external
+        nonReentrant
         returns (uint256 resource)
     {
+        if (role == Role.None) revert InvalidRole();
         if (!hasRootRoles(ROLE_ONBOARD, msg.sender)) revert NotAnOnboarder(msg.sender);
         if (role != Role.Hacker && !hasRootRoles(ROLE_PROMOTE, msg.sender)) {
             revert CannotGrantRole(msg.sender, role);
@@ -160,6 +190,7 @@ contract BranchRegistrar is EnhancedAccessControl {
 
         resource = REGISTRY.getResource(tokenId);
         roleOf[resource] = role;
+        memberOf[resource] = owner;
         membershipOf[owner] = resource;
 
         emit Onboarded(resource, label, owner, role);
@@ -167,14 +198,15 @@ contract BranchRegistrar is EnhancedAccessControl {
 
     /// @notice Change a membership's role.
     /// @dev Registry roles are rewritten to match. This is reversible, unlike ENSv1 fuses.
-    function promote(uint256 anyId, Role newRole) external {
+    function promote(uint256 anyId, Role newRole) external nonReentrant {
+        if (newRole == Role.None) revert InvalidRole();
         if (!hasRootRoles(ROLE_PROMOTE, msg.sender)) revert CannotGrantRole(msg.sender, newRole);
 
-        uint256 resource = REGISTRY.getResource(anyId);
+        uint256 resource = _resolveResource(anyId);
         Role oldRole = _requireOnboarded(resource);
         if (oldRole == newRole) return;
 
-        address owner = REGISTRY.getOwner(resource);
+        address owner = memberOf[resource];
         uint256 oldBitmap = registryBitmapFor(oldRole);
         uint256 newBitmap = registryBitmapFor(newRole);
 
@@ -189,19 +221,52 @@ contract BranchRegistrar is EnhancedAccessControl {
     }
 
     /// @notice End a membership. Enforcers deny on their next check.
-    function revoke(uint256 anyId) external {
+    function revoke(uint256 anyId) external nonReentrant {
         if (!hasRootRoles(ROLE_REVOKE, msg.sender)) revert NotARevoker(msg.sender);
 
-        uint256 resource = REGISTRY.getResource(anyId);
+        uint256 resource = _resolveResource(anyId);
         _requireOnboarded(resource);
 
-        address owner = REGISTRY.getOwner(resource);
-        REGISTRY.unregister(resource);
+        address owner = memberOf[resource];
+
+        // An expired membership is already gone from ENS and the registry rejects unregistering
+        // it (`LabelExpired`). Revoking one is then pure bookkeeping cleanup.
+        if (REGISTRY.getStatus(resource) != IPermissionedRegistry.Status.AVAILABLE) {
+            REGISTRY.unregister(resource);
+        }
 
         delete roleOf[resource];
+        delete memberOf[resource];
         delete membershipOf[owner];
 
         emit Revoked(resource, owner);
+    }
+
+    /// @notice Extend a membership past the branch window.
+    /// @dev The registrar already holds `ROLE_RENEW`; without this entrypoint that privilege sits
+    ///      granted and unusable, and every membership dies with `BRANCH_EXPIRY`.
+    function renew(uint256 anyId, uint64 newExpiry) external {
+        if (!hasRootRoles(ROLE_PROMOTE, msg.sender)) revert NotARenewer(msg.sender);
+        uint256 resource = _resolveResource(anyId);
+        _requireOnboarded(resource);
+        REGISTRY.renew(resource, newExpiry);
+        emit Renewed(resource, newExpiry);
+    }
+
+    /// @notice Drop this contract's record of a membership without touching the registry.
+    /// @dev An escape hatch, not part of the normal lifecycle. A membership can desync from the
+    ///      registry — someone with root `ROLE_UNREGISTER` deletes the name directly, or the label
+    ///      is re-registered and its `eacVersionId` bumps, giving it a new resource. The stale
+    ///      entry would otherwise pin `membershipOf[account]` forever and lock that wallet out of
+    ///      ever being onboarded again.
+    function releaseMembership(address account) external {
+        if (!hasRootRoles(ROLE_REVOKE, msg.sender)) revert NotARevoker(msg.sender);
+        uint256 resource = membershipOf[account];
+        if (resource == 0) revert NotOnboarded(0);
+        delete roleOf[resource];
+        delete memberOf[resource];
+        delete membershipOf[account];
+        emit Released(resource, account);
     }
 
     ////////////////////////////////////////////////////////////////////////
@@ -248,8 +313,20 @@ contract BranchRegistrar is EnhancedAccessControl {
     // Internal
     ////////////////////////////////////////////////////////////////////////
 
+    /// @dev Map any identifier onto the resource this contract recorded at onboarding.
+    ///      `PermissionedRegistry._constructResource` returns `eacVersionId + 1` once a name has
+    ///      expired, so re-deriving through the registry after the branch window yields an id that
+    ///      never matches our bookkeeping. Fall back to treating `anyId` as the resource itself,
+    ///      which is what `Onboarded` emits and what clients index on.
+    function _resolveResource(uint256 anyId) internal view returns (uint256) {
+        uint256 resource = REGISTRY.getResource(anyId);
+        if (memberOf[resource] == address(0) && memberOf[anyId] != address(0)) return anyId;
+        return resource;
+    }
+
     function _requireOnboarded(uint256 resource) internal view returns (Role role) {
-        if (membershipOf[REGISTRY.getOwner(resource)] != resource) revert NotOnboarded(resource);
+        address member = memberOf[resource];
+        if (member == address(0) || membershipOf[member] != resource) revert NotOnboarded(resource);
         return roleOf[resource];
     }
 
