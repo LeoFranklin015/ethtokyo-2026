@@ -2,12 +2,6 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { ButtonLink } from "@/components/ui/Button";
 
-const SPEC = [
-  ["Auth", "EIP-191 signature"],
-  ["Policy", "ENS text records"],
-  ["Access", "EAC role bitmap"],
-  ["Enforce", "VLAN + HTB class"],
-];
 
 export default function Home() {
   return (
@@ -56,21 +50,6 @@ export default function Home() {
           </div>
         </div>
 
-        <dl className="border-t border-rule">
-          <div className="mx-auto grid w-full max-w-[1280px] grid-cols-2 px-5 sm:grid-cols-4">
-            {SPEC.map(([term, detail], i) => (
-              <div
-                key={term}
-                className={`py-4 pr-4 ${i % 2 === 0 ? "border-r border-rule pl-0 sm:pl-4" : "pl-4"} ${
-                  i < 2 ? "border-b border-rule sm:border-b-0" : ""
-                } sm:border-r sm:last:border-r-0 sm:first:pl-0`}
-              >
-                <dt className="label">{term}</dt>
-                <dd className="mt-1.5 font-mono text-xs text-ink-80">{detail}</dd>
-              </div>
-            ))}
-          </div>
-        </dl>
       </main>
     </>
   );

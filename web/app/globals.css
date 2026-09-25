@@ -2,8 +2,10 @@
 
 /* ── ENSCA design tokens ──────────────────────────────────────────────────
    1-bit engineering-plotter aesthetic: paper + ink, hairline rules, dither
-   textures in place of gradients. Accent colors validated for CVD and
-   contrast against both surfaces (scripts/validate_palette.js).
+   textures in place of gradients. Light theme only — the palette is a single
+   committed surface, not a pair. Accent colors are validated for CVD and
+   contrast against that surface (scripts/validate_palette.js); the text
+   tokens clear WCAG AA 4.5:1 and --ink-faint is non-text only.
    ────────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -28,25 +30,6 @@
   --radius:      2px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper:       #14140f;
-    --paper-sunk:  #0d0d0a;
-    --paper-raise: #1e1e18;
-
-    --ink:         #edece6;
-    --ink-80:      rgba(237, 236, 230, 0.8);
-    --ink-muted:   rgba(237, 236, 230, 0.55);
-    --ink-faint:   rgba(237, 236, 230, 0.35);
-    --rule:        rgba(237, 236, 230, 0.18);
-    --rule-soft:   rgba(237, 236, 230, 0.09);
-
-    --signal:      #35a0d6;
-    --signal-text: #35a0d6;
-    --alert:       #d4674c;
-  }
-}
-
 @theme inline {
   --color-paper:       var(--paper);
   --color-paper-sunk:  var(--paper-sunk);
@@ -68,7 +51,7 @@
 }
 
 html {
-  color-scheme: light dark;
+  color-scheme: light;
   background: var(--paper);
   color: var(--ink);
 }
