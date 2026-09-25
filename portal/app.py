@@ -35,6 +35,11 @@ def grant_access(ip: str) -> None:
             check=True,
         )
         AUTHED_IPS.add(ip)
+        subprocess.run(
+            ["iptables", "-t", "nat", "-I", "PREROUTING", "1",
+             "-s", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
+            check=True,
+        )
 
 
 def revoke_access(ip: str) -> None:
@@ -48,6 +53,11 @@ def revoke_access(ip: str) -> None:
             check=False,
         )
         AUTHED_IPS.discard(ip)
+        subprocess.run(
+            ["iptables", "-t", "nat", "-D", "PREROUTING",
+             "-s", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
+            check=False,
+        )
 
 
 @app.before_request
