@@ -19,12 +19,33 @@ PROXY_INTERNAL = "http://127.0.0.1:8081"
 # Falls back to None (proxy won't receive sessions, but portal still works).
 _GROUP_CACHE: dict[str, str] = {}
 
-# Tier definitions: (username, password) -> tier name
-TIERS = {
-    ("basic", "basic2026"):  "basic",
-    ("staff", "staff2026"):  "staff",
-    ("vip",   "vip2026"):    "vip",
-}
+# Gateway IP — used in redirects and iptables rules.
+# Override with ENSCA_GATEWAY_IP env var (default: 192.168.0.1 per dnsmasq.conf).
+GATEWAY_IP = os.environ.get("ENSCA_GATEWAY_IP", "192.168.0.1")
+PORTAL_URL = f"http://{GATEWAY_IP}:8080"
+
+# DNS server used for per-IP bypass rules.
+# Override with ENSCA_DNS_SERVER env var (default: 8.8.8.8).
+DNS_SERVER = os.environ.get("ENSCA_DNS_SERVER", "8.8.8.8")
+
+# Tier credentials loaded from environment variables.
+# Each tier requires ENSCA_<TIER>_USER and ENSCA_<TIER>_PASS to be set.
+# Example: ENSCA_BASIC_USER=basic ENSCA_BASIC_PASS=s3cur3pass
+def _load_tiers() -> dict:
+    tiers = {}
+    for tier in ("basic", "staff", "vip"):
+        user = os.environ.get(f"ENSCA_{tier.upper()}_USER", "").strip()
+        pw   = os.environ.get(f"ENSCA_{tier.upper()}_PASS", "").strip()
+        if user and pw:
+            tiers[(user, pw)] = tier
+    if not tiers:
+        raise RuntimeError(
+            "No tier credentials configured. Set ENSCA_BASIC_USER/ENSCA_BASIC_PASS, "
+            "ENSCA_STAFF_USER/ENSCA_STAFF_PASS, and ENSCA_VIP_USER/ENSCA_VIP_PASS."
+        )
+    return tiers
+
+TIERS = _load_tiers()
 
 # iptables fwmark per tier — used for tc classification and cross-tier DROP
 TIER_MARK = {"basic": "10", "staff": "20", "vip": "30"}
@@ -80,7 +101,7 @@ def _notify_session_created(session_id: str, ip: str, tier: str) -> None:
     try:
         r = _req.post(f"{PROXY_INTERNAL}/internal/session-created", json={
             "session_id": session_id,
-            "user_id": "portal-user",   # anonymous — portal doesn't map to proxy users yet
+            "user_id": "portal-anon",   # proxy resolves to real user via ENS/wallet; falls back to portal-anon sentinel
             "group_id": group_id,
             "ip": ip,
             "network_tier": tier,
@@ -124,7 +145,7 @@ def grant_access(ip: str, tier: str) -> None:
             # DNS bypass to real resolver
             _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
                   "-s", ip, "-p", "udp", "--dport", "53",
-                  "-j", "DNAT", "--to-destination", "8.8.8.8:53"])
+                  "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
             _apply_cross_tier_rules(ip, tier, action="I")
         except Exception:
             _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
@@ -180,7 +201,7 @@ def check_authed():
             return make_response("", 204)
         return None
     if request.path in CAPTIVE_PROBE_PATHS:
-        return redirect("http://192.168.0.1:8080/", 302)
+        return redirect(f"{PORTAL_URL}/", 302)
     if request.path in ("/", "/login"):
         return None
     return redirect("http://192.168.0.1:8080/", 302)
@@ -199,7 +220,7 @@ def login():
     tier = TIERS.get((username, password))
     if tier:
         grant_access(ip, tier)
-        return redirect("http://192.168.0.1:8080/connected", 302)
+        return redirect(f"{PORTAL_URL}/connected", 302)
     return render_template("login.html", error="Invalid credentials")
 
 
@@ -207,7 +228,7 @@ def login():
 def connected():
     ip = client_ip()
     if ip not in AUTHED_IPS:
-        return redirect("http://192.168.0.1:8080/", 302)
+        return redirect(f"{PORTAL_URL}/", 302)
     return render_template("success.html", ip=ip, tier=AUTHED_IPS[ip])
 
 
