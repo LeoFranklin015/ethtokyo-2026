@@ -9,23 +9,26 @@
    ────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --paper:       #edece6;
-  --paper-sunk:  #e4e2d9;
-  --paper-raise: #f5f4ef;
+  /* Cool slate field — the dither reads as ink on paper stock, not on white. */
+  --paper:       #dce1ec;
+  --paper-sunk:  #d2d8e6;
+  --paper-raise: #e5e9f1;
 
-  --ink:         #14140f;
-  --ink-80:      rgba(20, 20, 15, 0.8);
-  /* Text tokens. Both clear 4.5:1 on paper — see the contrast note below. */
-  --ink-muted:   rgba(20, 20, 15, 0.62);
-  /* NON-TEXT ONLY: dots, icon strokes, decorative marks. 2.2:1. */
-  --ink-faint:   rgba(20, 20, 15, 0.35);
-  --rule:        rgba(20, 20, 15, 0.16);
-  --rule-soft:   rgba(20, 20, 15, 0.08);
+  --ink:         #1b1f30;
+  --ink-80:      rgba(27, 31, 48, 0.8);
+  /* Text token: 4.6:1 on --paper. */
+  --ink-muted:   rgba(27, 31, 48, 0.65);
+  /* NON-TEXT ONLY: dither marks, dots, icon strokes. */
+  --ink-faint:   rgba(27, 31, 48, 0.42);
+  --rule:        rgba(27, 31, 48, 0.18);
+  --rule-soft:   rgba(27, 31, 48, 0.09);
 
-  /* --signal is a mark colour (3:1 floor). --signal-text is its text-safe step. */
-  --signal:      #0080bc;
-  --signal-text: #00618f;
-  --alert:       #b4381f;
+  /* Dither marks sit mid-slate, as in the reference — softer than body ink. */
+  --dither:      #6d7392;
+
+  --signal:      #1a56b0;
+  --signal-text: #1a56b0;
+  --alert:       #a8331c;
 
   --radius:      2px;
 }
@@ -40,12 +43,13 @@
   --color-ink-faint:   var(--ink-faint);
   --color-rule:        var(--rule);
   --color-rule-soft:   var(--rule-soft);
+  --color-dither:      var(--dither);
   --color-signal:      var(--signal);
   --color-signal-text: var(--signal-text);
   --color-alert:       var(--alert);
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans-stack), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-stack), ui-monospace, SFMono-Regular, monospace;
 
   --radius-sharp: 2px;
 }
@@ -63,7 +67,7 @@ body {
 
 /* Label style used throughout: small, spaced, uppercase mono */
 .label {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono-stack), ui-monospace, monospace;
   font-size: 0.6875rem;
   line-height: 1;
   letter-spacing: 0.12em;
