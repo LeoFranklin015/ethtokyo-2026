@@ -1,38 +1,78 @@
+import base64
 import time
 import requests
 from db import get_db
 
 
-def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
-    """
-    Forward request to upstream, inject API key.
-    Returns (response_object_or_None, status_code, resp_bytes, duration_ms, upstream_error).
-    """
-    start = time.monotonic()
-    upstream_error = None
+# key_placement values and what they do:
+#   url_path     — key appended to URL: {base}/{api_key}/{subpath}
+#   header       — key injected as custom header (key_header_name)
+#   bearer_token — key injected as Authorization: Bearer {api_key}
+#   basic_auth   — inject as Authorization: Basic base64({api_key_b64_user}:{api_key})
+#                  api_key_b64_user = username (empty = use empty username)
+#   query_param  — key injected as query param (query_param_name)
+#   no_auth      — no key injection (open upstream or handled by client headers)
 
-    # Build upstream URL
+
+def _build_url(resource: dict, subpath: str) -> str:
     base = resource["upstream_url"].rstrip("/")
     path = subpath.lstrip("/")
-
     if resource["key_placement"] == "url_path":
-        url = f"{base}/{resource['api_key']}/{path}"
-    else:
-        url = f"{base}/{path}"
+        key = resource.get("api_key") or ""
+        return f"{base}/{key}/{path}" if key else f"{base}/{path}"
+    return f"{base}/{path}" if path else base
 
-    # Forward headers — drop hop-by-hop
+
+def _inject_auth(resource: dict, headers: dict, params: dict) -> None:
+    placement = resource["key_placement"]
+    key = resource.get("api_key") or ""
+
+    if placement == "header":
+        name = resource.get("key_header_name") or "X-Api-Key"
+        headers[name] = key
+
+    elif placement == "bearer_token":
+        headers["Authorization"] = f"Bearer {key}"
+
+    elif placement == "basic_auth":
+        user = resource.get("api_key_b64_user") or ""
+        cred = base64.b64encode(f"{user}:{key}".encode()).decode()
+        headers["Authorization"] = f"Basic {cred}"
+
+    elif placement == "query_param":
+        name = resource.get("query_param_name") or "api_key"
+        params[name] = key
+
+    # url_path handled in _build_url; no_auth does nothing
+
+
+def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
+    """
+    Forward request to upstream with auth injection.
+    Returns (response, status, req_bytes, resp_bytes, duration_ms, upstream_error).
+    """
+    start = time.monotonic()
+
+    url = _build_url(resource, subpath)
+
+    # Hop-by-hop headers to drop
     skip = {"host", "content-length", "transfer-encoding", "connection",
             "keep-alive", "proxy-authenticate", "proxy-authorization",
             "te", "trailers", "upgrade"}
     headers = {k: v for k, v in incoming_req.headers if k.lower() not in skip}
 
-    if resource["key_placement"] == "header":
-        headers[resource["key_header_name"]] = resource["api_key"]
+    # Parse existing query string, then inject auth params
+    from urllib.parse import parse_qs, urlencode
+    qs_raw = incoming_req.query_string.decode()
+    params = {}
+    if qs_raw:
+        for k, vs in parse_qs(qs_raw, keep_blank_values=True).items():
+            params[k] = vs[0] if len(vs) == 1 else vs
 
-    # Forward query string
-    qs = incoming_req.query_string.decode()
-    if qs:
-        url = f"{url}?{qs}"
+    _inject_auth(resource, headers, params)
+
+    if params:
+        url = f"{url}?{urlencode(params, doseq=True)}"
 
     req_bytes = len(incoming_req.get_data())
 
@@ -73,4 +113,10 @@ def record_event(db, session_id, ip, group_id, resource_id,
         (int(time.time()), session_id, ip, group_id, resource_id,
          method, path, status, upstream_error, req_bytes, resp_bytes, duration_ms)
     )
+    # Update session bandwidth counters
+    if session_id:
+        db.execute(
+            "UPDATE sessions SET bytes_in=bytes_in+?, bytes_out=bytes_out+? WHERE id=?",
+            (req_bytes or 0, resp_bytes or 0, session_id)
+        )
     db.commit()

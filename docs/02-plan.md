@@ -1,164 +1,103 @@
-# ENSCA — The Plan
+# ENSCA — Build Plan
 
-## Phases
+## Phase 1 — Core Identity + WiFi (Demo-ready) ✓
 
-### Phase 1 — Core Identity + WiFi (Demo-ready)
+Software VLAN enforcement on Fedora VM. Full control plane. Username/password auth.
 
-Get a single attendee on the network using their ENS subname. Prove the full loop works.
-
-**Deliverables:**
-- Subname minting flow (check-in UI + relayer)
-- ENS text record schema defined and deployed
-- Captive portal (username/password → tier assignment)
-- Software VLAN enforcement via iptables + tc HTB on Linux router
-- Three tiers — basic (5 Mbps), staff (10 Mbps), vip (unlimited)
-- Cross-tier isolation: iptables FORWARD DROP between devices on different tiers
-
-**Current hardware (ETHTokyo 2026 demo):**
-- Fedora Linux VM (VMware Fusion on MacBook M5 Air)
-- USB-ethernet adapter (enp10s0u1, 192.168.0.1/24) — VM's LAN interface
-- TP-Link Archer AX80 in router mode (AX80 → VM over ethernet)
-- Attendee devices on AX80 WiFi (192.168.0.x)
-
-**How VLANs work on this hardware:**
-
-The AX80 does not pass 802.1Q VLAN tags — hardware VLANs are not possible. Software tiers implement equivalent isolation:
-
-```
-iptables mangle MARK
-  basic login  → fwmark 10  → tc class 1:10 (5 Mbps ceil)
-  staff login  → fwmark 20  → tc class 1:20 (10 Mbps ceil)
-  vip login    → fwmark 30  → tc class 1:30 (1000 Mbps ceil)
-
-tc HTB on enp10s0u1 egress (download path toward devices):
-  1:10  basic  — 5 Mbps
-  1:20  staff  — 10 Mbps
-  1:30  vip    — 1000 Mbps (unlimited)
-  1:99  default (unauthed) — 1 Mbps
-
-Cross-tier isolation:
-  iptables FORWARD DROP between IPs on different tiers
-  Same-tier devices can reach each other freely
-```
-
-Credentials: `basic/basic2026`, `staff/staff2026`, `vip/vip2026`
-
-**Success criteria:** device connects to AX80 WiFi → captive portal appears → login with tier credentials → correct bandwidth tier applied → cross-tier traffic blocked.
+**Completed:**
+- Captive portal (`portal/app.py`) — Flask on port 8080, runs as root via systemd
+- iptables ACCEPT + fwmark per tier on login; teardown on logout
+- tc HTB on enp10s0u1 egress — 3 tier classes + default unauthed class
+- Cross-tier FORWARD DROP rules between devices on different tiers
+- Resource proxy (`proxy/proxy.py`) — Flask on port 8081, runs as philo via systemd
+- 11-table SQLite DB (`proxy/db.py`) — sessions, users, groups, resources, limits, usage, audit
+- Admin token auth (bcrypt), full CRUD for groups/users/resources
+- Rate limiting: per-device and per-group daily counters
+- Quota adjustments: mid-day top-ups without touching base limits
+- API key rotation: stage + commit, atomic swap
+- Portal↔proxy integration: login/logout notifies proxy via localhost HTTP
+- Session UUID identity — never bare IP in the proxy DB
 
 ---
 
-### Phase 1 Target — ENS-native auth
+## Phase 2 — ENS-native Auth
 
-Replace username/password with ENS subname + wallet signature. The captive portal resolves the signer's ENS name, reads the `wifi-vlan` and `wifi-bandwidth` text records, and assigns the tier from on-chain policy.
+Replace username/password with ENS subname + wallet signature.
 
-**Hardware target:**
-- MikroTik hAP ax lite (~$45)
-- FreeRADIUS + ENSCA resolver on Linux server
-- 802.1X / RADIUS CoA for hardware VLAN assignment
+**Deliverables:**
+- Captive portal: wallet connect UI (viem/wagmi)
+- EIP-191 challenge-response — portal recovers signer address
+- Reverse ENS lookup: address → subname under event domain
+- Read wifi-vlan + wifi-bandwidth text records via CCIP-Read resolver
+- Map ENS role to existing group IDs in proxy DB
+
+**Blocked on:** CCIP-Read resolver deployment or offchain gateway for event domain
 
 ---
 
-### Phase 2 — SSH + Dev Tools
+## Phase 3 — Per-Identity VLAN
 
-Add SSH access to shared machines and developer tool provisioning.
-
-**Deliverables:**
-- `ensca-keys` binary (AuthorizedKeysCommand handler)
-- SSH public key stored in ENS text record at mint time
-- `ensca-authz` PAM script (reads ssh-policy, applies restrictions)
-- API gateway with per-identity quota enforcement (RPC, faucet, IPFS)
-- Tool endpoints provisioned automatically at subname mint
-
-**Success criteria:** `ssh philo.tokyo2026.ethglobal.eth@devbox.ensca.eth` works with hardware wallet. RPC endpoint rate-limits by ENS name, not IP.
-
----
-
-### Phase 3 — Device Isolation + Cross-Device
-
-Multiple devices under the same identity share a private VLAN.
+Multiple devices under the same ENS name share a private VLAN.
 
 **Deliverables:**
-- Per-identity VLAN assignment (derived from namehash)
+- Per-identity VLAN derived from ENS namehash
 - Second device auth under same ENS name → same VLAN
-- Isolation verified: philo's laptop cannot see ann's devices
-- Local port exposure visible only within identity's VLAN
+- Isolation: different-identity devices cannot reach each other
+- Hardware target: MikroTik hAP ax lite + FreeRADIUS 802.1X
 
-**Success criteria:** Two devices signed with `philo.tokyo2026.ethglobal.eth` can ping each other. Neither can reach any device in another identity's VLAN.
+**Hardware requirement:** AX80 does not pass 802.1Q tags. Requires MikroTik or equivalent.
 
 ---
 
-### Phase 4 — Monitoring + Perimeter
+## Phase 4 — SSH + Dev Tools
 
-Real-time visibility and presence detection.
+SSH access to shared machines; per-identity API tool provisioning.
 
 **Deliverables:**
-- Per-identity bandwidth usage from FreeRADIUS accounting
-- Per-identity API/tool usage from gateway logs
-- Organizer dashboard (active identities, bandwidth, tool usage)
-- Presence detection (device on network = attendee at venue)
-- Usage anomaly alerts
-
-**Success criteria:** Organizer dashboard shows live per-subname stats. Perimeter detection updates within 60 seconds of a device connecting or disconnecting.
+- `ensca-keys` binary (AuthorizedKeysCommand handler — reads `ssh-pubkey` ENS record)
+- `ensca-authz` PAM script (session policy from ENS records)
+- Proxy resources: sponsor API endpoints provisioned at subname mint
 
 ---
 
-### Phase 5 — Post-Event Attestations
+## Phase 5 — Post-Event Attestations
 
-Subname becomes a permanent record of what happened at the event.
+Subname becomes permanent record of participation.
 
 **Deliverables:**
-- Attestation writer (updates ENS text records post-event)
-- Records: prizes won, sponsors whose APIs were used, hours on network, projects built
-- Cross-event persistence (`philo.ethglobal.eth` parent carries history)
+- Attestation writer (post-event ENS text record writes)
+- Records: API requests, hours on network, sponsors used
 
 ---
 
-## Prior Art
-
-| Project | What they built | Gap |
-|---|---|---|
-| Nifi (ETHGlobal Singapore 2024) | Token/NFT captive portal on Raspberry Pi | Binary in/out, no ENS, no roles, no VLAN, no SSH |
-| Tokenproof | NFT door check via staff app | Physical only, no network layer |
-| pam-signandverify | PAM module for wallet signatures | Polkadot only, archived |
-
-ENSCA builds on Nifi's proof that commodity hardware works and extends it with identity depth, role policy, device isolation, and the SSH layer.
-
----
-
-## Build Order
+## Current Build Order
 
 ```
-ETHTokyo 2026 demo (done):
+Done:
   ✓ Fedora VM captive portal — Flask, iptables, tc HTB
   ✓ Software VLAN tiers (basic/staff/vip) — fwmark + tc HTB
   ✓ Cross-tier isolation — iptables FORWARD DROP
-  ✓ iOS/Android CNA — captive sheet opens and dismisses correctly
+  ✓ Resource proxy + control plane — sessions, groups, rate limiting, key rotation
+  ✓ Portal↔proxy session sync via localhost internal API
 
 Next:
-  Week 1: ENS schema + relayer + wallet-sig captive portal (Phase 1 ENS-native)
-  Week 2: RADIUS module + MikroTik VLAN assignment (Phase 1 complete)
-  Week 3: ensca-keys + ensca-authz + SSH flow (Phase 2)
-  Week 4: API gateway + tool provisioning (Phase 2 complete)
-  Week 5: Per-identity VLAN isolation (Phase 3)
-  Week 6: Dashboard + perimeter detection (Phase 4)
-  Post-event: Attestation writer (Phase 5)
+  Week 1: ENS schema + offchain resolver + wallet-sig captive portal (Phase 2)
+  Week 2: MikroTik + FreeRADIUS hardware VLAN assignment (Phase 3)
+  Week 3: ensca-keys + ensca-authz + SSH flow (Phase 4)
+  Week 4: Per-identity VLAN isolation (Phase 3 complete)
 ```
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Identity | ENS (ENSIP-10, ENSIP-15, EIP-3668) |
-| Auth signature | ECDSA / EIP-191 personal_sign |
 | Demo hardware | Fedora VM + USB ethernet + TP-Link AX80 |
 | Target hardware | MikroTik hAP ax lite |
 | Software VLAN | iptables fwmark + tc HTB (current) |
-| Hardware VLAN | FreeRADIUS 3.x + 802.1X (target) |
-| Captive portal | Flask (current) → Next.js + viem + wagmi (target) |
-| ENS resolver service | Node.js + viem |
-| SSH auth | AuthorizedKeysCommand + Node.js binary |
-| PAM authorization | pam_exec + shell/Node.js script |
-| API gateway | Node.js + per-identity rate limiting |
-| Monitoring | FreeRADIUS accounting + custom dashboard |
-| Relayer | Node.js + viem + funded EOA |
+| Hardware VLAN | FreeRADIUS 3.x + 802.1X (Phase 3) |
+| Captive portal | Flask Python (current) → Next.js + viem + wagmi (Phase 2) |
+| Proxy + control plane | Flask Python (current) |
+| DB | SQLite WAL, shared between portal and proxy processes |
+| ENS resolver | CCIP-Read gateway (Phase 2) |
+| SSH auth | AuthorizedKeysCommand (Phase 4) |
 | Chains | Ethereum mainnet (ENS) + Sepolia (dev/test) |
