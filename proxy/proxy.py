@@ -429,7 +429,7 @@ def get_user_by_ens(ens_name):
     db = get_db()
     user = db.execute(
         "SELECT u.*, g.name as group_name, g.network_tier FROM users u "
-        "JOIN groups g ON g.id=u.default_group_id WHERE u.ens_name=?", (ens_name,)
+        "LEFT JOIN groups g ON g.id=u.default_group_id WHERE u.ens_name=?", (ens_name,)
     ).fetchone()
     if not user:
         return jsonify({"error": "not_found"}), 404
@@ -449,7 +449,7 @@ def get_user_by_wallet(wallet_address):
     db = get_db()
     user = db.execute(
         "SELECT u.*, g.name as group_name, g.network_tier FROM users u "
-        "JOIN groups g ON g.id=u.default_group_id WHERE u.wallet_address=?", (wallet_address,)
+        "LEFT JOIN groups g ON g.id=u.default_group_id WHERE u.wallet_address=?", (wallet_address,)
     ).fetchone()
     if not user:
         return jsonify({"error": "not_found"}), 404
@@ -470,7 +470,7 @@ def get_user(uid):
     db = get_db()
     user = db.execute(
         "SELECT u.*, g.name as group_name, g.network_tier FROM users u "
-        "JOIN groups g ON g.id=u.default_group_id WHERE u.id=?", (uid,)
+        "LEFT JOIN groups g ON g.id=u.default_group_id WHERE u.id=?", (uid,)
     ).fetchone()
     if not user:
         return jsonify({"error": "not_found"}), 404
