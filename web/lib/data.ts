@@ -154,3 +154,48 @@ export const MEMBERSHIPS: Membership[] = [
   { label: "dmitri", role: "hacker", address: "0x8cA…2f05", devices: 1, rate: 19.6, online: true, onboarded: "11:03" },
 ];
 
+
+export type Sample = { t: string; mbps: number; admitted: number };
+
+/**
+ * Branch throughput, 10-minute samples over the last six hours. Aggregate of
+ * every group's HTB class on the enforcer. Replace with the accounting feed.
+ */
+export const THROUGHPUT: Sample[] = [
+  { t: "06:00", mbps: 118, admitted: 41 },
+  { t: "06:10", mbps: 131, admitted: 47 },
+  { t: "06:20", mbps: 144, admitted: 54 },
+  { t: "06:30", mbps: 172, admitted: 66 },
+  { t: "06:40", mbps: 198, admitted: 79 },
+  { t: "06:50", mbps: 236, admitted: 94 },
+  { t: "07:00", mbps: 289, admitted: 112 },
+  { t: "07:10", mbps: 341, admitted: 129 },
+  { t: "07:20", mbps: 377, admitted: 141 },
+  { t: "07:30", mbps: 402, admitted: 155 },
+  { t: "07:40", mbps: 438, admitted: 168 },
+  { t: "07:50", mbps: 471, admitted: 179 },
+  { t: "08:00", mbps: 512, admitted: 191 },
+  { t: "08:10", mbps: 549, admitted: 203 },
+  { t: "08:20", mbps: 528, admitted: 208 },
+  { t: "08:30", mbps: 563, admitted: 214 },
+  { t: "08:40", mbps: 601, admitted: 221 },
+  { t: "08:50", mbps: 644, admitted: 229 },
+  { t: "09:00", mbps: 688, admitted: 236 },
+  { t: "09:10", mbps: 712, admitted: 241 },
+  { t: "09:20", mbps: 698, admitted: 244 },
+  { t: "09:30", mbps: 735, admitted: 249 },
+  { t: "09:40", mbps: 761, admitted: 253 },
+  { t: "09:50", mbps: 742, admitted: 255 },
+  { t: "10:00", mbps: 709, admitted: 257 },
+  { t: "10:10", mbps: 688, admitted: 258 },
+  { t: "10:20", mbps: 671, admitted: 259 },
+  { t: "10:30", mbps: 704, admitted: 261 },
+  { t: "10:40", mbps: 733, admitted: 263 },
+  { t: "10:50", mbps: 718, admitted: 264 },
+  { t: "11:00", mbps: 696, admitted: 265 },
+  { t: "11:10", mbps: 674, admitted: 266 },
+  { t: "11:20", mbps: 702, admitted: 267 },
+  { t: "11:30", mbps: 719, admitted: 267 },
+  { t: "11:40", mbps: 693, admitted: 268 },
+  { t: "11:50", mbps: 687, admitted: 268 },
+];

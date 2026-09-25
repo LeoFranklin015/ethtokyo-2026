@@ -1,8 +1,9 @@
 import { PageHeader } from "@/components/console/PageHeader";
+import { ThroughputChart } from "@/components/console/ThroughputChart";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { Meter } from "@/components/ui/Meter";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
-import { BRANCHES, GROUPS, MEMBERSHIPS } from "@/lib/data";
+import { BRANCHES, GROUPS, MEMBERSHIPS, THROUGHPUT } from "@/lib/data";
 
 export const metadata = { title: "Overview — ENSCA console" };
 
@@ -10,13 +11,13 @@ const branch = BRANCHES[0];
 const totalUsed = GROUPS.reduce((sum, g) => sum + g.used, 0);
 const totalPool = GROUPS.reduce((sum, g) => sum + g.pool, 0);
 const devices = GROUPS.reduce((sum, g) => sum + g.devices, 0);
-const headroom = Math.round(((totalPool - totalUsed) / totalPool) * 100);
+const peak = Math.max(...THROUGHPUT.map((s) => s.mbps));
 
 const KPIS = [
-  { label: "Memberships", value: branch.members.toLocaleString(), sub: "onboarded at this branch" },
-  { label: "Admitted", value: branch.online.toLocaleString(), sub: `${devices} devices on ${GROUPS.length} VLANs` },
-  { label: "Throughput", value: totalUsed.toLocaleString(), unit: "Mbps", sub: `${headroom}% headroom remaining` },
-  { label: "Denials", value: "3", sub: "last hour · no membership" },
+  { label: "Memberships", value: branch.members.toLocaleString(), sub: "onboarded here" },
+  { label: "Admitted", value: branch.online.toLocaleString(), sub: `${devices} devices` },
+  { label: "Throughput", value: totalUsed.toLocaleString(), unit: "Mbps", sub: `peak ${peak}` },
+  { label: "Denials", value: "3", sub: "last hour" },
 ];
 
 const ENFORCEMENT = [
@@ -45,28 +46,46 @@ export default function OverviewPage() {
         }
       />
 
-      <div className="px-5 py-6 lg:px-8">
-        {/* Instrument row */}
-        <Panel className="grid grid-cols-2 divide-rule sm:grid-cols-4 sm:divide-x">
-          {KPIS.map((kpi, i) => (
-            <div
-              key={kpi.label}
-              className={`px-4 py-4 ${i < 2 ? "border-b border-rule sm:border-b-0" : ""} ${
-                i % 2 === 0 ? "border-r border-rule sm:border-r-0" : ""
-              }`}
-            >
-              <p className="label">{kpi.label}</p>
-              <p className="mt-2.5 flex items-baseline gap-1.5">
-                <span className="font-mono text-[1.75rem] leading-none tabular-nums tracking-tight text-ink">
+      {/* Instrument strip — page chrome, not another card */}
+      <dl className="grid grid-cols-2 border-b border-rule sm:grid-cols-4">
+        {KPIS.map((kpi, i) => (
+          <div
+            key={kpi.label}
+            className={`px-5 py-4 lg:px-8 ${i < 2 ? "border-b border-rule sm:border-b-0" : ""} ${
+              i % 2 === 0 ? "border-r border-rule" : ""
+            } sm:border-r sm:last:border-r-0`}
+          >
+            <dt className="label">{kpi.label}</dt>
+            <dd>
+              <span className="mt-2.5 flex items-baseline gap-1.5">
+                <span className="font-mono text-[1.625rem] font-medium leading-none tabular-nums tracking-tight text-ink">
                   {kpi.value}
                 </span>
                 {kpi.unit ? (
                   <span className="font-mono text-xs text-ink-muted">{kpi.unit}</span>
                 ) : null}
-              </p>
-              <p className="mt-2 text-xs leading-snug text-ink-muted">{kpi.sub}</p>
-            </div>
-          ))}
+              </span>
+              <span className="mt-1.5 block text-xs text-ink-muted">{kpi.sub}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="px-5 py-6 lg:px-8">
+        {/* The page's focal point: the only view with a time axis */}
+        <Panel as="section">
+          <PanelHeader
+            right={
+              <span className="font-mono text-[0.6875rem] text-ink-muted">
+                last 6h · 10m samples
+              </span>
+            }
+          >
+            Branch throughput
+          </PanelHeader>
+          <div className="px-2 pb-2 pt-3 sm:px-4">
+            <ThroughputChart data={THROUGHPUT} cap={totalPool} />
+          </div>
         </Panel>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
@@ -97,7 +116,7 @@ export default function OverviewPage() {
             <Panel as="section">
               <PanelHeader>Perimeter</PanelHeader>
               <div className="flex items-stretch divide-x divide-rule">
-                <div className="relative w-[112px] shrink-0">
+                <div className="relative w-[104px] shrink-0">
                   <SignalDither
                     motif="radar"
                     cell={2}
@@ -109,11 +128,14 @@ export default function OverviewPage() {
                 </div>
                 <dl className="flex-1 divide-y divide-rule">
                   {[
-                    ["Present", `${branch.online}`],
+                    ["Present", String(branch.online)],
                     ["Joined 5m", "14"],
                     ["Left 5m", "9"],
                   ].map(([term, value]) => (
-                    <div key={term} className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]">
+                    <div
+                      key={term}
+                      className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]"
+                    >
                       <dt className="label">{term}</dt>
                       <dd className="font-mono text-xs tabular-nums text-ink-80">{value}</dd>
                     </div>
@@ -126,7 +148,10 @@ export default function OverviewPage() {
               <PanelHeader>Recent admissions</PanelHeader>
               <ul className="divide-y divide-rule">
                 {recent.map((m) => (
-                  <li key={m.label} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
+                  <li
+                    key={m.label}
+                    className="flex items-baseline justify-between gap-3 px-4 py-2.5"
+                  >
                     <span className="truncate font-mono text-xs text-ink">
                       {m.label}
                       <span className="text-ink-muted">.{branch.label}</span>

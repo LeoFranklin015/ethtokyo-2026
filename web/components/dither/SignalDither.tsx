@@ -40,7 +40,7 @@ export function SignalDither({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bufferRef = useRef<HTMLCanvasElement | null>(null);
   const imageRef = useRef<ImageData | null>(null);
-  const inkRef = useRef<[number, number, number]>([20, 20, 15]);
+  const inkRef = useRef<[number, number, number]>([109, 115, 146]);
   const phase = useRef(0);
   const visible = useRef(true);
 
@@ -159,7 +159,7 @@ export function SignalDither({
       onPointerEnter={interactive ? () => boostTarget.set(1) : undefined}
       onPointerLeave={interactive ? () => boostTarget.set(0) : undefined}
     >
-      <canvas ref={canvasRef} aria-hidden className="block h-full w-full text-ink" />
+      <canvas ref={canvasRef} aria-hidden className="block h-full w-full text-dither" />
       {label ? <span className="sr-only">{label}</span> : null}
     </div>
   );
