@@ -21,24 +21,26 @@ iptables -A FORWARD -i enp10s0u1 -j DROP
 
 # ── tc rate limiting on enp2s0 (WAN egress toward internet) ───────────────────
 # HTB root qdisc — default class passes traffic unthrottled
-tc qdisc del dev enp2s0 root 2>/dev/null
-tc qdisc add dev enp2s0 root handle 1: htb default 99
+# Shape on enp10s0u1 egress (toward devices = download path)
+# fwmark on dst-IP (set by grant_access) classifies download traffic per tier
+tc qdisc del dev enp10s0u1 root 2>/dev/null
+tc qdisc add dev enp10s0u1 root handle 1: htb default 99
 
-# Class 99: default (unclassified / unauthenticated) — 1 Mbps ceiling
-tc class add dev enp2s0 parent 1: classid 1:99 htb rate 1mbit ceil 1mbit
+# Class 99: default — 1 Mbps (unauthed / unclassified)
+tc class add dev enp10s0u1 parent 1: classid 1:99 htb rate 1mbit ceil 1mbit
 
-# Class 10: basic — 5 Mbps
-tc class add dev enp2s0 parent 1: classid 1:10 htb rate 5mbit ceil 5mbit burst 15k
+# Class 10: basic — 5 Mbps download
+tc class add dev enp10s0u1 parent 1: classid 1:10 htb rate 5mbit ceil 5mbit burst 15k
 
-# Class 20: staff — 10 Mbps
-tc class add dev enp2s0 parent 1: classid 1:20 htb rate 10mbit ceil 10mbit burst 30k
+# Class 20: staff — 10 Mbps download
+tc class add dev enp10s0u1 parent 1: classid 1:20 htb rate 10mbit ceil 10mbit burst 30k
 
-# Class 30: vip — unlimited (rate 1gbit = effectively uncapped on this link)
-tc class add dev enp2s0 parent 1: classid 1:30 htb rate 1000mbit ceil 1000mbit
+# Class 30: vip — unlimited
+tc class add dev enp10s0u1 parent 1: classid 1:30 htb rate 1000mbit ceil 1000mbit
 
-# fwmark → tc class filter (marks set by iptables mangle in grant_access)
-tc filter add dev enp2s0 parent 1: protocol ip handle 10 fw classid 1:10
-tc filter add dev enp2s0 parent 1: protocol ip handle 20 fw classid 1:20
-tc filter add dev enp2s0 parent 1: protocol ip handle 30 fw classid 1:30
+# fwmark → tc class filter
+tc filter add dev enp10s0u1 parent 1: protocol ip handle 10 fw classid 1:10
+tc filter add dev enp10s0u1 parent 1: protocol ip handle 20 fw classid 1:20
+tc filter add dev enp10s0u1 parent 1: protocol ip handle 30 fw classid 1:30
 
 touch "$LOCK"

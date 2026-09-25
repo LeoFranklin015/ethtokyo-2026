@@ -44,17 +44,18 @@ def grant_access(ip: str, tier: str) -> None:
     if ip in AUTHED_IPS:
         return
     mark = TIER_MARK[tier]
-    # FORWARD ACCEPT for this IP
     _run(["iptables", "-I", "FORWARD", "1", "-s", ip, "-j", "ACCEPT"])
     try:
-        # Mark outbound traffic for tc shaping
+        # Mark upload traffic (src=device) — shapes enp2s0 egress
         _run(["iptables", "-t", "mangle", "-I", "FORWARD", "1",
               "-s", ip, "-j", "MARK", "--set-mark", mark])
+        # Mark download traffic (dst=device) — shapes enp10s0u1 egress toward device
+        _run(["iptables", "-t", "mangle", "-I", "FORWARD", "1",
+              "-d", ip, "-j", "MARK", "--set-mark", mark])
         # DNS bypass to real resolver
         _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
               "-s", ip, "-p", "udp", "--dport", "53",
               "-j", "DNAT", "--to-destination", "8.8.8.8:53"])
-        # Block cross-tier traffic: drop packets FROM this IP TO other-tier authed IPs
         _apply_cross_tier_rules(ip, tier, action="I")
     except Exception:
         _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
@@ -70,6 +71,8 @@ def revoke_access(ip: str) -> None:
     _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
     _run_ok(["iptables", "-t", "mangle", "-D", "FORWARD",
              "-s", ip, "-j", "MARK", "--set-mark", mark])
+    _run_ok(["iptables", "-t", "mangle", "-D", "FORWARD",
+             "-d", ip, "-j", "MARK", "--set-mark", mark])
     _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
              "-s", ip, "-p", "udp", "--dport", "53",
              "-j", "DNAT", "--to-destination", "8.8.8.8:53"])
