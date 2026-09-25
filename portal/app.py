@@ -25,39 +25,38 @@ def client_ip() -> str:
 
 
 def grant_access(ip: str) -> None:
-    """Grant internet access to the given IP via iptables FORWARD chain.
-
-    Task 4 will add DNS bypass rules here (before or after the FORWARD rule).
-    """
     if ip not in AUTHED_IPS:
         subprocess.run(
             ["iptables", "-I", "FORWARD", "1", "-s", ip, "-j", "ACCEPT"],
             check=True,
         )
-        subprocess.run(
-            ["iptables", "-t", "nat", "-I", "PREROUTING", "1",
-             "-s", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                ["iptables", "-t", "nat", "-I", "PREROUTING", "1",
+                 "-s", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
+                check=True,
+            )
+        except Exception:
+            subprocess.run(
+                ["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"],
+                check=False,
+            )
+            raise
         AUTHED_IPS.add(ip)
 
 
 def revoke_access(ip: str) -> None:
-    """Revoke internet access for the given IP.
-
-    Task 4 will add DNS bypass rule removal here.
-    """
     if ip in AUTHED_IPS:
         subprocess.run(
             ["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"],
             check=False,
         )
-        AUTHED_IPS.discard(ip)
         subprocess.run(
             ["iptables", "-t", "nat", "-D", "PREROUTING",
              "-s", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
             check=False,
         )
+        AUTHED_IPS.discard(ip)
 
 
 @app.before_request

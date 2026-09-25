@@ -1,24 +1,16 @@
 #!/bin/bash
-# Flush before apply — makes script idempotent across NM events
+LOCK=/run/ensca-iptables-init.lock
+[ -f "$LOCK" ] && exit 0
+
 iptables -F FORWARD
 iptables -F INPUT
 iptables -t nat -F
 
-# NAT masquerade
 iptables -t nat -A POSTROUTING -o enp2s0 -j MASQUERADE
-
-# Redirect unauthenticated HTTP to captive portal
 iptables -t nat -A PREROUTING -i enp10s0u1 -p tcp --dport 80 -j REDIRECT --to-port 8080
-
-# Allow established/related through
 iptables -A FORWARD -i enp2s0 -o enp10s0u1 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# Allow portal traffic (port 8080) from clients
 iptables -A INPUT -i enp10s0u1 -p tcp --dport 8080 -j ACCEPT
-
-# Allow DNS from clients to Fedora
 iptables -A INPUT -i enp10s0u1 -p udp --dport 53 -j ACCEPT
-
-# Block all other forwarding from clients by default
-# (Flask grants per-IP ACCEPT rules above this DROP)
 iptables -A FORWARD -i enp10s0u1 -j DROP
+
+touch "$LOCK"
