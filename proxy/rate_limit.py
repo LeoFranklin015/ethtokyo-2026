@@ -32,7 +32,7 @@ def _get_adjustment(db, date: str, scope: str, ip: str, group_id: str, resource_
     return max(0, rows["total"])
 
 
-def check_and_increment(ip: str, group_id: str, resource_id: str) -> dict | None:
+def check_and_increment(ip: str, group_id: str, resource_id: str):
     """
     Check rate limits. Returns None if allowed.
     Returns error dict if blocked: {scope, limit, used, resets_at}.

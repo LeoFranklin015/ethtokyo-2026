@@ -49,7 +49,7 @@ def _run_ok(cmd: list) -> None:
     subprocess.run(cmd, check=False)
 
 
-def _resolve_group(tier: str) -> str | None:
+def _resolve_group(tier: str):
     """Return group UUID for a tier name, caching the result."""
     if tier in _GROUP_CACHE:
         return _GROUP_CACHE[tier]
