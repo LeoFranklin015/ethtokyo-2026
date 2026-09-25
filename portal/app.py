@@ -13,6 +13,7 @@ AUTHED_IPS: set[str] = set()
 CAPTIVE_PROBE_PATHS = [
     "/hotspot-detect.html",
     "/generate_204",
+    "/generate204",
     "/connecttest.txt",
     "/check_network_status.txt",
     "/canonical.html",
@@ -33,7 +34,8 @@ def grant_access(ip: str) -> None:
         try:
             subprocess.run(
                 ["iptables", "-t", "nat", "-I", "PREROUTING", "1",
-                 "-s", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
+                 "-s", ip, "-p", "udp", "--dport", "53",
+                 "-j", "DNAT", "--to-destination", "8.8.8.8:53"],
                 check=True,
             )
         except Exception:
@@ -53,7 +55,8 @@ def revoke_access(ip: str) -> None:
         )
         subprocess.run(
             ["iptables", "-t", "nat", "-D", "PREROUTING",
-             "-s", ip, "-p", "udp", "--dport", "53", "-j", "ACCEPT"],
+             "-s", ip, "-p", "udp", "--dport", "53",
+             "-j", "DNAT", "--to-destination", "8.8.8.8:53"],
             check=False,
         )
         AUTHED_IPS.discard(ip)
