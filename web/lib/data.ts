@@ -154,12 +154,3 @@ export const MEMBERSHIPS: Membership[] = [
   { label: "dmitri", role: "hacker", address: "0x8cA…2f05", devices: 1, rate: 19.6, online: true, onboarded: "11:03" },
 ];
 
-/** What ENSCA replaces, for the landing rail. */
-export const REPLACEMENTS: { before: string; after: string }[] = [
-  { before: "Shared wifi password on a slide", after: "ENS subname and a wallet signature" },
-  { before: "One flat network for everyone", after: "A VLAN per role-derived group" },
-  { before: "No device isolation", after: "Peers inside your group, walled off outside it" },
-  { before: "SSH keys pasted into Discord", after: "ssh-pubkey resolved from the name" },
-  { before: "Sponsor API keys, shared and burned", after: "Per-identity quotas at the gateway" },
-  { before: "No idea who is on the network", after: "Live sessions keyed to a subname" },
-];

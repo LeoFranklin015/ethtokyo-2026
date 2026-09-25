@@ -20,9 +20,9 @@ export function Stat({
         <span className="font-mono text-3xl leading-none tabular-nums tracking-tight text-ink">
           {value}
         </span>
-        {unit ? <span className="font-mono text-xs text-ink-55">{unit}</span> : null}
+        {unit ? <span className="font-mono text-xs text-ink-muted">{unit}</span> : null}
       </p>
-      {note ? <p className="mt-1.5 text-xs text-ink-55">{note}</p> : null}
+      {note ? <p className="mt-1.5 text-xs text-ink-muted">{note}</p> : null}
     </div>
   );
 }

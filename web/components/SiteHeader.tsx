@@ -9,11 +9,8 @@ export function SiteHeader({ current }: { current?: string }) {
   return (
     <header className="border-b border-rule">
       <div className="mx-auto flex h-14 w-full max-w-[1180px] items-center justify-between gap-6 px-5">
-        <Link href="/" className="flex items-baseline gap-2.5">
+        <Link href="/" className="flex items-center">
           <span className="font-mono text-sm font-medium tracking-[0.18em] text-ink">ENSCA</span>
-          <span className="hidden font-mono text-[0.6875rem] text-ink-35 sm:inline">
-            ethglobal.eth
-          </span>
         </Link>
 
         <nav aria-label="Primary">
@@ -25,8 +22,8 @@ export function SiteHeader({ current }: { current?: string }) {
                   <Link
                     href={item.href}
                     aria-current={active ? "page" : undefined}
-                    className={`rounded-full px-3 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.12em] transition-colors ${
-                      active ? "bg-ink text-paper" : "text-ink-55 hover:bg-ink/5 hover:text-ink"
+                    className={`inline-flex min-h-11 items-center rounded-full px-3 font-mono text-[0.6875rem] uppercase tracking-[0.12em] transition-colors ${
+                      active ? "bg-ink text-paper" : "text-ink-muted hover:bg-ink/5 hover:text-ink"
                     }`}
                   >
                     {item.label}

@@ -25,7 +25,7 @@ export function Meter({
     <div className="px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <span className="font-mono text-xs tracking-wide text-ink">{label}</span>
-        <span className="font-mono text-xs tabular-nums text-ink-55">
+        <span className="font-mono text-xs tabular-nums text-ink-muted">
           {used.toLocaleString()} / {cap.toLocaleString()} {unit}
         </span>
       </div>
@@ -48,10 +48,10 @@ export function Meter({
       </div>
 
       <div className="mt-1.5 flex items-baseline justify-between gap-3">
-        <span className="text-xs text-ink-55">{detail}</span>
+        <span className="text-xs text-ink-muted">{detail}</span>
         <span
           className="font-mono text-xs tabular-nums"
-          style={{ color: strained ? "var(--alert)" : "var(--ink-55)" }}
+          style={{ color: strained ? "var(--alert)" : "var(--ink-muted)" }}
         >
           {pct}%{strained ? " · at cap" : ""}
         </span>

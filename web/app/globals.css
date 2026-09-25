@@ -13,12 +13,16 @@
 
   --ink:         #14140f;
   --ink-80:      rgba(20, 20, 15, 0.8);
-  --ink-55:      rgba(20, 20, 15, 0.55);
-  --ink-35:      rgba(20, 20, 15, 0.35);
+  /* Text tokens. Both clear 4.5:1 on paper — see the contrast note below. */
+  --ink-muted:   rgba(20, 20, 15, 0.62);
+  /* NON-TEXT ONLY: dots, icon strokes, decorative marks. 2.2:1. */
+  --ink-faint:   rgba(20, 20, 15, 0.35);
   --rule:        rgba(20, 20, 15, 0.16);
   --rule-soft:   rgba(20, 20, 15, 0.08);
 
+  /* --signal is a mark colour (3:1 floor). --signal-text is its text-safe step. */
   --signal:      #0080bc;
+  --signal-text: #00618f;
   --alert:       #b4381f;
 
   --radius:      2px;
@@ -32,12 +36,13 @@
 
     --ink:         #edece6;
     --ink-80:      rgba(237, 236, 230, 0.8);
-    --ink-55:      rgba(237, 236, 230, 0.55);
-    --ink-35:      rgba(237, 236, 230, 0.35);
+    --ink-muted:   rgba(237, 236, 230, 0.55);
+    --ink-faint:   rgba(237, 236, 230, 0.35);
     --rule:        rgba(237, 236, 230, 0.18);
     --rule-soft:   rgba(237, 236, 230, 0.09);
 
     --signal:      #35a0d6;
+    --signal-text: #35a0d6;
     --alert:       #d4674c;
   }
 }
@@ -48,11 +53,12 @@
   --color-paper-raise: var(--paper-raise);
   --color-ink:         var(--ink);
   --color-ink-80:      var(--ink-80);
-  --color-ink-55:      var(--ink-55);
-  --color-ink-35:      var(--ink-35);
+  --color-ink-muted:   var(--ink-muted);
+  --color-ink-faint:   var(--ink-faint);
   --color-rule:        var(--rule);
   --color-rule-soft:   var(--rule-soft);
   --color-signal:      var(--signal);
+  --color-signal-text: var(--signal-text);
   --color-alert:       var(--alert);
 
   --font-sans: var(--font-geist-sans);
@@ -79,7 +85,7 @@ body {
   line-height: 1;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-55);
+  color: var(--ink-muted);
 }
 
 /* Hairline grid paper, drawn with gradients so it costs no image request */
@@ -88,14 +94,6 @@ body {
     linear-gradient(to right, var(--rule-soft) 1px, transparent 1px),
     linear-gradient(to bottom, var(--rule-soft) 1px, transparent 1px);
   background-size: 28px 28px;
-}
-
-/* Ordered-dither shading, rendered as a 4x4 pixel pattern */
-.dither-50 {
-  background-image:
-    repeating-conic-gradient(var(--ink) 0% 25%, transparent 0% 50%);
-  background-size: 4px 4px;
-  opacity: 0.16;
 }
 
 /* Horizontal rails: hide the scrollbar but keep the scroll behaviour */
@@ -113,13 +111,12 @@ body {
   border-radius: 1px;
 }
 
+/* No blanket motion kill: a global `animation-duration: 0.01ms` destroys the
+   state-change feedback people rely on. Components honour useReducedMotion and
+   substitute a calmer alternative instead. Only page-level smooth scrolling,
+   which has no informational value, is disabled outright. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  html {
+    scroll-behavior: auto;
   }
 }

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
-import { WifiDither } from "@/components/dither/WifiDither";
+import { SignalDither } from "@/components/dither/SignalDither";
 import { Button } from "@/components/ui/Button";
 
 type State = "idle" | "signing" | "connected" | "denied";
@@ -59,7 +59,13 @@ export function PortalFlow() {
     <div className="mx-auto w-full max-w-[420px]">
       <div className="relative border border-ink/45 paper-grid">
         <div className="relative h-[190px] border-b border-ink/20">
-          <WifiDither className="absolute inset-0" cell={3} label="Network signal" />
+          <SignalDither
+            motif="ripple"
+            cell={3}
+            period={3.4}
+            className="absolute inset-0"
+            label="Beacon signal from the branch access point"
+          />
         </div>
 
         <div className="relative overflow-hidden">
@@ -87,14 +93,14 @@ export function PortalFlow() {
                         ? "var(--signal)"
                         : state === "denied"
                           ? "var(--alert)"
-                          : "var(--ink-35)",
+                          : "var(--ink-faint)",
                   }}
                 />
                 {copy.label}
               </p>
 
               <h1 className="mt-3 text-xl leading-snug text-ink">{copy.title}</h1>
-              <p className="mt-2 text-sm leading-relaxed text-ink-55">{copy.body}</p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-muted">{copy.body}</p>
 
               {state === "connected" ? (
                 <dl className="mt-5 divide-y divide-rule border-y border-rule">
@@ -149,10 +155,10 @@ export function PortalFlow() {
               type="button"
               onClick={() => go(s)}
               aria-pressed={state === s}
-              className={`rounded-full border px-3 py-1 font-mono text-[0.6875rem] uppercase tracking-[0.1em] transition-colors ${
+              className={`inline-flex min-h-11 items-center rounded-full border px-4 font-mono text-[0.6875rem] uppercase tracking-[0.1em] transition-colors ${
                 state === s
                   ? "border-ink bg-ink text-paper"
-                  : "border-rule text-ink-55 hover:border-ink hover:text-ink"
+                  : "border-rule text-ink-muted hover:border-ink hover:text-ink"
               }`}
             >
               {s}
