@@ -9,16 +9,52 @@ Get a single attendee on the network using their ENS subname. Prove the full loo
 **Deliverables:**
 - Subname minting flow (check-in UI + relayer)
 - ENS text record schema defined and deployed
-- Captive portal (wallet connect → sign → verified)
-- FreeRADIUS module calling ENS resolver
-- MikroTik AP configured with VLAN per role
-- One hacker, one organizer — different VLANs, different bandwidth
+- Captive portal (username/password → tier assignment)
+- Software VLAN enforcement via iptables + tc HTB on Linux router
+- Three tiers — basic (5 Mbps), staff (10 Mbps), vip (unlimited)
+- Cross-tier isolation: iptables FORWARD DROP between devices on different tiers
 
-**Hardware needed:**
+**Current hardware (ETHTokyo 2026 demo):**
+- Fedora Linux VM (VMware Fusion on MacBook M5 Air)
+- USB-ethernet adapter (enp10s0u1, 192.168.0.1/24) — VM's LAN interface
+- TP-Link Archer AX80 in router mode (AX80 → VM over ethernet)
+- Attendee devices on AX80 WiFi (192.168.0.x)
+
+**How VLANs work on this hardware:**
+
+The AX80 does not pass 802.1Q VLAN tags — hardware VLANs are not possible. Software tiers implement equivalent isolation:
+
+```
+iptables mangle MARK
+  basic login  → fwmark 10  → tc class 1:10 (5 Mbps ceil)
+  staff login  → fwmark 20  → tc class 1:20 (10 Mbps ceil)
+  vip login    → fwmark 30  → tc class 1:30 (1000 Mbps ceil)
+
+tc HTB on enp10s0u1 egress (download path toward devices):
+  1:10  basic  — 5 Mbps
+  1:20  staff  — 10 Mbps
+  1:30  vip    — 1000 Mbps (unlimited)
+  1:99  default (unauthed) — 1 Mbps
+
+Cross-tier isolation:
+  iptables FORWARD DROP between IPs on different tiers
+  Same-tier devices can reach each other freely
+```
+
+Credentials: `basic/basic2026`, `staff/staff2026`, `vip/vip2026`
+
+**Success criteria:** device connects to AX80 WiFi → captive portal appears → login with tier credentials → correct bandwidth tier applied → cross-tier traffic blocked.
+
+---
+
+### Phase 1 Target — ENS-native auth
+
+Replace username/password with ENS subname + wallet signature. The captive portal resolves the signer's ENS name, reads the `wifi-vlan` and `wifi-bandwidth` text records, and assigns the tier from on-chain policy.
+
+**Hardware target:**
 - MikroTik hAP ax lite (~$45)
-- Server or laptop running FreeRADIUS + resolver service
-
-**Success criteria:** `philo.tokyo2026.ethglobal.eth` connects to WiFi, lands on hacker VLAN with 50 Mbps limit. `ann.tokyo2026.ethglobal.eth` (organizer) lands on staff VLAN with no limit.
+- FreeRADIUS + ENSCA resolver on Linux server
+- 802.1X / RADIUS CoA for hardware VLAN assignment
 
 ---
 
@@ -92,13 +128,20 @@ ENSCA builds on Nifi's proof that commodity hardware works and extends it with i
 ## Build Order
 
 ```
-Week 1: ENS schema + relayer + captive portal (Phase 1 core)
-Week 2: RADIUS module + AP config + VLAN assignment (Phase 1 complete)
-Week 3: ensca-keys + ensca-authz + SSH flow (Phase 2)
-Week 4: API gateway + tool provisioning (Phase 2 complete)
-Week 5: Per-identity VLAN isolation (Phase 3)
-Week 6: Dashboard + perimeter detection (Phase 4)
-Post-event: Attestation writer (Phase 5)
+ETHTokyo 2026 demo (done):
+  ✓ Fedora VM captive portal — Flask, iptables, tc HTB
+  ✓ Software VLAN tiers (basic/staff/vip) — fwmark + tc HTB
+  ✓ Cross-tier isolation — iptables FORWARD DROP
+  ✓ iOS/Android CNA — captive sheet opens and dismisses correctly
+
+Next:
+  Week 1: ENS schema + relayer + wallet-sig captive portal (Phase 1 ENS-native)
+  Week 2: RADIUS module + MikroTik VLAN assignment (Phase 1 complete)
+  Week 3: ensca-keys + ensca-authz + SSH flow (Phase 2)
+  Week 4: API gateway + tool provisioning (Phase 2 complete)
+  Week 5: Per-identity VLAN isolation (Phase 3)
+  Week 6: Dashboard + perimeter detection (Phase 4)
+  Post-event: Attestation writer (Phase 5)
 ```
 
 ## Tech Stack
@@ -107,9 +150,11 @@ Post-event: Attestation writer (Phase 5)
 |---|---|
 | Identity | ENS (ENSIP-10, ENSIP-15, EIP-3668) |
 | Auth signature | ECDSA / EIP-191 personal_sign |
-| Network hardware | MikroTik hAP ax lite |
-| RADIUS server | FreeRADIUS 3.x |
-| Captive portal | Next.js + viem + wagmi |
+| Demo hardware | Fedora VM + USB ethernet + TP-Link AX80 |
+| Target hardware | MikroTik hAP ax lite |
+| Software VLAN | iptables fwmark + tc HTB (current) |
+| Hardware VLAN | FreeRADIUS 3.x + 802.1X (target) |
+| Captive portal | Flask (current) → Next.js + viem + wagmi (target) |
 | ENS resolver service | Node.js + viem |
 | SSH auth | AuthorizedKeysCommand + Node.js binary |
 | PAM authorization | pam_exec + shell/Node.js script |

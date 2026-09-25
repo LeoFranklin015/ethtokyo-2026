@@ -1,213 +1,178 @@
 # ENSCA — WiFi & Network Layer
 
-## Overview
+## Current Implementation (ETHTokyo 2026 Demo)
 
-The network layer enforces role-based access and per-identity isolation using commodity hardware (MikroTik hAP ax lite) and FreeRADIUS. The ENS resolver is the only new component — everything else is standard enterprise WiFi infrastructure.
+Running on Fedora VM + USB ethernet + TP-Link AX80. Hardware VLANs are not possible (AX80 does not pass 802.1Q tags). Equivalent isolation implemented in software.
 
-## Hardware
+### Topology
+
+```
+[Internet]
+    │
+[Mac Wi-Fi — en0]
+    │  VMware host-only (bridge101, 172.16.0.1/24)
+    │
+[Fedora VM]
+  enp2s0 — 172.16.0.129  (internet uplink via VMware)
+  enp10s0u1 — 192.168.0.1/24  (USB ethernet → AX80 WAN)
+    │
+[TP-Link AX80 — router mode]
+  WAN: 192.168.0.x (DHCP from Fedora dnsmasq)
+  LAN: 192.168.0.0/24 (AX80's own NAT for WiFi devices)
+    │
+[Attendee devices — 192.168.0.x]
+```
+
+### Software VLAN Architecture
+
+Three tiers implemented as iptables fwmarks + tc HTB classes on enp10s0u1 egress:
+
+```
+Login tier   fwmark   tc class   download cap
+─────────────────────────────────────────────
+basic        10       1:10       5 Mbps
+staff        20       1:20       10 Mbps
+vip          30       1:30       1000 Mbps (unlimited)
+(unauthed)   —        1:99       1 Mbps (default class)
+```
+
+**Download shaping** — `tc HTB` on `enp10s0u1` egress (packets flowing toward devices). `iptables mangle MARK` on `dst-IP` classifies inbound packets per tier.
+
+**Upload shaping** — `iptables mangle MARK` on `src-IP` marks upload traffic; same tc class applies on egress out enp2s0 if an upload shaper is added.
+
+**Cross-tier isolation** — `iptables FORWARD DROP` between IPs on different tiers. Added at login, removed at logout.
+
+### Config Files
+
+**`/etc/NetworkManager/dispatcher.d/99-ensca`** — sets up iptables and tc HTB at boot:
+```bash
+# tc HTB on enp10s0u1
+tc qdisc add dev enp10s0u1 root handle 1: htb default 99
+tc class add dev enp10s0u1 parent 1: classid 1:99 htb rate 1mbit ceil 1mbit
+tc class add dev enp10s0u1 parent 1: classid 1:10 htb rate 5mbit ceil 5mbit burst 15k
+tc class add dev enp10s0u1 parent 1: classid 1:20 htb rate 10mbit ceil 10mbit burst 30k
+tc class add dev enp10s0u1 parent 1: classid 1:30 htb rate 1000mbit ceil 1000mbit
+tc filter add dev enp10s0u1 parent 1: protocol ip handle 10 fw classid 1:10
+tc filter add dev enp10s0u1 parent 1: protocol ip handle 20 fw classid 1:20
+tc filter add dev enp10s0u1 parent 1: protocol ip handle 30 fw classid 1:30
+```
+
+**`/opt/ensca/portal/app.py`** — Flask captive portal. On login:
+```python
+# Grant access for an IP at a given tier
+def grant_access(ip, tier):
+    mark = TIER_MARK[tier]  # "10", "20", or "30"
+    iptables("-I FORWARD 1 -s {ip} -j ACCEPT")
+    iptables("-t mangle -I FORWARD 1 -s {ip} -j MARK --set-mark {mark}")  # upload
+    iptables("-t mangle -I FORWARD 1 -d {ip} -j MARK --set-mark {mark}")  # download
+    iptables("-t nat -I PREROUTING 1 -s {ip} -p udp --dport 53 -j DNAT --to 8.8.8.8:53")
+    _apply_cross_tier_rules(ip, tier, action="I")
+```
+
+### Captive Portal Flow
+
+```
+1. Device connects to AX80 WiFi → DHCP from AX80 → IP 192.168.0.x
+2. HTTP request → iptables REDIRECT port 80 → Flask port 8080
+3. DNS query → iptables REDIRECT udp/53 → dnsmasq → address=/#/192.168.0.1
+4. Browser opens captive portal (iOS/Android CNA popup)
+5. User submits credentials → tier assigned → iptables ACCEPT + fwmark added
+6. Post-login 302 → /connected → OS re-probes → 204 → CNA sheet dismisses
+7. DNS DNAT to 8.8.8.8 bypasses hijack for authed IPs → real internet works
+```
+
+### iOS/Android CNA Handling
+
+Probe paths return `302 → portal` (unauthed) or `204 No Content` (authed):
+```
+/hotspot-detect.html    iOS/macOS
+/generate_204           Android
+/connecttest.txt        Windows
+/check_network_status.txt  Linux NM
+/canonical.html         Firefox
+/ncsi.txt               Windows fallback
+```
+
+---
+
+## Target Implementation (MikroTik + FreeRADIUS)
+
+Full hardware VLAN isolation, 802.1X auth, ENS-native identity.
+
+### Hardware
 
 **MikroTik hAP ax lite (~$45)**
 - WiFi 6 (802.11ax), dual-band
-- Built-in switch (5 ports), router, and AP in one device
 - RouterOS — supports 802.1X, RADIUS, dynamic VLAN, QoS natively
-- No separate controller needed
-- PoE on port 1 (if needed), standard power adapter included
 
-**Server (existing)**
-- Runs FreeRADIUS + ENSCA resolver service + captive portal
-- Connected to MikroTik via ethernet
-
-## Network Topology
+### Network Topology
 
 ```
 Internet
     │
-    ▼
 MikroTik hAP ax lite
-    ├── Port 1: WAN (internet uplink)
+    ├── Port 1: WAN
     ├── Port 2: Server (FreeRADIUS + ENSCA services)
-    └── WiFi: broadcasts SSIDs, handles RADIUS auth
+    └── WiFi SSIDs → RADIUS auth → hardware VLAN assignment
          │
-         ├── SSID: ethglobal-hacker   → VLAN 100
-         ├── SSID: ethglobal-mentor   → VLAN 200
-         ├── SSID: ethglobal-volunteer→ VLAN 300
-         ├── SSID: ethglobal-pragma   → VLAN 400
-         └── SSID: ethglobal-staff    → VLAN 10
-
-Each VLAN is isolated at L2. Devices in VLAN 100 cannot reach VLAN 200.
-Per-identity sub-VLANs (for device isolation) sit inside the role VLAN.
+         ├── SSID: ethglobal-hacker   → VLAN 100 (50 Mbps)
+         ├── SSID: ethglobal-mentor   → VLAN 200 (100 Mbps)
+         ├── SSID: ethglobal-volunteer→ VLAN 300 (20 Mbps)
+         ├── SSID: ethglobal-pragma   → VLAN 400 (100 Mbps)
+         └── SSID: ethglobal-staff    → VLAN 10  (unlimited)
 ```
 
-## Authentication Flow
+### Authentication Flow (ENS-native)
 
 ```
-1. Attendee connects to SSID (e.g. ethglobal-hacker)
-2. MikroTik serves DHCP → attendee gets IP
-3. All traffic redirected to captive portal (DNS hijack + HTTP redirect)
-4. Captive portal loads in browser:
-     - "Connect your wallet to get on the network"
-     - WalletConnect QR or browser wallet prompt
-5. Portal generates challenge: sha256(nonce + timestamp + mac_address)
-6. Attendee signs with wallet (hardware or mobile)
-7. Portal backend:
-     a. Recovers signer address from signature
-     b. Resolves reverse ENS: address → ENS name
-     c. Checks name is under *.tokyo2026.ethglobal.eth
-     d. Reads wifi-vlan, wifi-bandwidth text records
-     e. Calls FreeRADIUS CoA (Change of Authorization) with:
-          - VLAN assignment
-          - Bandwidth policy
-          - Session timeout
-8. FreeRADIUS sends CoA to MikroTik
-9. MikroTik moves device to correct VLAN, applies QoS
-10. Browser redirected: "You're on the network as philo.tokyo2026.ethglobal.eth"
+1. Attendee connects to SSID
+2. Captive portal: wallet connect → sign EIP-191 challenge
+3. Portal recovers address → reverse ENS → check *.tokyo2026.ethglobal.eth
+4. Reads wifi-vlan, wifi-bandwidth text records
+5. Calls FreeRADIUS CoA with VLAN + bandwidth policy
+6. MikroTik moves device to correct VLAN, applies QoS
 ```
 
-## FreeRADIUS Configuration
-
-```
-# /etc/freeradius/3.0/mods-enabled/exec
-exec ensca {
-    wait = yes
-    program = "/usr/local/bin/ensca-radius-check %{User-Name}"
-    input_pairs = request
-    output_pairs = reply
-    shell_escape = yes
-}
-```
+### FreeRADIUS Configuration
 
 ```python
 # /usr/local/bin/ensca-radius-check
-# Called by FreeRADIUS with the ENS name as User-Name
-# Returns RADIUS attributes for VLAN + QoS
-
-import sys
-import requests
-
-ens_name = sys.argv[1]  # e.g. "philo.tokyo2026.ethglobal.eth"
-
-# Call ENSCA resolver service
+ens_name = sys.argv[1]
 resp = requests.get(f"http://localhost:3000/policy/{ens_name}")
 policy = resp.json()
-
-if not policy or not policy.get('active'):
-    print("Auth-Type := Reject")
-    sys.exit(1)
-
-# Return RADIUS attributes
 print(f"Tunnel-Type = VLAN")
 print(f"Tunnel-Medium-Type = IEEE-802")
 print(f"Tunnel-Private-Group-Id = {policy['vlan']}")
-print(f"Session-Timeout = {policy['session_timeout']}")
 print(f"WISPr-Bandwidth-Max-Down = {policy['bandwidth_down']}")
-print(f"WISPr-Bandwidth-Max-Up = {policy['bandwidth_up']}")
-sys.exit(0)
 ```
 
-## Per-Identity Device Isolation
+### Per-Identity Device Isolation (target)
 
-Each attendee's devices share a private VLAN derived from their namehash. This sits inside the role VLAN as a micro-segment.
+Each attendee's devices share a private VLAN derived from their ENS namehash:
 
-```
-VLAN 100 (hacker role)
-├── Sub-VLAN 1001 (philo's devices — namehash derived)
-│    ├── philo's laptop (MAC: aa:bb:cc:...)
-│    └── philo's phone (MAC: dd:ee:ff:...)
-├── Sub-VLAN 1002 (alice's devices)
-└── Sub-VLAN 1003 (bob's devices)
-```
-
-VLAN ID assignment:
 ```typescript
-// Deterministic VLAN from ENS namehash — no collision for up to ~200 attendees
 function identityVlan(ensName: string, roleBaseVlan: number): number {
   const node = namehash(normalize(ensName))
   const offset = parseInt(node.slice(2, 6), 16) % 200
   return roleBaseVlan * 10 + offset
 }
+// philo on hacker VLAN 100 → identity VLAN 1042
+// ann  on hacker VLAN 100 → identity VLAN 1087
 ```
 
 MikroTik RouterOS supports 4094 VLANs — more than enough for an event.
 
-When a second device authenticates with the same ENS name, the captive portal detects the existing session and assigns the same sub-VLAN:
+---
 
-```
-POST /auth
-{ signature: "0x...", mac: "dd:ee:ff:..." }
+## Current vs Target Comparison
 
-→ recover address
-→ resolve ENS name: philo.tokyo2026.ethglobal.eth
-→ check existing sessions for this ENS name
-→ found: session for aa:bb:cc (philo's laptop), vlan 1001
-→ assign dd:ee:ff to vlan 1001 as well
-→ both devices can now reach each other on vlan 1001
-→ neither can reach vlan 1002 or 1003
-```
-
-## Access Hours Enforcement
-
-FreeRADIUS `Session-Timeout` attribute handles session expiry. For roles with restricted hours (volunteers: 08:00–23:00):
-
-```python
-import datetime
-
-now = datetime.datetime.now()
-if policy['hours'] != '24/7':
-    open_hour, close_hour = parse_hours(policy['hours'])
-    if now.hour >= close_hour or now.hour < open_hour:
-        print("Auth-Type := Reject")
-        sys.exit(1)
-    # Session expires at close_hour
-    seconds_until_close = (close_hour - now.hour) * 3600
-    print(f"Session-Timeout = {seconds_until_close}")
-```
-
-## Bandwidth Enforcement
-
-MikroTik RouterOS QoS via RADIUS-returned attributes:
-
-```
-WISPr-Bandwidth-Max-Down = 52428800   # 50 Mbps in bps
-WISPr-Bandwidth-Max-Up   = 10485760   # 10 Mbps up
-```
-
-Per-identity sub-queue in RouterOS Simple Queue, created dynamically when device joins.
-
-## Captive Portal Stack
-
-```
-Next.js app (port 3001)
-├── GET  /                → wallet connect page
-├── POST /auth            → verify signature, call RADIUS CoA
-├── GET  /status/:mac     → check if MAC is authorized
-└── GET  /me              → show identity + role for connected device
-
-Node.js ENSCA service (port 3000)
-├── GET  /policy/:ensName → return wifi/ssh/tool policy for name
-├── POST /revoke/:ensName → revoke access (organizer only)
-└── GET  /sessions        → active sessions (organizer only)
-```
-
-## Signature Verification
-
-```typescript
-import { recoverMessageAddress, hashMessage } from 'viem'
-
-async function verifyAuth(signature: `0x${string}`, mac: string, nonce: string) {
-  const message = `ENSCA auth\nnonce: ${nonce}\ndevice: ${mac}\ntime: ${Math.floor(Date.now() / 1000)}`
-  const address = await recoverMessageAddress({ message, signature })
-
-  // Reverse resolve to ENS name
-  const ensName = await client.getEnsName({ address })
-  if (!ensName) throw new Error('No ENS name for address')
-
-  // Check it's under the event domain
-  if (!ensName.endsWith('.tokyo2026.ethglobal.eth')) {
-    throw new Error('Not an event subname')
-  }
-
-  return { address, ensName }
-}
-```
-
-Nonce is a server-generated UUID, single-use, 5-minute TTL. Prevents replay attacks.
+| Layer | Current (Fedora VM + AX80) | Target (MikroTik + RADIUS) |
+|---|---|---|
+| VLAN isolation | iptables fwmark + tc HTB (software) | Hardware 802.1Q VLAN |
+| Cross-tier isolation | iptables FORWARD DROP | L2 VLAN separation |
+| Auth | username/password → tier | ENS subname + wallet signature |
+| Bandwidth shaping | tc HTB on enp10s0u1 | RouterOS QoS via RADIUS |
+| DNS hijack | dnsmasq address=/#/ + iptables REDIRECT | Same pattern |
+| Device identity | per-IP (from AX80 NAT) | per-MAC + per-ENS-name |
+| Captive portal | Flask (Python) | Next.js + viem + wagmi |
+| Max devices | ~50 | ~500 |
