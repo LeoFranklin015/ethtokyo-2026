@@ -975,7 +975,7 @@ def export_usage():
         for r in rows:
             writer.writerow([
                 r["id"], r["ts"], r["ip"], r["username"], r["group_name"],
-                r["resource_slug"], r["method"], r["path"], r["status_code"],
+                r["resource_slug"], r["method"], r["path"], r["status"],
                 r["req_bytes"], r["resp_bytes"], r["duration_ms"],
                 r["upstream_error"] or ""
             ])
