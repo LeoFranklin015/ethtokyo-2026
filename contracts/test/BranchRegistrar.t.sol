@@ -262,8 +262,12 @@ contract BranchRegistrarTest is Test {
 
     function test_volunteer_cannot_appoint_volunteers() public {
         vm.prank(volunteer);
-        vm.expectRevert();
-        registrar.grantRootRoles(ONBOARD, outsider);
+        vm.expectRevert(
+            abi.encodeWithSignature(
+                "EACCannotGrantRoles(uint256,uint256,address)", uint256(0), ONBOARD, volunteer
+            )
+        );
+        registrar.grantRootRoles(ONBOARD, volunteer == outsider ? volunteer : outsider);
     }
 
     ////////////////////////////////////////////////////////////////////////
@@ -281,5 +285,115 @@ contract BranchRegistrarTest is Test {
         vm.prank(admin);
         uint256 resource = registrar.onboard(string(label), leo, BranchRegistrar.Role.Hacker);
         assertEq(registry.getOwner(resource), leo);
+    }
+}
+
+/// @dev Onboards itself, then reenters from the ERC1155 mint callback to grab a second name.
+contract ReentrantOnboarder {
+    BranchRegistrar immutable REGISTRAR;
+    bool attacked;
+
+    constructor(BranchRegistrar registrar) {
+        REGISTRAR = registrar;
+    }
+
+    function attack() external {
+        REGISTRAR.onboard("first", address(this), BranchRegistrar.Role.Hacker);
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
+        external
+        returns (bytes4)
+    {
+        if (!attacked) {
+            attacked = true;
+            // Before the fix this slipped past the one-membership check, because
+            // membershipOf[owner] was still unset at mint time.
+            REGISTRAR.onboard("second", address(this), BranchRegistrar.Role.Hacker);
+        }
+        return this.onERC1155Received.selector;
+    }
+}
+
+contract BranchRegistrarHardeningTest is BranchRegistrarTest {
+    function test_reentrancy_cannot_mint_a_second_membership() public {
+        ReentrantOnboarder attacker = new ReentrantOnboarder(registrar);
+        vm.prank(admin);
+        registrar.grantRootRoles(ONBOARD, address(attacker));
+
+        vm.expectRevert(BranchRegistrar.Reentrancy.selector);
+        attacker.attack();
+
+        assertTrue(registrar.isAvailable("first"), "nothing was minted");
+        assertTrue(registrar.isAvailable("second"));
+    }
+
+    /// The registry forgets owners once a name expires; our own record must not.
+    function test_membership_survives_branch_expiry() public {
+        vm.prank(admin);
+        uint256 resource = registrar.onboard("leo", leo, BranchRegistrar.Role.Hacker);
+
+        vm.warp(branchExpiry + 1 days);
+        assertEq(registry.getOwner(resource), address(0), "registry has forgotten the owner");
+
+        // Still revokable: bookkeeping no longer depends on registry liveness.
+        vm.prank(admin);
+        registrar.revoke(resource);
+        (bool exists,,) = registrar.membership(leo);
+        assertFalse(exists);
+    }
+
+    function test_renew_extends_past_the_branch_window() public {
+        vm.prank(admin);
+        uint256 resource = registrar.onboard("leo", leo, BranchRegistrar.Role.Hacker);
+
+        uint64 later = branchExpiry + 30 days;
+        vm.prank(admin);
+        registrar.renew(resource, later);
+        assertEq(registry.getExpiry(resource), later);
+    }
+
+    function test_volunteer_cannot_renew() public {
+        vm.prank(admin);
+        uint256 resource = registrar.onboard("leo", leo, BranchRegistrar.Role.Hacker);
+        vm.prank(volunteer);
+        vm.expectRevert(abi.encodeWithSelector(BranchRegistrar.NotARenewer.selector, volunteer));
+        registrar.renew(resource, branchExpiry + 1 days);
+    }
+
+    /// A non-member must not read back as Hacker.
+    function test_unknown_wallet_has_no_role() public view {
+        (bool exists,, BranchRegistrar.Role role) = registrar.membership(address(0xdead));
+        assertFalse(exists);
+        assertEq(uint8(role), uint8(BranchRegistrar.Role.None), "deny by default");
+    }
+
+    function test_cannot_onboard_the_none_role() public {
+        vm.prank(admin);
+        vm.expectRevert(BranchRegistrar.InvalidRole.selector);
+        registrar.onboard("leo", leo, BranchRegistrar.Role.None);
+    }
+
+    /// Desync escape hatch: the name is deleted behind the registrar's back.
+    function test_release_unpins_a_desynced_wallet() public {
+        vm.prank(admin);
+        uint256 resource = registrar.onboard("leo", leo, BranchRegistrar.Role.Hacker);
+
+        registry.unregister(resource); // this test contract holds root ROLE_UNREGISTER
+
+        vm.prank(admin);
+        registrar.releaseMembership(leo);
+
+        vm.prank(admin);
+        registrar.onboard("leo", leo, BranchRegistrar.Role.Hacker);
+    }
+
+    function test_constructor_rejects_a_past_expiry() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(BranchRegistrar.InvalidExpiry.selector, uint64(block.timestamp))
+        );
+        new BranchRegistrar(
+            IPermissionedRegistry(address(registry)), resolver, uint64(block.timestamp), admin
+        );
     }
 }
