@@ -2,15 +2,31 @@
 LOCK=/run/ensca-iptables-init.lock
 [ -f "$LOCK" ] && exit 0
 
+# Ensure proxy_arp is off — clients must route via gateway, not ARP for public IPs
+echo 0 > /proc/sys/net/ipv4/conf/enp10s0u1/proxy_arp
+
 iptables -F FORWARD
 iptables -F INPUT
 iptables -t nat -F
 
+# Masquerade outbound traffic to WAN
 iptables -t nat -A POSTROUTING -o enp2s0 -j MASQUERADE
+
+# Redirect unauthenticated HTTP to captive portal
 iptables -t nat -A PREROUTING -i enp10s0u1 -p tcp --dport 80 -j REDIRECT --to-port 8080
+
+# Redirect unauthenticated DNS to dnsmasq (wildcard DNS poisons names -> portal IP)
+# grant_access inserts per-IP DNAT rules above this to bypass to real DNS for authed clients
+iptables -t nat -A PREROUTING -i enp10s0u1 -p udp --dport 53 -j REDIRECT --to-port 53
+
+# Allow return traffic for established sessions initiated by authed clients
 iptables -A FORWARD -i enp2s0 -o enp10s0u1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Allow portal and DNS traffic to reach this machine
 iptables -A INPUT -i enp10s0u1 -p tcp --dport 8080 -j ACCEPT
 iptables -A INPUT -i enp10s0u1 -p udp --dport 53 -j ACCEPT
+
+# Block all other forwarding from clients (grant_access inserts per-IP ACCEPTs above this)
 iptables -A FORWARD -i enp10s0u1 -j DROP
 
 touch "$LOCK"
