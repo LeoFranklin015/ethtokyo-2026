@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+/* ── ENSCA design tokens ──────────────────────────────────────────────────
+   1-bit engineering-plotter aesthetic: paper + ink, hairline rules, dither
+   textures in place of gradients. Accent colors validated for CVD and
+   contrast against both surfaces (scripts/validate_palette.js).
+   ────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --paper:       #edece6;
+  --paper-sunk:  #e4e2d9;
+  --paper-raise: #f5f4ef;
+
+  --ink:         #14140f;
+  --ink-80:      rgba(20, 20, 15, 0.8);
+  --ink-55:      rgba(20, 20, 15, 0.55);
+  --ink-35:      rgba(20, 20, 15, 0.35);
+  --rule:        rgba(20, 20, 15, 0.16);
+  --rule-soft:   rgba(20, 20, 15, 0.08);
+
+  --signal:      #0080bc;
+  --alert:       #b4381f;
+
+  --radius:      2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:       #14140f;
+    --paper-sunk:  #0d0d0a;
+    --paper-raise: #1e1e18;
+
+    --ink:         #edece6;
+    --ink-80:      rgba(237, 236, 230, 0.8);
+    --ink-55:      rgba(237, 236, 230, 0.55);
+    --ink-35:      rgba(237, 236, 230, 0.35);
+    --rule:        rgba(237, 236, 230, 0.18);
+    --rule-soft:   rgba(237, 236, 230, 0.09);
+
+    --signal:      #35a0d6;
+    --alert:       #d4674c;
+  }
+}
+
+@theme inline {
+  --color-paper:       var(--paper);
+  --color-paper-sunk:  var(--paper-sunk);
+  --color-paper-raise: var(--paper-raise);
+  --color-ink:         var(--ink);
+  --color-ink-80:      var(--ink-80);
+  --color-ink-55:      var(--ink-55);
+  --color-ink-35:      var(--ink-35);
+  --color-rule:        var(--rule);
+  --color-rule-soft:   var(--rule-soft);
+  --color-signal:      var(--signal);
+  --color-alert:       var(--alert);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --radius-sharp: 2px;
+}
+
+html {
+  color-scheme: light dark;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+body {
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Label style used throughout: small, spaced, uppercase mono */
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+}
+
+/* Hairline grid paper, drawn with gradients so it costs no image request */
+.paper-grid {
+  background-image:
+    linear-gradient(to right, var(--rule-soft) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--rule-soft) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Ordered-dither shading, rendered as a 4x4 pixel pattern */
+.dither-50 {
+  background-image:
+    repeating-conic-gradient(var(--ink) 0% 25%, transparent 0% 50%);
+  background-size: 4px 4px;
+  opacity: 0.16;
+}
+
+/* Horizontal rails: hide the scrollbar but keep the scroll behaviour */
+.rail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
