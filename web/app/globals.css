@@ -14,20 +14,26 @@
   --paper-sunk:  #d2d8e6;
   --paper-raise: #e5e9f1;
 
-  --ink:         #1b1f30;
-  --ink-80:      rgba(27, 31, 48, 0.8);
+  /* Ink is blue-violet, not near-black: the whole UI is a duotone, the way
+     the reference plate is. 8.2:1 on --paper. */
+  --ink:         #343b63;
+  --ink-80:      rgba(52, 59, 99, 0.86);
   /* Text token: 4.6:1 on --paper. */
-  --ink-muted:   rgba(27, 31, 48, 0.65);
-  /* NON-TEXT ONLY: dither marks, dots, icon strokes. */
-  --ink-faint:   rgba(27, 31, 48, 0.42);
-  --rule:        rgba(27, 31, 48, 0.18);
-  --rule-soft:   rgba(27, 31, 48, 0.09);
+  --ink-muted:   rgba(52, 59, 99, 0.77);
+  /* NON-TEXT ONLY: dither marks, dots, icon strokes, rules. */
+  --ink-faint:   rgba(52, 59, 99, 0.45);
+  --rule:        rgba(52, 59, 99, 0.22);
+  --rule-soft:   rgba(52, 59, 99, 0.11);
 
-  /* Dither marks sit mid-slate, as in the reference — softer than body ink. */
+  /* Dither marks sit mid-slate, exactly as in the reference plate. */
   --dither:      #6d7392;
 
-  --signal:      #1a56b0;
-  --signal-text: #1a56b0;
+  /* Duotone: "live" is carried by full ink plus its own label, never by a
+     second hue — a blue accent on a blue field separates at only 1.5:1 and
+     stops reading as an accent. --alert is the one chromatic exception,
+     reserved for over-cap and refusal. */
+  --signal:      #343b63;
+  --signal-text: #343b63;
   --alert:       #a8331c;
 
   --radius:      2px;

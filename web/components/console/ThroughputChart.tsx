@@ -83,8 +83,8 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
           <defs>
             <pattern id={patternId} width="4" height="4" patternUnits="userSpaceOnUse">
               <rect width="4" height="4" fill="none" />
-              <rect width="1" height="1" x="0" y="0" fill="var(--signal)" opacity="0.55" />
-              <rect width="1" height="1" x="2" y="2" fill="var(--signal)" opacity="0.55" />
+              <rect width="1" height="1" x="0" y="0" fill="var(--dither)" opacity="0.9" />
+              <rect width="1" height="1" x="2" y="2" fill="var(--dither)" opacity="0.9" />
             </pattern>
           </defs>
 
@@ -133,7 +133,7 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
           <path
             d={linePath}
             fill="none"
-            stroke="var(--signal)"
+            stroke="var(--ink)"
             strokeWidth="2"
             strokeLinejoin="round"
             strokeLinecap="round"
@@ -163,7 +163,7 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
                 strokeWidth="1"
               />
               <circle cx={cursor.x} cy={cursor.y} r="4.5" fill="var(--paper)" />
-              <circle cx={cursor.x} cy={cursor.y} r="4.5" fill="none" stroke="var(--signal)" strokeWidth="2" />
+              <circle cx={cursor.x} cy={cursor.y} r="4.5" fill="none" stroke="var(--ink)" strokeWidth="2" />
             </g>
           ) : null}
         </svg>
