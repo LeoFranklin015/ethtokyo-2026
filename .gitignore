@@ -1,2 +1,17 @@
 .superpowers/
 .DS_Store
+.orca/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+keystore/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/dry-run/
+contracts/lib/
