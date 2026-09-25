@@ -2,11 +2,11 @@
 
 ## The Problem
 
-Crypto events like ETHGlobal are full of the most technically sophisticated attendees in the world — people with hardware wallets, multiple ENS names, and deep infrastructure knowledge. Yet the event infrastructure they use is the same anonymous, passworded, flat WiFi network you'd find at a hotel conference room.
+Crypto events are full of technically sophisticated attendees — people with hardware wallets, multiple ENS names, deep infrastructure knowledge. Yet the event infrastructure they use is anonymous, passworded, flat WiFi — hotel conference room grade.
 
-There is no way to know who is using the network. No per-person access policy. No way to give an organizer different tools than a hacker. No device isolation. Sponsor API keys get distributed via Discord, shared, rate-limited, and burned. SSH access to shared dev machines requires manual key management. Credentials get passed around. Organizers fly blind.
+No per-person access policy. No device isolation. Sponsor API keys shared via Discord, burned out, untraceable. SSH access requires manual key management. Organizers fly blind.
 
-The identity layer already exists — every attendee has an ENS name and a wallet. It just isn't being used.
+The identity layer already exists. Every attendee has an ENS name and a wallet. It just isn't wired to the infrastructure.
 
 ## The Fix
 
@@ -18,34 +18,36 @@ At check-in, you get minted a subname under the event domain:
 philo.tokyo2026.ethglobal.eth
 ```
 
-That subname carries your role, your access policy, your SSH public key, and your device group — all in ENS text records. From that point on, your identity is on-chain, your wallet is your key, and the infrastructure reads ENS instead of a password database.
+That subname carries your role, your access policy, your SSH public key, and your device group — all in ENS text records. From that point, your identity is on-chain, your wallet is your key, and the infrastructure reads ENS instead of a password database.
 
-## What It Replaces
+## Current State (ETHTokyo 2026 Demo)
+
+The demo runs the network enforcement layer without ENS auth yet. Username/password maps to a tier (basic/staff/vip). The full control plane — session management, resource proxying, rate limiting, key rotation, quota management, audit logging — is implemented and running on a Fedora VM.
+
+The captive portal and proxy service talk to each other: login creates a session, logout ends it, the proxy reads the active session to authorize every request.
+
+## What the Demo Delivers
+
+| Feature | Status |
+|---|---|
+| Software VLANs (fwmark + tc HTB) | Running |
+| Captive portal with tier credentials | Running |
+| Cross-tier iptables isolation | Running |
+| Resource proxy with per-group access control | Running |
+| Per-device + per-group daily rate limits | Running |
+| API key rotation (stage + commit) | Running |
+| Quota adjustments (mid-day top-ups) | Running |
+| Admin token auth (bcrypt) | Running |
+| Full audit log | Running |
+| ENS-native wallet auth | Future (Phase 2) |
+| Per-identity VLAN | Future (Phase 3) |
+
+## What It Replaces (eventual target)
 
 | Before ENSCA | After ENSCA |
 |---|---|
 | Shared WiFi password | ENS subname + wallet signature |
 | Same network for everyone | Role-based VLAN per identity |
-| No device isolation | Per-person private LAN |
 | Manual SSH key distribution | `ssh-pubkey` text record on ENS |
-| Sponsor API keys on Discord | Per-identity provisioned at mint |
-| No usage visibility | Per-subname analytics dashboard |
-| POAP as only post-event proof | Attestations embedded in subname |
-
-## The Insight
-
-Every large org solves this problem with Active Directory — one identity system that controls WiFi, SSH, VPN, tool licenses, and door badges. AD is a centralised, expensive, IT-managed system that takes weeks to provision.
-
-ENSCA is the crypto-native equivalent: decentralised identity (ENS), wallet-based authentication (ECDSA signature), on-chain policy (text records via CCIP-Read), and commodity hardware (MikroTik + Raspberry Pi).
-
-Setup time: under an hour. Cost: under $100. Works at any event, any venue, anywhere.
-
-## Scope
-
-ENSCA is built for ETHGlobal events where:
-- Every attendee already has a wallet
-- ENS names are common
-- Hardware wallets are normal
-- The audience understands and trusts on-chain identity
-
-It is not trying to solve this for general audiences. It is infrastructure by and for the crypto-native world.
+| Sponsor API keys on Discord | Per-identity, provisioned at mint |
+| No usage visibility | Per-session analytics dashboard |

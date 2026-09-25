@@ -63,30 +63,43 @@ def _audit(method, path, body, status):
     db.commit()
 
 
+VALID_PLACEMENTS = ("url_path", "header", "bearer_token", "basic_auth", "query_param", "no_auth")
+
+
 def _resource_dict(r, include_key=False) -> dict:
+    keys = r.keys()
     d = {
         "id": r["id"], "slug": r["slug"], "display_name": r["display_name"],
         "upstream_url": r["upstream_url"], "key_placement": r["key_placement"],
         "key_header_name": r["key_header_name"],
+        "query_param_name": r["query_param_name"] if "query_param_name" in keys else None,
+        "strip_path_prefix": bool(r["strip_path_prefix"]) if "strip_path_prefix" in keys else False,
         "enabled": bool(r["enabled"]),
         "has_pending_key": r["api_key_pending"] is not None,
         "created_at": r["created_at"], "notes": r["notes"],
     }
     if include_key:
-        d["api_key_masked"] = _mask_key(r["api_key"])
+        d["api_key_masked"] = _mask_key(r["api_key"] or "")
+        if "api_key_b64_user" in keys:
+            d["api_key_b64_user"] = r["api_key_b64_user"]
     return d
 
 
 def _session_dict(s) -> dict:
+    keys = s.keys()
     return {
         "id": s["id"], "user_id": s["user_id"],
-        "username": s["username"] if "username" in s.keys() else None,
+        "username": s["username"] if "username" in keys else None,
         "group_id": s["group_id"],
-        "group_name": s["group_name"] if "group_name" in s.keys() else None,
+        "group_name": s["group_name"] if "group_name" in keys else None,
         "ip": s["ip"], "network_tier": s["network_tier"],
+        "ens_name": s["ens_name"] if "ens_name" in keys else None,
+        "wallet_address": s["wallet_address"] if "wallet_address" in keys else None,
         "logged_in_at": s["logged_in_at"],
         "logged_out_at": s["logged_out_at"],
         "revoked_at": s["revoked_at"],
+        "bytes_in": s["bytes_in"] if "bytes_in" in keys else 0,
+        "bytes_out": s["bytes_out"] if "bytes_out" in keys else 0,
     }
 
 
@@ -353,12 +366,15 @@ def create_user():
     uid = _uuid()
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     db.execute(
-        "INSERT INTO users(id,username,password_hash,default_group_id,created_at,notes) VALUES(?,?,?,?,?,?)",
-        (uid, username, pw_hash, group_id, _now(), data.get("notes"))
+        "INSERT INTO users(id,username,password_hash,default_group_id,ens_name,wallet_address,created_at,notes) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (uid, username, pw_hash, group_id,
+         data.get("ens_name"), data.get("wallet_address"), _now(), data.get("notes"))
     )
     db.commit()
     _audit("POST", "/admin/users", data, 201)
     return jsonify({"id": uid, "username": username, "group_id": group_id,
+                    "ens_name": data.get("ens_name"), "wallet_address": data.get("wallet_address"),
                     "created_at": _now(), "disabled": False}), 201
 
 
@@ -395,8 +411,11 @@ def get_user(uid):
         "ORDER BY logged_in_at DESC LIMIT 1", (uid,)
     ).fetchone()
     usage = get_usage_for_ip(session["ip"], session["group_id"]) if session else {}
+    keys = user.keys()
     return jsonify({
         "id": user["id"], "username": user["username"],
+        "ens_name": user["ens_name"] if "ens_name" in keys else None,
+        "wallet_address": user["wallet_address"] if "wallet_address" in keys else None,
         "group": {"id": user["default_group_id"], "name": user["group_name"],
                   "network_tier": user["network_tier"]},
         "disabled": bool(user["disabled"]), "created_at": user["created_at"],
@@ -424,13 +443,18 @@ def update_user(uid):
         updates["disabled"] = int(bool(data["disabled"]))
     if "notes" in data:
         updates["notes"] = data["notes"]
+    if "ens_name" in data:
+        updates["ens_name"] = data["ens_name"]
+    if "wallet_address" in data:
+        updates["wallet_address"] = data["wallet_address"]
     if updates:
         sets = ", ".join(f"{k}=?" for k in updates)
         db.execute(f"UPDATE users SET {sets} WHERE id=?", (*updates.values(), uid))
         db.commit()
     _audit("PATCH", f"/admin/users/{uid}", data, 200)
     return jsonify(_row(db.execute(
-        "SELECT id,username,default_group_id,created_at,disabled,notes FROM users WHERE id=?", (uid,)
+        "SELECT id,username,default_group_id,ens_name,wallet_address,created_at,disabled,notes FROM users WHERE id=?",
+        (uid,)
     ).fetchone()))
 
 
@@ -483,22 +507,28 @@ def create_resource():
     data = request.get_json(silent=True) or {}
     slug = data.get("slug", "").strip()
     upstream = data.get("upstream_url", "").strip()
-    placement = data.get("key_placement", "")
-    api_key = data.get("api_key", "").strip()
-    if not slug or not upstream or placement not in ("url_path", "header") or not api_key:
-        return jsonify({"error": "slug, upstream_url, key_placement, api_key required"}), 400
+    placement = data.get("key_placement", "url_path")
+    if not slug or not upstream or placement not in VALID_PLACEMENTS:
+        return jsonify({"error": f"slug, upstream_url required; key_placement must be one of {VALID_PLACEMENTS}"}), 400
     if placement == "header" and not data.get("key_header_name"):
         return jsonify({"error": "key_header_name required when key_placement=header"}), 400
+    if placement == "query_param" and not data.get("query_param_name"):
+        return jsonify({"error": "query_param_name required when key_placement=query_param"}), 400
+    if placement != "no_auth" and not data.get("api_key", "").strip():
+        return jsonify({"error": "api_key required (omit only for no_auth)"}), 400
     db = get_db()
     if db.execute("SELECT 1 FROM resources WHERE slug=?", (slug,)).fetchone():
         return jsonify({"error": "slug_taken"}), 409
     rid = _uuid()
     db.execute(
         "INSERT INTO resources(id,slug,display_name,upstream_url,key_placement,"
-        "key_header_name,api_key,enabled,created_at,notes) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        "key_header_name,query_param_name,api_key,api_key_b64_user,"
+        "enabled,strip_path_prefix,created_at,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (rid, slug, data.get("display_name", slug), upstream, placement,
-         data.get("key_header_name"), api_key,
-         int(data.get("enabled", True)), _now(), data.get("notes"))
+         data.get("key_header_name"), data.get("query_param_name"),
+         data.get("api_key", "").strip(), data.get("api_key_b64_user"),
+         int(data.get("enabled", True)), int(data.get("strip_path_prefix", False)),
+         _now(), data.get("notes"))
     )
     db.commit()
     _audit("POST", "/admin/resources", data, 201)
@@ -538,10 +568,15 @@ def update_resource(rid):
     if not db.execute("SELECT 1 FROM resources WHERE id=?", (rid,)).fetchone():
         return jsonify({"error": "not_found"}), 404
     data = request.get_json(silent=True) or {}
+    if "key_placement" in data and data["key_placement"] not in VALID_PLACEMENTS:
+        return jsonify({"error": f"key_placement must be one of {VALID_PLACEMENTS}"}), 400
     fields = {k: data[k] for k in
-              ("display_name", "upstream_url", "key_placement", "key_header_name", "notes") if k in data}
+              ("display_name", "upstream_url", "key_placement", "key_header_name",
+               "query_param_name", "api_key_b64_user", "notes") if k in data}
     if "enabled" in data:
         fields["enabled"] = int(bool(data["enabled"]))
+    if "strip_path_prefix" in data:
+        fields["strip_path_prefix"] = int(bool(data["strip_path_prefix"]))
     if fields:
         sets = ", ".join(f"{k}=?" for k in fields)
         db.execute(f"UPDATE resources SET {sets} WHERE id=?", (*fields.values(), rid))
@@ -1064,23 +1099,35 @@ def internal_group_by_tier(tier):
 def internal_session_created():
     data = request.get_json(silent=True) or {}
     db = get_db()
-    # user_id may be a real user UUID or "portal-user" sentinel — coerce to sentinel UUID
     user_id = data.get("user_id", "")
+    ens_name = data.get("ens_name")
+    wallet_address = data.get("wallet_address")
+
+    # Resolve user_id: prefer ENS lookup, then wallet lookup, then sentinel
+    if ens_name and not db.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
+        row = db.execute("SELECT id FROM users WHERE ens_name=?", (ens_name,)).fetchone()
+        if row:
+            user_id = row["id"]
+
     if not db.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone():
-        # Ensure sentinel portal user exists
+        # Upsert sentinel portal-anon user — update group if it changes
         db.execute(
             "INSERT OR IGNORE INTO users(id,username,password_hash,default_group_id,created_at) "
             "VALUES('portal-anon','portal-anon','!',?,?)",
             (data["group_id"], int(time.time()))
         )
+        db.execute("UPDATE users SET default_group_id=? WHERE id='portal-anon'",
+                   (data["group_id"],))
         user_id = "portal-anon"
+
     db.execute(
-        "INSERT INTO sessions(id,user_id,group_id,ip,network_tier,logged_in_at) VALUES(?,?,?,?,?,?)",
+        "INSERT INTO sessions(id,user_id,group_id,ip,network_tier,ens_name,wallet_address,logged_in_at) "
+        "VALUES(?,?,?,?,?,?,?,?)",
         (data["session_id"], user_id, data["group_id"],
-         data["ip"], data["network_tier"], data["logged_in_at"])
+         data["ip"], data["network_tier"], ens_name, wallet_address, data["logged_in_at"])
     )
     db.commit()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "user_id": user_id})
 
 
 @app.route("/internal/session-ended", methods=["POST"])
@@ -1103,6 +1150,153 @@ def internal_get_session(ip):
         "ORDER BY logged_in_at DESC LIMIT 1", (ip,)
     ).fetchone()
     return jsonify({"active": row is not None, "session_id": row["id"] if row else None})
+
+
+# ── bandwidth & resource allocation ──────────────────────────────────────────
+
+@app.route("/admin/bandwidth/sessions")
+@require_admin
+def bandwidth_sessions():
+    """Per-session bandwidth totals, optionally filtered to active sessions."""
+    db = get_db()
+    qp = request.args
+    active_only = qp.get("active", "true").lower() == "true"
+    where = ["1=1"]
+    params = []
+    if active_only:
+        where.append("s.logged_out_at IS NULL AND s.revoked_at IS NULL")
+    if qp.get("group_id"):
+        where.append("s.group_id=?"); params.append(qp["group_id"])
+    if qp.get("network_tier"):
+        where.append("g.network_tier=?"); params.append(qp["network_tier"])
+    rows = db.execute(
+        f"SELECT s.id, s.ip, s.network_tier, s.ens_name, s.wallet_address, "
+        f"u.username, g.name as group_name, g.network_tier as tier, "
+        f"s.bytes_in, s.bytes_out, (s.bytes_in + s.bytes_out) as bytes_total, "
+        f"s.logged_in_at, s.logged_out_at "
+        f"FROM sessions s JOIN users u ON u.id=s.user_id JOIN groups g ON g.id=s.group_id "
+        f"WHERE {' AND '.join(where)} ORDER BY bytes_total DESC",
+        params
+    ).fetchall()
+    tier_totals = {}
+    for r in rows:
+        tier = r["tier"]
+        if tier not in tier_totals:
+            tier_totals[tier] = {"sessions": 0, "bytes_in": 0, "bytes_out": 0}
+        tier_totals[tier]["sessions"] += 1
+        tier_totals[tier]["bytes_in"] += r["bytes_in"] or 0
+        tier_totals[tier]["bytes_out"] += r["bytes_out"] or 0
+    return jsonify({
+        "sessions": [dict(r) for r in rows],
+        "tier_totals": tier_totals,
+        "total_sessions": len(rows),
+    })
+
+
+@app.route("/admin/bandwidth/test", methods=["POST"])
+@require_admin
+def bandwidth_test():
+    """
+    Measure effective upstream throughput for a resource by downloading a test payload.
+    Body: {"resource_id": "<rid>", "payload_bytes": 65536, "subpath": ""}
+    Returns measured throughput (bytes/sec) and latency.
+    """
+    data = request.get_json(silent=True) or {}
+    resource_id = data.get("resource_id")
+    payload_bytes = int(data.get("payload_bytes", 65536))
+    subpath = data.get("subpath", "")
+    if not resource_id:
+        return jsonify({"error": "resource_id required"}), 400
+    payload_bytes = max(1024, min(payload_bytes, 10 * 1024 * 1024))  # 1KB–10MB
+
+    db = get_db()
+    resource = db.execute("SELECT * FROM resources WHERE id=?", (resource_id,)).fetchone()
+    if not resource:
+        return jsonify({"error": "resource_not_found"}), 404
+    if not resource["enabled"]:
+        return jsonify({"error": "resource_disabled"}), 503
+
+    import time as _time
+    from upstream import _build_url, _inject_auth
+    import base64
+    from urllib.parse import urlencode
+
+    r_dict = dict(resource)
+    url = _build_url(r_dict, subpath)
+    headers = {}
+    params = {}
+    _inject_auth(r_dict, headers, params)
+    if params:
+        url = f"{url}?{urlencode(params)}"
+
+    t0 = _time.monotonic()
+    try:
+        resp = req_lib.get(url, headers=headers, timeout=30, stream=True)
+        first_byte_ms = int((_time.monotonic() - t0) * 1000)
+        content = resp.content
+        elapsed = _time.monotonic() - t0
+        resp_bytes = len(content)
+        throughput_bps = int(resp_bytes / elapsed) if elapsed > 0 else 0
+        return jsonify({
+            "resource_id": resource_id,
+            "resource_slug": resource["slug"],
+            "upstream_url": url.split("?")[0],
+            "http_status": resp.status_code,
+            "resp_bytes": resp_bytes,
+            "elapsed_ms": int(elapsed * 1000),
+            "first_byte_ms": first_byte_ms,
+            "throughput_bps": throughput_bps,
+            "throughput_mbps": round(throughput_bps / 1_000_000, 3),
+        })
+    except req_lib.exceptions.ConnectionError as e:
+        return jsonify({"error": "connection_error", "detail": str(e)[:120]}), 502
+    except req_lib.exceptions.Timeout:
+        return jsonify({"error": "timeout"}), 504
+    except Exception as e:
+        return jsonify({"error": "unexpected", "detail": str(e)[:120]}), 500
+
+
+# ── ENS identity lookup ───────────────────────────────────────────────────────
+
+@app.route("/admin/users/by-ens/<path:ens_name>")
+@require_admin
+def get_user_by_ens(ens_name):
+    db = get_db()
+    user = db.execute(
+        "SELECT u.*, g.name as group_name, g.network_tier FROM users u "
+        "JOIN groups g ON g.id=u.default_group_id WHERE u.ens_name=?", (ens_name,)
+    ).fetchone()
+    if not user:
+        return jsonify({"error": "not_found"}), 404
+    keys = user.keys()
+    return jsonify({
+        "id": user["id"], "username": user["username"],
+        "ens_name": user["ens_name"], "wallet_address": user["wallet_address"] if "wallet_address" in keys else None,
+        "group": {"id": user["default_group_id"], "name": user["group_name"],
+                  "network_tier": user["network_tier"]},
+        "disabled": bool(user["disabled"]), "created_at": user["created_at"],
+    })
+
+
+@app.route("/admin/users/by-wallet/<wallet_address>")
+@require_admin
+def get_user_by_wallet(wallet_address):
+    db = get_db()
+    user = db.execute(
+        "SELECT u.*, g.name as group_name, g.network_tier FROM users u "
+        "JOIN groups g ON g.id=u.default_group_id WHERE u.wallet_address=?", (wallet_address,)
+    ).fetchone()
+    if not user:
+        return jsonify({"error": "not_found"}), 404
+    keys = user.keys()
+    return jsonify({
+        "id": user["id"], "username": user["username"],
+        "ens_name": user["ens_name"] if "ens_name" in keys else None,
+        "wallet_address": user["wallet_address"],
+        "group": {"id": user["default_group_id"], "name": user["group_name"],
+                  "network_tier": user["network_tier"]},
+        "disabled": bool(user["disabled"]), "created_at": user["created_at"],
+    })
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
