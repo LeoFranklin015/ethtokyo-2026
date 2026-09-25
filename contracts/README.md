@@ -74,28 +74,42 @@ deployments/sepolia.json     written by the scripts
 
 ## Deployed — Sepolia
 
-Live as of 2026-09-25. `ethglobal2.eth` is registered, its branch is attached, and one membership
-exists with entitlements readable through the ENS UniversalResolver.
+Three levels, as the domain model requires: `<member>.<branch>.<org>.eth`.
+
+```
+ethglobal2.eth              Organization   org registry   0xEb716b3f…94517
+└── tokyo.ethglobal2.eth    Branch         branch registry 0x306DE2Ec…48660
+    └── kenji.tokyo.ethglobal2.eth   Membership, role hacker
+```
 
 | | |
 |---|---|
-| Branch name | `ethglobal2.eth` (expiry `1821903888`) |
-| Branch registry | [`0xEb716b3fB749f357be2B74a10647675D11a94517`](https://sepolia.etherscan.io/address/0xEb716b3fB749f357be2B74a10647675D11a94517) |
-| Branch resolver | [`0x9D8f1376aED12F6F7Ba041285Cce833AcED13092`](https://sepolia.etherscan.io/address/0x9D8f1376aED12F6F7Ba041285Cce833AcED13092) |
-| BranchRegistrar | [`0x391554c4e72Ab1f10e1228aB8068F90a7Fb58fd5`](https://sepolia.etherscan.io/address/0x391554c4e72Ab1f10e1228aB8068F90a7Fb58fd5) |
-| ~~Superseded registrar~~ | `0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A` — disarmed, see below |
-| Owner | `0xE08224B2CfaF4f27E2DC7cB3f6B99AcC68Cf06c0` |
-| First membership | `leo.ethglobal2.eth` — role `hacker`, registry bitmap `0` |
+| Org registry | `0xEb716b3fB749f357be2B74a10647675D11a94517` |
+| Branch registry | `0x306DE2Ec8c8B5FE668d31be152b6436481448660` |
+| Branch registrar | `0xb0487c88Eaea357aDa85540FB1E8bEfAD2868D52` |
+| Resolver | `0x9D8f1376aED12F6F7Ba041285Cce833AcED13092` |
+| Volunteer | `0xD3b01908f30Cf733d45869d0ed5Dd9160BB514d9` — holds `ROLE_ONBOARD` only |
+| Superseded registrar | `0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A` — disarmed, reentrancy |
 
-Verified through the canonical read path — `UniversalResolverV2.resolve()` on the DNS-encoded name
-returns our resolver and these records:
+> The first deployment collapsed Organization and Branch into one name, so memberships sat directly
+> under `ethglobal2.eth` as `leo.ethglobal2.eth`. That is two levels, not three. `tokyo` now sits
+> between them with a registry of its own, and memberships are minted there.
 
-```
-role = hacker · wifi.group = hacker · wifi.rate = 5mbps · wifi.ceil = 20mbps
-```
+### The volunteer path, executed on-chain
 
-`LiveDeploymentTest` in `test/Lifecycle.fork.t.sol` asserts all of the above and is the regression
-test for the deployment.
+`0xD3b0…14d9` holds `ROLE_ONBOARD` on the branch registrar and nothing else — no `ROLE_PROMOTE`,
+no `ROLE_REVOKE`. Signing with that wallet:
+
+- `onboard("kenji", 0x…bEEF, Hacker)` → **succeeded**, tx `0xaa9d3eda…c6afa1`
+- `onboard("mallory", …, Organizer)` → **reverted** `CannotGrantRole(0xD3b0…14d9, 5)`, selector `0xf1f1deaa`
+
+That refusal is the thing EAC cannot express on its own, and it is enforced in the registrar.
+
+`kenji.tokyo.ethglobal2.eth` reads back through `UniversalResolverV2.resolve()` as
+`role=hacker · wifi.group=hacker · wifi.rate=5mbps · wifi.ceil=20mbps`, and
+`roles(kenji, owner) == 0` — the holder owns the name and cannot touch its records.
+
+`ThreeLevelDeploymentTest` asserts all of it.
 
 ## Review findings, and what changed
 
