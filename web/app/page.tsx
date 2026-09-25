@@ -14,77 +14,64 @@ export default function Home() {
     <>
       <SiteHeader />
 
-      <main id="main" className="mx-auto flex w-full max-w-[1180px] flex-1 flex-col px-5">
-        <section className="relative mt-6 border border-ink/45 paper-grid sm:mt-10">
-          <CornerTicks />
+      {/* Full-bleed hero. The grid paper is the page texture, not a framed plate. */}
+      <main
+        id="main"
+        className="paper-grid flex flex-1 flex-col lg:min-h-[calc(100svh-3.5rem)]"
+      >
+        <div className="mx-auto grid w-full max-w-[1280px] flex-1 items-center gap-10 px-5 py-14 lg:grid-cols-[1fr_1.05fr] lg:gap-12 lg:py-0">
+          <div>
+            <p className="label">Identity-gated infrastructure</p>
 
-          <div className="grid items-stretch gap-8 p-6 sm:p-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-4">
-            <div className="flex flex-col justify-between gap-10">
-              <div>
-                <p className="label">Identity-gated infrastructure</p>
-                <h1 className="mt-5 font-mono text-5xl font-medium leading-[0.95] tracking-[-0.03em] text-ink sm:text-6xl">
-                  ENSCA
-                </h1>
-                <p className="mt-5 max-w-[34ch] text-balance text-lg leading-snug text-ink-80 sm:text-xl">
-                  Your ENS subname is the credential for the network, the shell and the
-                  API — at every location you operate.
-                </p>
-                <p className="mt-4 max-w-[46ch] text-sm leading-relaxed text-ink-muted">
-                  Roles, bandwidth and isolation are read straight from ENS text records.
-                  No password on a slide. No user database on the box.
-                </p>
-              </div>
+            <h1 className="mt-6 font-mono text-6xl font-medium leading-[0.9] tracking-[-0.04em] text-ink sm:text-7xl lg:text-8xl">
+              ENSCA
+            </h1>
 
-              <div className="flex flex-wrap items-center gap-2.5">
-                <ButtonLink href="/console" variant="solid">
-                  Open console
-                </ButtonLink>
-                <ButtonLink href="/portal">See the portal</ButtonLink>
-              </div>
-            </div>
+            <p className="mt-7 max-w-[24ch] text-balance text-2xl leading-[1.15] tracking-[-0.01em] text-ink sm:text-3xl lg:text-4xl">
+              Your ENS subname is the credential.
+            </p>
 
-            <div className="relative min-h-[260px] sm:min-h-[320px]">
-              <SignalDither
-                motif="wifi"
-                interactive
-                className="absolute inset-0"
-                label="Wifi signal, rendered as an animated ordered dither"
-              />
+            <p className="mt-5 max-w-[48ch] text-base leading-relaxed text-ink-muted">
+              One name gates the network, the shell and the API — at every location you
+              operate. Roles, bandwidth and isolation are read straight from ENS text
+              records. No password on a slide. No user database on the box.
+            </p>
+
+            <div className="mt-9 flex flex-wrap items-center gap-2.5">
+              <ButtonLink href="/console" variant="solid">
+                Open console
+              </ButtonLink>
+              <ButtonLink href="/portal">See the portal</ButtonLink>
             </div>
           </div>
 
-          <dl className="grid grid-cols-2 border-t border-ink/20 sm:grid-cols-4">
+          <div className="relative min-h-[300px] self-stretch sm:min-h-[380px] lg:min-h-[min(72vh,620px)]">
+            <SignalDither
+              motif="wifi"
+              interactive
+              cell={4}
+              className="absolute inset-0"
+              label="Wifi signal, rendered as an animated ordered dither"
+            />
+          </div>
+        </div>
+
+        <dl className="border-t border-rule">
+          <div className="mx-auto grid w-full max-w-[1280px] grid-cols-2 px-5 sm:grid-cols-4">
             {SPEC.map(([term, detail], i) => (
               <div
                 key={term}
-                className={`px-4 py-3 ${i % 2 === 0 ? "border-r border-ink/20" : ""} sm:border-r sm:last:border-r-0 ${
-                  i < 2 ? "border-b border-ink/20 sm:border-b-0" : ""
-                }`}
+                className={`py-4 pr-4 ${i % 2 === 0 ? "border-r border-rule pl-0 sm:pl-4" : "pl-4"} ${
+                  i < 2 ? "border-b border-rule sm:border-b-0" : ""
+                } sm:border-r sm:last:border-r-0 sm:first:pl-0`}
               >
                 <dt className="label">{term}</dt>
                 <dd className="mt-1.5 font-mono text-xs text-ink-80">{detail}</dd>
               </div>
             ))}
-          </dl>
-        </section>
+          </div>
+        </dl>
       </main>
-    </>
-  );
-}
-
-/** Engineering-drawing corner marks on the hero plate. */
-function CornerTicks() {
-  const corners = [
-    "left-[-1px] top-[-1px] border-l border-t",
-    "right-[-1px] top-[-1px] border-r border-t",
-    "left-[-1px] bottom-[-1px] border-b border-l",
-    "right-[-1px] bottom-[-1px] border-b border-r",
-  ];
-  return (
-    <>
-      {corners.map((c) => (
-        <span key={c} aria-hidden className={`absolute size-3 border-ink ${c}`} />
-      ))}
     </>
   );
 }
