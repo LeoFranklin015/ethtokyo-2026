@@ -50,7 +50,7 @@ def _inject_auth(resource: dict, headers: dict, params: dict) -> None:
 def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
     """
     Forward request to upstream with auth injection.
-    Returns (response, status, req_bytes, resp_bytes, duration_ms, upstream_error).
+    Returns (content_bytes, status, req_bytes, resp_bytes, duration_ms, upstream_error).
     """
     start = time.monotonic()
 
@@ -103,7 +103,7 @@ def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
         resp_bytes = len(content)
 
         duration_ms = int((time.monotonic() - start) * 1000)
-        return resp, resp.status_code, req_bytes, resp_bytes, duration_ms, None
+        return content, resp.status_code, req_bytes, resp_bytes, duration_ms, None
 
     except requests.exceptions.ConnectionError as e:
         duration_ms = int((time.monotonic() - start) * 1000)

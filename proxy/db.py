@@ -52,7 +52,7 @@ def init_db():
             id               TEXT PRIMARY KEY,
             username         TEXT UNIQUE NOT NULL,
             password_hash    TEXT NOT NULL,
-            default_group_id TEXT NOT NULL REFERENCES groups(id),
+            default_group_id TEXT REFERENCES groups(id),
             ens_name         TEXT,
             wallet_address   TEXT,
             created_at       INTEGER NOT NULL,
@@ -193,3 +193,36 @@ def _migrate(conn):
                 raise
     # key_placement can now be no_auth with no api_key — relax NOT NULL if needed
     conn.execute("UPDATE resources SET api_key='' WHERE api_key IS NULL")
+
+    # Make default_group_id nullable so remove_member can set it to NULL.
+    # SQLite can't ALTER COLUMN, so rebuild users table if constraint still present.
+    try:
+        info = conn.execute("PRAGMA table_info(users)").fetchall()
+        for col in info:
+            if col["name"] == "default_group_id" and col["notnull"] == 1:
+                conn.executescript("""
+                    PRAGMA foreign_keys=OFF;
+                    BEGIN;
+                    CREATE TABLE IF NOT EXISTS users_new (
+                        id               TEXT PRIMARY KEY,
+                        username         TEXT UNIQUE NOT NULL,
+                        password_hash    TEXT NOT NULL,
+                        default_group_id TEXT REFERENCES groups(id),
+                        ens_name         TEXT,
+                        wallet_address   TEXT,
+                        created_at       INTEGER NOT NULL,
+                        disabled         INTEGER NOT NULL DEFAULT 0,
+                        notes            TEXT
+                    );
+                    INSERT INTO users_new SELECT id,username,password_hash,default_group_id,
+                        ens_name,wallet_address,created_at,disabled,notes FROM users;
+                    DROP TABLE users;
+                    ALTER TABLE users_new RENAME TO users;
+                    CREATE INDEX IF NOT EXISTS idx_users_ens ON users(ens_name) WHERE ens_name IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_users_wallet ON users(wallet_address) WHERE wallet_address IS NOT NULL;
+                    COMMIT;
+                    PRAGMA foreign_keys=ON;
+                """)
+                break
+    except sqlite3.OperationalError:
+        pass
