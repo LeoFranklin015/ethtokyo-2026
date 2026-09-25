@@ -1,0 +1,14 @@
+[Unit]
+Description=ENSCA Resource Proxy
+After=network.target ensca-portal.service
+Wants=ensca-portal.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/ensca/proxy/proxy.py
+Restart=on-failure
+RestartSec=3
+Environment=ENSCA_DB=/var/lib/ensca/ensca.db
+
+[Install]
+WantedBy=multi-user.target

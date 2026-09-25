@@ -1,9 +1,17 @@
 from flask import Flask, request, redirect, render_template, make_response
 import subprocess
 import os
+import time
+import uuid
+import requests as _req
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
+
+PROXY_INTERNAL = "http://127.0.0.1:8081"
+# Tier name -> group UUID; populated at runtime via /internal/lookup-group if needed.
+# Falls back to None (proxy won't receive sessions, but portal still works).
+_GROUP_CACHE: dict[str, str] = {}
 
 # Tier definitions: (username, password) -> tier name
 TIERS = {
@@ -15,7 +23,8 @@ TIERS = {
 # iptables fwmark per tier — used for tc classification and cross-tier DROP
 TIER_MARK = {"basic": "10", "staff": "20", "vip": "30"}
 
-AUTHED_IPS: dict[str, str] = {}  # ip -> tier
+AUTHED_IPS: dict[str, str] = {}    # ip -> tier
+SESSION_IDS: dict[str, str] = {}   # ip -> session UUID (shared with proxy)
 
 CAPTIVE_PROBE_PATHS = [
     "/hotspot-detect.html",
@@ -40,6 +49,49 @@ def _run_ok(cmd: list) -> None:
     subprocess.run(cmd, check=False)
 
 
+def _resolve_group(tier: str) -> str | None:
+    """Return group UUID for a tier name, caching the result."""
+    if tier in _GROUP_CACHE:
+        return _GROUP_CACHE[tier]
+    try:
+        r = _req.get(f"{PROXY_INTERNAL}/internal/group-by-tier/{tier}", timeout=2)
+        if r.ok:
+            gid = r.json().get("group_id")
+            if gid:
+                _GROUP_CACHE[tier] = gid
+                return gid
+    except Exception:
+        pass
+    return None
+
+
+def _notify_session_created(session_id: str, ip: str, tier: str) -> None:
+    group_id = _resolve_group(tier)
+    if not group_id:
+        return
+    try:
+        _req.post(f"{PROXY_INTERNAL}/internal/session-created", json={
+            "session_id": session_id,
+            "user_id": "portal-user",   # anonymous — portal doesn't map to proxy users yet
+            "group_id": group_id,
+            "ip": ip,
+            "network_tier": tier,
+            "logged_in_at": int(time.time()),
+        }, timeout=2)
+    except Exception:
+        pass
+
+
+def _notify_session_ended(session_id: str) -> None:
+    try:
+        _req.post(f"{PROXY_INTERNAL}/internal/session-ended", json={
+            "session_id": session_id,
+            "logged_out_at": int(time.time()),
+        }, timeout=2)
+    except Exception:
+        pass
+
+
 def grant_access(ip: str, tier: str) -> None:
     if ip in AUTHED_IPS:
         return
@@ -61,6 +113,9 @@ def grant_access(ip: str, tier: str) -> None:
         _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
         raise
     AUTHED_IPS[ip] = tier
+    sid = str(uuid.uuid4())
+    SESSION_IDS[ip] = sid
+    _notify_session_created(sid, ip, tier)
 
 
 def revoke_access(ip: str) -> None:
@@ -77,7 +132,10 @@ def revoke_access(ip: str) -> None:
              "-s", ip, "-p", "udp", "--dport", "53",
              "-j", "DNAT", "--to-destination", "8.8.8.8:53"])
     _apply_cross_tier_rules(ip, tier, action="D")
+    sid = SESSION_IDS.pop(ip, None)
     del AUTHED_IPS[ip]
+    if sid:
+        _notify_session_ended(sid)
 
 
 def _apply_cross_tier_rules(ip: str, tier: str, action: str) -> None:
@@ -135,6 +193,16 @@ def connected():
 def logout():
     revoke_access(client_ip())
     return redirect("/", 302)
+
+
+@app.route("/internal/revoke-ip", methods=["POST"])
+def internal_revoke_ip():
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return make_response("forbidden", 403)
+    ip = (request.get_json(silent=True) or {}).get("ip", "")
+    if ip:
+        revoke_access(ip)
+    return make_response("ok", 200)
 
 
 for path in CAPTIVE_PROBE_PATHS:
