@@ -1,5 +1,6 @@
 import base64
 import time
+from urllib.parse import parse_qs, urlencode
 import requests
 from db import get_db
 
@@ -62,7 +63,6 @@ def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
     headers = {k: v for k, v in incoming_req.headers if k.lower() not in skip}
 
     # Parse existing query string, then inject auth params
-    from urllib.parse import parse_qs, urlencode
     qs_raw = incoming_req.query_string.decode()
     params = {}
     if qs_raw:
@@ -74,21 +74,35 @@ def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
     if params:
         url = f"{url}?{urlencode(params, doseq=True)}"
 
-    req_bytes = len(incoming_req.get_data())
+    body = incoming_req.get_data()
+    req_bytes = len(body)
+
+    MAX_RESP_BYTES = 50 * 1024 * 1024  # 50 MB
 
     try:
         resp = requests.request(
             method=method,
             url=url,
             headers=headers,
-            data=incoming_req.get_data(),
-            timeout=30,
-            allow_redirects=True,
+            data=body,
             stream=True,
+            timeout=30,
+            allow_redirects=False,
+            verify=True,
         )
-        duration_ms = int((time.monotonic() - start) * 1000)
-        content = resp.content
+
+        chunks = []
+        size = 0
+        for chunk in resp.iter_content(65536):
+            size += len(chunk)
+            if size > MAX_RESP_BYTES:
+                resp.close()
+                return None, 413, req_bytes, size, 0, "response_too_large"
+            chunks.append(chunk)
+        content = b"".join(chunks)
         resp_bytes = len(content)
+
+        duration_ms = int((time.monotonic() - start) * 1000)
         return resp, resp.status_code, req_bytes, resp_bytes, duration_ms, None
 
     except requests.exceptions.ConnectionError as e:

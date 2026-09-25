@@ -17,9 +17,11 @@ def verify_admin_token(token: str):
     """Return admin_tokens row or None."""
     db = get_db()
     now = int(time.time())
+    # NOTE: bcrypt per token — do not allow unbounded token accumulation.
+    # Revoke old tokens regularly. A future version should use HMAC for API tokens.
     rows = db.execute(
-        "SELECT * FROM admin_tokens WHERE revoked=0 AND (expires_at IS NULL OR expires_at > ?)",
-        (now,)
+        "SELECT * FROM admin_tokens WHERE revoked=0 AND (expires_at IS NULL OR expires_at > ?) LIMIT 20",
+        (int(time.time()),)
     ).fetchall()
     for row in rows:
         if _check_token(token, row["token_hash"]):
@@ -41,6 +43,7 @@ def get_active_session_for_ip(ip: str):
            JOIN users u ON u.id = s.user_id
            JOIN groups g ON g.id = s.group_id
            WHERE s.ip=? AND s.logged_out_at IS NULL AND s.revoked_at IS NULL
+           -- Intentional: for NAT/shared IPs, most recent session wins.
            ORDER BY s.logged_in_at DESC LIMIT 1""",
         (ip,)
     ).fetchone()

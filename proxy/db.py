@@ -1,20 +1,34 @@
 import sqlite3
 import os
+from flask import g
 
 DB_PATH = os.environ.get("ENSCA_DB", "/var/lib/ensca/ensca.db")
 
 
 def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    if "db" not in g:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        g.db = conn
+    return g.db
+
+
+def close_db(exc=None):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
 
 
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = get_db()
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    # Run migrations first so columns exist before SCHEMA indexes reference them
+    _migrate(conn)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS admin_tokens (
             id          TEXT PRIMARY KEY,
@@ -154,8 +168,6 @@ def init_db():
             ip              TEXT NOT NULL
         );
     """)
-    # Migrations for existing DBs (idempotent ALTER TABLE IF NOT EXISTS via try/except)
-    _migrate(conn)
     conn.commit()
     conn.close()
 
@@ -176,10 +188,8 @@ def _migrate(conn):
     for table, col, typedef in migrations:
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
-        except Exception:
-            pass  # column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
     # key_placement can now be no_auth with no api_key — relax NOT NULL if needed
-    try:
-        conn.execute("UPDATE resources SET api_key='' WHERE api_key IS NULL")
-    except Exception:
-        pass
+    conn.execute("UPDATE resources SET api_key='' WHERE api_key IS NULL")
