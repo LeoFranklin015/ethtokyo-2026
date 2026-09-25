@@ -280,3 +280,85 @@ contract LiveDeploymentTest is Test {
         assertEq(resolver.text(LEO_NODE, "wifi.ceil"), "20mbps");
     }
 }
+
+/// @notice The three-level deployment: `<member>.<branch>.<org>.eth`, and the volunteer grant.
+///
+/// The first deployment collapsed Organization and Branch into one name. This asserts the real
+/// shape — `kenji.tokyo.ethglobal2.eth` — and that a volunteer holding only `ROLE_ONBOARD`
+/// onboarded it while being unable to mint anything above a hacker.
+contract ThreeLevelDeploymentTest is Test {
+    address constant ORG_REGISTRY = 0xEb716b3fB749f357be2B74a10647675D11a94517;
+    address constant BRANCH_REGISTRY = 0x306DE2Ec8c8B5FE668d31be152b6436481448660;
+    address constant BRANCH_REGISTRAR = 0xb0487c88Eaea357aDa85540FB1E8bEfAD2868D52;
+    address constant RESOLVER = 0x9D8f1376aED12F6F7Ba041285Cce833AcED13092;
+
+    address constant VOLUNTEER = 0xD3b01908f30Cf733d45869d0ed5Dd9160BB514d9;
+    address constant KENJI = 0x000000000000000000000000000000000000bEEF;
+
+    bytes32 constant KENJI_NODE = 0x065177175a06bbb22cc0cbcb1459ddbf933aa53ad1ea8be6e7145999d8095064;
+
+    function setUp() public {
+        vm.skip(block.chainid != 11155111, "requires a Sepolia fork");
+    }
+
+    function test_org_branch_membership_are_three_registries() public view {
+        IPermissionedRegistry org = IPermissionedRegistry(ORG_REGISTRY);
+        assertEq(
+            address(org.getSubregistry("tokyo")),
+            BRANCH_REGISTRY,
+            "tokyo.ethglobal2.eth has its own registry"
+        );
+
+        (IRegistry parent, string memory label) =
+            PermissionedRegistry(BRANCH_REGISTRY).getParent();
+        assertEq(address(parent), ORG_REGISTRY, "branch points back at the org");
+        assertEq(label, "tokyo");
+
+        assertEq(
+            uint8(IPermissionedRegistry(BRANCH_REGISTRY).getStatus(uint256(keccak256("kenji")))),
+            uint8(IPermissionedRegistry.Status.REGISTERED),
+            "kenji lives in the branch registry, not the org registry"
+        );
+    }
+
+    function test_volunteer_holds_only_the_onboard_role() public view {
+        BranchRegistrar registrar = BranchRegistrar(BRANCH_REGISTRAR);
+        assertTrue(registrar.hasRootRoles(registrar.ROLE_ONBOARD(), VOLUNTEER), "can onboard");
+        assertFalse(registrar.hasRootRoles(registrar.ROLE_PROMOTE(), VOLUNTEER), "cannot promote");
+        assertFalse(registrar.hasRootRoles(registrar.ROLE_REVOKE(), VOLUNTEER), "cannot revoke");
+    }
+
+    function test_volunteer_onboarded_kenji_as_a_hacker() public view {
+        IPermissionedRegistry branch = IPermissionedRegistry(BRANCH_REGISTRY);
+        BranchRegistrar registrar = BranchRegistrar(BRANCH_REGISTRAR);
+        uint256 kenji = uint256(keccak256("kenji"));
+
+        assertEq(branch.getOwner(kenji), KENJI, "kenji owns the name");
+        assertEq(branch.roles(kenji, KENJI), 0, "and holds nothing over it");
+        assertEq(
+            uint8(registrar.roleOf(branch.getResource(kenji))),
+            uint8(BranchRegistrar.Role.Hacker)
+        );
+    }
+
+    /// Re-runs the refusal that happened on-chain: the volunteer cannot mint above a hacker.
+    function test_volunteer_still_cannot_mint_an_organizer() public {
+        vm.prank(VOLUNTEER);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BranchRegistrar.CannotGrantRole.selector, VOLUNTEER, BranchRegistrar.Role.Organizer
+            )
+        );
+        BranchRegistrar(BRANCH_REGISTRAR).onboard(
+            "mallory", KENJI, BranchRegistrar.Role.Organizer
+        );
+    }
+
+    function test_entitlements_resolve_three_levels_deep() public view {
+        PermissionedResolver resolver = PermissionedResolver(RESOLVER);
+        assertEq(resolver.text(KENJI_NODE, "role"), "hacker");
+        assertEq(resolver.text(KENJI_NODE, "wifi.group"), "hacker");
+        assertEq(resolver.text(KENJI_NODE, "wifi.rate"), "5mbps");
+        assertEq(resolver.text(KENJI_NODE, "wifi.ceil"), "20mbps");
+    }
+}
