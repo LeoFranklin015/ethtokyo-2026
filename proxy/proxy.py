@@ -827,7 +827,7 @@ def proxy(slug, subpath):
         return jsonify({"error": "rate_limit_exceeded", **limit_hit}), 429
 
     # Forward
-    resp, status, req_bytes, resp_bytes, duration_ms, upstream_error = forward(
+    content, status, req_bytes, resp_bytes, duration_ms, upstream_error = forward(
         dict(resource), request.method, subpath, request
     )
 
@@ -835,18 +835,10 @@ def proxy(slug, subpath):
                  request.method, subpath, status, upstream_error,
                  req_bytes, resp_bytes, duration_ms)
 
-    if resp is None:
-        return jsonify({"error": "upstream_unreachable", "detail": upstream_error}), 502
+    if content is None:
+        return jsonify({"error": "upstream_unreachable", "detail": upstream_error}), status
 
-    # Stream response back
-    STRIP_RESP_HEADERS = {
-        "transfer-encoding", "content-encoding", "content-length",
-        "set-cookie", "strict-transport-security", "content-security-policy",
-        "x-frame-options", "access-control-allow-origin", "public-key-pins",
-        "server", "x-powered-by", "via", "x-backend-server", "x-request-id",
-    }
-    headers = [(k, v) for k, v in resp.headers.items() if k.lower() not in STRIP_RESP_HEADERS]
-    return Response(resp.content, status=status, headers=headers)
+    return Response(content, status=status)
 
 
 # ── usage & analytics ─────────────────────────────────────────────────────────
