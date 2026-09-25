@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, render_template
+from flask import Flask, request, redirect, render_template, make_response
 import subprocess
 import os
 
@@ -63,6 +63,9 @@ def revoke_access(ip: str) -> None:
 def check_authed():
     ip = client_ip()
     if ip in AUTHED_IPS:
+        # Authed: let probe paths return 204 so OS dismisses captive sheet
+        if request.path in CAPTIVE_PROBE_PATHS:
+            return make_response("", 204)
         return None
     if request.path in CAPTIVE_PROBE_PATHS:
         return redirect("http://192.168.0.1:8080/", 302)
@@ -83,8 +86,17 @@ def login():
     ip = client_ip()
     if username == USERNAME and password == PASSWORD:
         grant_access(ip)
-        return render_template("success.html", ip=ip)
+        # 302 to /connected triggers OS re-probe; authed probe paths now return 204
+        return redirect("http://192.168.0.1:8080/connected", 302)
     return render_template("login.html", error="Invalid credentials")
+
+
+@app.route("/connected", methods=["GET"])
+def connected():
+    ip = client_ip()
+    if ip not in AUTHED_IPS:
+        return redirect("http://192.168.0.1:8080/", 302)
+    return render_template("success.html", ip=ip)
 
 
 @app.route("/logout", methods=["POST"])
