@@ -186,6 +186,7 @@ def _migrate(conn):
     migrations = [
         ("users", "ens_name", "TEXT"),
         ("users", "wallet_address", "TEXT"),
+        ("users", "disabled", "INTEGER NOT NULL DEFAULT 0"),
         ("sessions", "ens_name", "TEXT"),
         ("sessions", "wallet_address", "TEXT"),
         ("sessions", "bytes_in", "INTEGER NOT NULL DEFAULT 0"),
