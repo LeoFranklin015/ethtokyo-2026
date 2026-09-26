@@ -18,8 +18,14 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ nonce, expiresInSeconds });
 }
 
+/**
+ * Best-effort client address.
+ *
+ * `x-forwarded-for` is set by the client unless a trusted proxy overwrites it, and nothing here
+ * is configured as one — so this is a weak hint, not an identity. It narrows casual nonce reuse
+ * and nothing more; the actual proof is the signature.
+ */
 export function clientIp(req: NextRequest): string {
-  // On the branch LAN the console sits behind nothing, so the connection address is the device.
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0]!.trim();
   return req.headers.get("x-real-ip") ?? "unknown";

@@ -24,9 +24,11 @@ const COPY: Record<State, { status: string; title: string; body: string }> = {
     body: "Sign the challenge to prove control of your membership name.",
   },
   connected: {
-    status: "Admitted",
-    title: "You are online",
-    body: "Your role resolved and its entitlements were applied to this device.",
+    status: "Verified",
+    title: "Your membership checks out",
+    body:
+      "Your wallet signed for this name and ENS confirms the membership. The branch enforcer " +
+      "applies the entitlements below when it admits the device.",
   },
   denied: {
     status: "Refused",
@@ -101,8 +103,7 @@ export function PortalFlow() {
         reason?: string;
         ens_name?: string;
         group_name?: string;
-        tier?: string;
-        wallet_address?: string;
+        role?: string;
       };
 
       if (!result.ok) {
@@ -111,11 +112,14 @@ export function PortalFlow() {
         return;
       }
 
+      // Only what the server actually returned. A "Tier" row used to sit here permanently
+      // reading "—", because the tier is the enforcer's decision and this endpoint never
+      // returns one.
       setGrant([
         ["Membership", result.ens_name ?? address],
-        ["Group",      result.group_name ?? result.tier ?? "—"],
-        ["Tier",       result.tier ?? "—"],
-        ["Wallet",     `${address.slice(0, 6)}…${address.slice(-4)}`],
+        ["Group", result.group_name ?? "—"],
+        ["Role", result.role ?? "—"],
+        ["Wallet", `${address.slice(0, 6)}…${address.slice(-4)}`],
       ]);
       go("connected");
     } catch (err) {
@@ -138,7 +142,7 @@ export function PortalFlow() {
       <section className="rounded-sharp border border-rule bg-paper-raise">
         <header className="flex items-baseline justify-between gap-3 border-b border-rule px-5 py-3">
           <p className="truncate font-mono text-xs text-ink">
-            {process.env.NEXT_PUBLIC_SSID ?? "ensca"}
+            {process.env.NEXT_PUBLIC_SSID ?? "the branch network"}
           </p>
           <p className="label shrink-0">SSID</p>
         </header>

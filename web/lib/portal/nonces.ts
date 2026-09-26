@@ -8,8 +8,9 @@ import { randomBytes } from "node:crypto";
  * couple of minutes, so persisting it would buy nothing and cost a schema. A console restart
  * invalidates outstanding challenges, which is the safe direction to fail.
  *
- * Bound to the client IP as well as consumed on use, so a nonce handed to one device cannot be
- * redeemed by another that happened to observe it.
+ * Loosely bound to the client address as well as consumed on use. That address comes from a
+ * header the client can set, so treat it as a hint that narrows casual reuse — the proof that
+ * matters is the signature over the nonce, checked in `verify`.
  */
 
 const TTL_MS = 120_000;
@@ -27,8 +28,15 @@ function sweep() {
 
 export function issueNonce(ip: string): { nonce: string; expiresInSeconds: number } {
   sweep();
-  // A crude ceiling, so a flood cannot grow this map without bound.
-  if (outstanding.size >= MAX_OUTSTANDING) outstanding.clear();
+  // Bounded by eviction, never by clearing. Wiping the map on overflow would let anyone DoS the
+  // admission path: 5,000 unauthenticated challenge requests would invalidate every nonce in
+  // flight, and repeating it means nobody ever completes a sign-in. Evicting the oldest costs
+  // the attacker their own entries first.
+  while (outstanding.size >= MAX_OUTSTANDING) {
+    const oldest = outstanding.keys().next();
+    if (oldest.done) break;
+    outstanding.delete(oldest.value);
+  }
 
   const nonce = randomBytes(24).toString("hex");
   outstanding.set(nonce, { ip, expires: Date.now() + TTL_MS });

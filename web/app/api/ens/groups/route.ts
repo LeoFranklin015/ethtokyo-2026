@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mirrorGroup } from "@/lib/enforcer/mirror";
+import { enforcerGroupName, mirrorGroup } from "@/lib/enforcer/mirror";
 import { defineGroup, signerConfigured } from "@/lib/ens/write";
 import { getRoles } from "@/lib/ens/read";
 import type { Address } from "viem";
+import { branchForRegistrar } from "@/lib/ens/registrars";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -39,10 +40,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "ORG_PRIVATE_KEY not set" }, { status: 503 });
   }
 
+  // The org key signs this. The target must be one of our own registrars, not any address the
+  // caller fancies. A lookup failure is a 502, never a 403 — we cannot prove it is not ours.
+  let branchOf;
+  try {
+    branchOf = await branchForRegistrar(body.registrar);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "could not verify the registrar" },
+      { status: 502 },
+    );
+  }
+  if (!branchOf) {
+    return NextResponse.json(
+      { error: "that registrar does not belong to this organization" },
+      { status: 403 },
+    );
+  }
+
+  const name = body.name.trim().toLowerCase();
+
   try {
     const txHash = await defineGroup({
       branchRegistrar: body.registrar as Address,
-      name: body.name.trim().toLowerCase(),
+      name,
       canOnboard: body.canOnboard ?? false,
       openToOnboarders: body.openToOnboarders ?? true,
       editableKeys: body.editableKeys ?? [],
@@ -50,9 +71,13 @@ export async function POST(req: NextRequest) {
     });
 
     // A group that exists only on chain admits nobody: the enforcer denies any member whose
-    // `wifi.group` entitlement names a group it has no row for.
-    const mirror = await mirrorGroup(body.name);
-    return NextResponse.json({ txHash, name: body.name , ...mirror });
+    // `wifi.group` names a group it has no row for — and it joins on that entitlement, not on
+    // the role's name. Lowercased because SQLite compares TEXT case-sensitively, so a row
+    // named "Staff" is a row `internal_ens_lookup` will never find.
+    const mirror = await mirrorGroup(
+      enforcerGroupName(name, body.entitlements).trim().toLowerCase(),
+    );
+    return NextResponse.json({ txHash, name, ...mirror });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "transaction failed" },

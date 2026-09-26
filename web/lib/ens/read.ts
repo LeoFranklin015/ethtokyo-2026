@@ -174,13 +174,10 @@ export async function getBranch(): Promise<EnsBranch> {
  * logs keeps the console honest about on-chain state regardless.
  */
 export async function getMemberships(branchLabel?: string): Promise<MembershipsResult> {
-  try {
-    return { memberships: await fromIndexer(branchLabel), source: "indexer" };
-  } catch {
-    // The indexer is a cache, never the authority. If it is unreachable or lagging behind a
-    // deploy, fall through to reading the contracts directly rather than showing nothing.
-    return { memberships: await fromChain(), source: "chain" };
-  }
+  // No fallback. There used to be one and it ignored `branchLabel` entirely — asking for Osaka
+  // during an indexer outage returned Tokyo's members, stamped "tokyo", with HTTP 200. A
+  // confident wrong answer is worse than the 502 the caller now gets and can report.
+  return { memberships: await fromIndexer(branchLabel), source: "indexer" };
 }
 
 /**
@@ -256,98 +253,6 @@ async function fromIndexer(branchLabel?: string): Promise<EnsMembership[]> {
       } satisfies EnsMembership;
     }),
   );
-}
-
-async function fromChain(): Promise<EnsMembership[]> {
-  const [logs, names] = await Promise.all([
-    client.getContractEvents({
-      address: ENS.branchRegistrar as Address,
-      abi: registrarV2Abi,
-      eventName: "Onboarded",
-      fromBlock: ENS.fromBlock,
-      toBlock: "latest",
-    }),
-    roleNames(ENS.branchRegistrar as Address),
-  ]);
-
-  const seen = new Map<string, Address>();
-  for (const log of logs) {
-    const { label, owner } = log.args as { label?: string; owner?: Address };
-    if (label && owner) seen.set(label, owner);
-  }
-
-  const rows = await Promise.all(
-    [...seen.entries()].map(async ([label, owner]): Promise<EnsMembership | null> => {
-      const status = await client.readContract({
-        address: ENS.branchRegistry as Address,
-        abi: registryAbi,
-        functionName: "getStatus",
-        args: [labelHash(label)],
-      });
-      if (status !== 2) return null; // 2 = REGISTERED
-
-      const resource = await client.readContract({
-        address: ENS.branchRegistry as Address,
-        abi: registryAbi,
-        functionName: "getResource",
-        args: [labelHash(label)],
-      });
-
-      const [roleId, ownRoles, node, memberLabel] = await Promise.all([
-        client.readContract({
-          address: ENS.branchRegistrar as Address,
-          abi: registrarV2Abi,
-          functionName: "roleOf",
-          args: [resource],
-        }),
-        client.readContract({
-          address: ENS.branchRegistry as Address,
-          abi: registryAbi,
-          functionName: "roles",
-          args: [resource, owner],
-        }),
-        client.readContract({
-          address: ENS.branchRegistrar as Address,
-          abi: registrarV2Abi,
-          functionName: "membershipNode",
-          args: [label],
-        }),
-        client.readContract({
-          address: ENS.orgRegistrar as Address,
-          abi: orgRegistrarAbi,
-          functionName: "labelOf",
-          args: [owner],
-        }),
-      ]);
-
-      const values = await Promise.all(
-        ENTITLEMENT_KEYS.map((key) =>
-          client.readContract({
-            address: ENS.resolver as Address,
-            abi: resolverAbi,
-            functionName: "text",
-            args: [node, key],
-          }),
-        ),
-      );
-
-      return {
-        label,
-        name: `${label}.${ENS.branch}`,
-        branch: ENS.branch,
-        branchLabel: ENS.branchLabel,
-        owner,
-        role: names.get(roleId.toLowerCase()) ?? "unknown",
-        ownRoles: ownRoles.toString(),
-        memberName: memberLabel ? `${memberLabel}.${ENS.organization}` : null,
-        entitlements: Object.fromEntries(
-          ENTITLEMENT_KEYS.map((key, i) => [key, values[i]]).filter(([, v]) => v !== ""),
-        ),
-      } satisfies EnsMembership;
-    }),
-  );
-
-  return rows.filter((row): row is EnsMembership => row !== null);
 }
 
 export type ResolvedIdentity = {
@@ -471,14 +376,24 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
  * Asking them to type their own ENS name would be both worse UX and weaker: a typed name proves
  * nothing, which is exactly how the current portal ends up treating a public name as a password.
  *
- * Reads contracts directly, never the indexer — this is on the admission path, and an indexer
- * that is merely lagging must not read as "not a member".
+ * The branch list comes from the indexer, which is the one thing here that can be stale — so a
+ * miss is deliberately NOT treated as "not a member". If any branch could not be inspected, this
+ * throws rather than returning null, because the caller turns null into a 403 (a deny) and a
+ * throw into a 502 (an outage). Denying a real member because an indexer lagged is precisely the
+ * failure this distinction exists to prevent.
  */
 export async function resolveByWallet(wallet: Address): Promise<ResolvedIdentity | null> {
   const branches = await getIndexedBranches();
+  if (branches.length === 0) throw new Error("no branches could be read; cannot rule out a membership");
 
+  const unreadable: string[] = [];
   for (const branch of branches) {
-    if (!branch.registrar) continue;
+    if (!branch.registrar) {
+      // Indexed, but its registrar record has not been picked up yet. We cannot say this wallet
+      // is not a member here — only that we could not check.
+      unreadable.push(branch.name);
+      continue;
+    }
     const resource = await client.readContract({
       address: branch.registrar as Address,
       abi: registrarV2Abi,
@@ -497,6 +412,10 @@ export async function resolveByWallet(wallet: Address): Promise<ResolvedIdentity
 
     // Round-trip through the name so the answer is exactly what an enforcer would resolve.
     return await resolveIdentity(`${label}.${branch.name}`);
+  }
+
+  if (unreadable.length > 0) {
+    throw new Error(`could not inspect ${unreadable.join(", ")}; membership is unconfirmed`);
   }
   return null;
 }

@@ -21,7 +21,7 @@ export default function MembersPage() {
   const branchEns = branches?.[0]?.name ?? "…";
 
   const { data: usersData, isLoading, error } = useUsers();
-  const { data: sessionsData } = useSessions(true);
+  const { data: sessionsData, error: sessionsError } = useSessions(true);
 
   const users = usersData?.users ?? [];
   const activeSessions = sessionsData?.sessions ?? [];
@@ -49,7 +49,11 @@ export default function MembersPage() {
 
         <Panel as="section" className="overflow-hidden">
           <PanelHeader
-            right={<span className="font-mono text-[0.6875rem] text-ink-muted">{activeSessions.length} online</span>}
+            right={
+              <span className="font-mono text-[0.6875rem] text-ink-muted">
+                {sessionsError ? "session count unavailable" : `${activeSessions.length} online`}
+              </span>
+            }
           >
             All memberships
           </PanelHeader>

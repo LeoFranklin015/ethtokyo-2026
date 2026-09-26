@@ -253,7 +253,9 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
     if (!value) return;
     const t = setTimeout(async () => {
       try {
-        setCheck(await (await fetch(`/api/ens/available?label=${value}`)).json());
+        const res = await fetch(`/api/ens/available?label=${value}`);
+        if (!res.ok) throw new Error("registrar unreachable");
+        setCheck(await res.json());
       } catch {
         setCheck({ valid: false, reason: "could not reach the registrar" });
       }
@@ -401,7 +403,11 @@ function BranchStep({
     if (!value) return;
     const t = setTimeout(async () => {
       try {
-        const body = await (await fetch(`/api/ens/branch?label=${value}`)).json();
+        const res = await fetch(`/api/ens/branch?label=${value}`);
+        // A 502 is the chain not answering, not a label being taken. Rendering it as "exists"
+        // would stop an operator opening a branch for the length of an RPC blip.
+        if (!res.ok) return setFree(null);
+        const body = await res.json();
         setFree(body.valid ? body.available : false);
       } catch {
         setFree(null);

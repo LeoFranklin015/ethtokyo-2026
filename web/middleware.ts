@@ -24,6 +24,9 @@ function unauthorized(reason: string) {
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  // The sign-in route itself must be reachable without a session.
+  if (pathname.startsWith("/api/console/session")) return NextResponse.next();
+
   const isAdmin = pathname.startsWith("/api/admin");
   const isEnsWrite = pathname.startsWith("/api/ens") && WRITE_METHODS.has(req.method);
   if (!isAdmin && !isEnsWrite) return NextResponse.next();
@@ -52,5 +55,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/admin/:path*", "/api/ens/:path*"],
+  matcher: ["/api/admin/:path*", "/api/ens/:path*", "/api/console/:path*"],
 };
