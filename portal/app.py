@@ -211,6 +211,10 @@ def _apply_ens_isolation(ip: str, action: str) -> None:
 @app.before_request
 def check_authed():
     ip = client_ip()
+    # Internal endpoints self-gate on localhost; the captive redirect must not
+    # intercept them, or the dhcp-hook's revoke POST never reaches its handler.
+    if request.path.startswith("/internal/"):
+        return None
     if ip in AUTHED_IPS:
         if request.path in CAPTIVE_PROBE_PATHS:
             return make_response("", 204)
