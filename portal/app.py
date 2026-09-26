@@ -142,7 +142,7 @@ def grant_access(ip: str, tier: str, ens_name=None, user_id=None) -> None:
             _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
                   "-s", ip, "-p", "udp", "--dport", "53",
                   "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
-            _apply_cross_tier_rules(ip, tier, action="I")
+            _apply_ens_isolation(ip, action="I")
         except Exception:
             _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
             raise
@@ -170,7 +170,7 @@ def revoke_access(ip: str) -> None:
         _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
                  "-s", ip, "-p", "udp", "--dport", "53",
                  "-j", "DNAT", "--to-destination", "8.8.8.8:53"])
-        _apply_cross_tier_rules(ip, tier, action="D")
+        _apply_ens_isolation(ip, action="D")
         sid = SESSION_IDS.pop(ip, None)
         ENS_NAMES.pop(ip, None)
         del AUTHED_IPS[ip]
@@ -178,12 +178,14 @@ def revoke_access(ip: str) -> None:
             _notify_session_ended(sid)
 
 
-def _apply_cross_tier_rules(ip: str, tier: str, action: str) -> None:
-    """Insert (I) or delete (D) cross-tier DROP rules for ip."""
-    for other_ip, other_tier in list(AUTHED_IPS.items()):
-        if other_tier == tier or other_ip == ip:
+def _apply_ens_isolation(ip: str, action: str) -> None:
+    """Insert (I) or delete (D) DROP rules between ip and every authed IP on a DIFFERENT ENS name."""
+    my_name = ENS_NAMES.get(ip)
+    for other_ip in list(AUTHED_IPS.keys()):
+        if other_ip == ip:
             continue
-        # Drop traffic between this IP and IPs on other tiers
+        if ENS_NAMES.get(other_ip) == my_name and my_name is not None:
+            continue  # same ENS user — allowed to talk
         _run_ok(["iptables", f"-{action}", "FORWARD",
                  "-s", ip, "-d", other_ip, "-j", "DROP"])
         _run_ok(["iptables", f"-{action}", "FORWARD",
