@@ -66,52 +66,10 @@ def _inject_auth(resource: dict, headers: dict, params: dict) -> None:
     # url_path handled in _build_url; no_auth does nothing
 
 
-# key_placement values and what they do:
-#   url_path     — key appended to URL: {base}/{api_key}/{subpath}
-#   header       — key injected as custom header (key_header_name)
-#   bearer_token — key injected as Authorization: Bearer {api_key}
-#   basic_auth   — inject as Authorization: Basic base64({api_key_b64_user}:{api_key})
-#                  api_key_b64_user = username (empty = use empty username)
-#   query_param  — key injected as query param (query_param_name)
-#   no_auth      — no key injection (open upstream or handled by client headers)
-
-
-def _build_url(resource: dict, subpath: str) -> str:
-    base = resource["upstream_url"].rstrip("/")
-    path = subpath.lstrip("/")
-    if resource["key_placement"] == "url_path":
-        key = resource.get("api_key") or ""
-        return f"{base}/{key}/{path}" if key else f"{base}/{path}"
-    return f"{base}/{path}" if path else base
-
-
-def _inject_auth(resource: dict, headers: dict, params: dict) -> None:
-    placement = resource["key_placement"]
-    key = resource.get("api_key") or ""
-
-    if placement == "header":
-        name = resource.get("key_header_name") or "X-Api-Key"
-        headers[name] = key
-
-    elif placement == "bearer_token":
-        headers["Authorization"] = f"Bearer {key}"
-
-    elif placement == "basic_auth":
-        user = resource.get("api_key_b64_user") or ""
-        cred = base64.b64encode(f"{user}:{key}".encode()).decode()
-        headers["Authorization"] = f"Basic {cred}"
-
-    elif placement == "query_param":
-        name = resource.get("query_param_name") or "api_key"
-        params[name] = key
-
-    # url_path handled in _build_url; no_auth does nothing
-
-
 def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
     """
     Forward request to upstream with auth injection.
-    Returns (content_bytes, status, req_bytes, resp_bytes, duration_ms, upstream_error).
+    Returns (content_bytes, status, req_bytes, resp_bytes, duration_ms, upstream_error, content_type).
     """
     start = time.monotonic()
 
@@ -158,13 +116,13 @@ def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
             size += len(chunk)
             if size > MAX_RESP_BYTES:
                 resp.close()
-                return None, 413, req_bytes, size, 0, "response_too_large"
+                return None, 413, req_bytes, size, 0, "response_too_large", None
             chunks.append(chunk)
         content = b"".join(chunks)
         resp_bytes = len(content)
 
         duration_ms = int((time.monotonic() - start) * 1000)
-        return content, resp.status_code, req_bytes, resp_bytes, duration_ms, None
+        return content, resp.status_code, req_bytes, resp_bytes, duration_ms, None, resp.headers.get("Content-Type")
 
     except requests.exceptions.ConnectionError as e:
         duration_ms = int((time.monotonic() - start) * 1000)

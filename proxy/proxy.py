@@ -9,16 +9,18 @@ import base64
 import bcrypt
 from datetime import datetime, timezone
 from urllib.parse import urlencode
-from flask import Flask, request, jsonify, g, Response, stream_with_context
+from flask import Flask, request, jsonify, g, Response, stream_with_context, send_from_directory, send_file, abort
 import requests as req_lib
 
+import wallet_allowlist
 from db import get_db, init_db, close_db
 from auth import require_admin, require_authed_ip, require_local, verify_admin_token
 from rate_limit import check_and_increment, get_usage_for_ip
-from upstream import forward, record_event, _build_url, _inject_auth
+from upstream import forward, record_event, _build_url, _inject_auth, inject_provider
 
 app = Flask(__name__)
 PORTAL_INTERNAL = "http://127.0.0.1:8080"
+WALLET_RPC_URL = os.environ.get("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 app.teardown_appcontext(close_db)
 
 
@@ -847,6 +849,86 @@ def revoke_session(sid):
 
 # ── proxy ─────────────────────────────────────────────────────────────────────
 
+def _handle_rpc_call(call):
+    rpc_id = call.get("id") if isinstance(call, dict) else None
+    method = call.get("method") if isinstance(call, dict) else None
+    if not method or not wallet_allowlist.is_read(method):
+        return {"jsonrpc": "2.0", "id": rpc_id,
+                "error": {"code": -32601, "message": "method not permitted (read-only)"}}
+    try:
+        resp = req_lib.request("POST", WALLET_RPC_URL, json=call, timeout=30, verify=True)
+        return resp.json()
+    except Exception as e:
+        return {"jsonrpc": "2.0", "id": rpc_id,
+                "error": {"code": -32000, "message": f"upstream error: {str(e)[:120]}"}}
+
+
+@app.route("/api/wallet/rpc", methods=["POST"])
+def wallet_rpc():
+    payload = request.get_json(silent=True)
+    if isinstance(payload, list):
+        return jsonify([_handle_rpc_call(c) for c in payload])
+    if isinstance(payload, dict):
+        return jsonify(_handle_rpc_call(payload))
+    return jsonify({"jsonrpc": "2.0", "id": None,
+                    "error": {"code": -32600, "message": "invalid request"}}), 400
+
+
+@app.route("/api/wallet/account")
+def wallet_account():
+    ip = request.remote_addr  # the real VLAN source IP; never a forwarded header
+    db = get_db()
+    session = db.execute(
+        "SELECT * FROM sessions WHERE ip=? AND logged_out_at IS NULL AND revoked_at IS NULL "
+        "ORDER BY logged_in_at DESC LIMIT 1", (ip,)
+    ).fetchone()
+    if not session:
+        return jsonify({"error": "no_account"}), 404
+
+    wallet = _col(session, "wallet_address")
+    if wallet:
+        return jsonify({"address": wallet, "name": _col(session, "ens_name")})
+
+    ens_name = _col(session, "ens_name")
+    if not ens_name:
+        return jsonify({"error": "no_account"}), 404
+
+    resolved = _resolve_via_ens(ens_name)
+    if resolved is None:
+        # Could not ask — retryable, not a deny.
+        return jsonify({"error": "resolve_unreachable"}), 503
+    if resolved.get("denied"):
+        return jsonify({"error": "no_account"}), 404
+    owner = resolved.get("owner")
+    if not owner:
+        return jsonify({"error": "no_account"}), 404
+    return jsonify({"address": owner, "name": ens_name})
+
+
+_WALLET_ASSET_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "web", "public", "wallet")
+)
+_WALLET_ASSET_ALLOW = {"provider.js", "provider.l2.js", "read-methods.json"}
+
+
+@app.route("/wallet/ca.crt")
+def wallet_ca():
+    path = os.path.expanduser(
+        os.environ.get("WALLET_CA_PATH", "~/.mitmproxy/mitmproxy-ca-cert.pem")
+    )
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype="application/x-x509-ca-cert",
+                     as_attachment=True, download_name="ca.crt")
+
+
+@app.route("/wallet/<path:asset>")
+def wallet_asset(asset):
+    if asset not in _WALLET_ASSET_ALLOW:
+        abort(404)
+    return send_from_directory(_WALLET_ASSET_DIR, asset)
+
+
 @app.route("/proxy/<slug>", defaults={"subpath": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"], strict_slashes=False)
 @app.route("/proxy/<slug>/<path:subpath>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"], strict_slashes=False)
 def proxy(slug, subpath):
@@ -886,7 +968,7 @@ def proxy(slug, subpath):
         return jsonify({"error": "rate_limit_exceeded", **limit_hit}), 429
 
     # Forward
-    content, status, req_bytes, resp_bytes, duration_ms, upstream_error = forward(
+    content, status, req_bytes, resp_bytes, duration_ms, upstream_error, content_type = forward(
         dict(resource), request.method, subpath, request
     )
 
@@ -897,7 +979,13 @@ def proxy(slug, subpath):
     if content is None:
         return jsonify({"error": "upstream_unreachable", "detail": upstream_error}), status
 
-    return Response(content, status=status)
+    resp_headers = {}
+    if content_type:
+        resp_headers["Content-Type"] = content_type
+    if os.environ.get("WALLET_INJECT") == "1":
+        content, resp_headers = inject_provider(content, content_type or "", resp_headers)
+
+    return Response(content, status=status, headers=resp_headers)
 
 
 # ── usage & analytics ─────────────────────────────────────────────────────────
