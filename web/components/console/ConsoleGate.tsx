@@ -7,7 +7,6 @@ import { useAccount } from "wagmi";
 import { useSWRConfig } from "swr";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { SiteHeader } from "@/components/SiteHeader";
-import { WalletButton } from "@/components/WalletButton";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { OpenByNameField } from "@/components/console/OrgPicker";
 import { useConsoleSession } from "@/lib/hooks/useConsoleSession";
@@ -203,6 +202,27 @@ function Rail({ current }: { current: number }) {
 }
 
 
+/** Points at the header's control, in the same weight as the rules above and below it. */
+function UpRight() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      focusable="false"
+      className="shrink-0"
+    >
+      <path d="M4.5 11.5 11.5 4.5M5.75 4.5h5.75V10.25" />
+    </svg>
+  );
+}
+
 function Settling() {
   return (
     // The same frame as every other gate, minus the step marks. Rendering a bare line of text on
@@ -239,14 +259,13 @@ function ConnectGate() {
         to show, so there is nothing here yet.
       </p>
 
-      {/* The action belongs on the screen whose only purpose is that action. There are two
-          wallet controls here — this one and the header's — but they are not the same thing:
-          this is the step you are on, solid; the header's is chrome, outlined, and persists
-          through every later step. Pointing at the header instead of offering the button made
-          people hunt for the one thing the page exists to do. */}
-      <div className="mt-8">
-        <WalletButton />
-      </div>
+      {/* One wallet control on the screen, and it is the header's — the one that persists
+          through every later step and through the console itself. A second, identical pill in
+          the body made one thing to do look like two. */}
+      <p className="mt-8 flex items-center gap-2.5 border-y border-rule py-3.5 font-mono text-xs uppercase tracking-[0.12em] text-ink">
+        <UpRight />
+        Connect wallet, top right
+      </p>
 
       <p className="mt-6 max-w-[54ch] text-xs leading-relaxed text-ink-muted">
         Connecting reads only — nothing is signed and nothing is spent. No organization yet?{" "}
