@@ -33,7 +33,8 @@ interface IBranchRegistrarDeployer {
         uint64 expiry,
         address admin,
         OrgRegistrar org,
-        bytes32 node
+        bytes32 node,
+        bytes calldata dnsName
     ) external returns (address);
 }
 
@@ -51,8 +52,9 @@ contract BranchRegistrarDeployer is IBranchRegistrarDeployer {
         uint64 expiry,
         address admin,
         OrgRegistrar org,
-        bytes32 node
+        bytes32 node,
+        bytes calldata dnsName
     ) external returns (address) {
-        return address(new BranchRegistrarV2(registry, resolver, expiry, admin, org, node));
+        return address(new BranchRegistrarV2(registry, resolver, expiry, admin, org, node, dnsName));
     }
 }

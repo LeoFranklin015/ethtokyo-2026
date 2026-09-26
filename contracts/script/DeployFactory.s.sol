@@ -15,6 +15,9 @@ import {SepoliaENSv2} from "./SepoliaENSv2.sol";
 contract DeployFactory is Script {
     bytes32 constant ORG_NODE = 0x291def960cdeed286467d6beeaad1ab15faeb706a2dcd0126a3a6a22ef3e3aef;
 
+    /// @dev DNS wire format of the organization: \x0aethglobal2\x03eth\x00
+    bytes internal constant ORG_DNS_NAME = hex"0a657468676c6f62616c320365746800";
+
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address me = vm.addr(pk);
@@ -32,6 +35,7 @@ contract DeployFactory is Script {
             ILabelStore(SepoliaENSv2.LABEL_STORE),
             resolver,
             ORG_NODE,
+            ORG_DNS_NAME,
             me,
             new BranchRegistryDeployer(),
             new BranchRegistrarDeployer()

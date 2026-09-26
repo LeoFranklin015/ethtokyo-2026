@@ -3,6 +3,8 @@ pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
 import {BranchRegistrarV2, IBranchResolver} from "../src/BranchRegistrarV2.sol";
+import {MockPermissionedResolver} from "./MockPermissionedResolver.sol";
+import {NameCoder} from "@ens/contracts/utils/NameCoder.sol";
 import {OrgRegistrar} from "../src/OrgRegistrar.sol";
 import {PermissionedRegistry} from "@ens-v2/registry/PermissionedRegistry.sol";
 import {IPermissionedRegistry} from "@ens-v2/registry/interfaces/IPermissionedRegistry.sol";
@@ -12,28 +14,16 @@ import {IContractNamer} from "@ens-v2/reverse-registrar/interfaces/IContractName
 import {RegistryRolesLib} from "@ens-v2/registry/libraries/RegistryRolesLib.sol";
 import {EACBaseRolesLib} from "@ens-v2/access-control/libraries/EACBaseRolesLib.sol";
 
-/// @dev Stands in for the branch resolver. Records who wrote what, so the tests can assert on
-///      authority without also exercising the resolver's own argument-scoped role machinery.
-contract StubResolver is IBranchResolver {
-    mapping(bytes32 => mapping(string => string)) public records;
-
-    function setText(bytes32 node, string calldata key, string calldata value) external {
-        records[node][key] = value;
-    }
-
-    function text(bytes32 node, string calldata key) external view returns (string memory) {
-        return records[node][key];
-    }
-}
-
 contract BranchRegistrarV2Test is Test {
     PermissionedRegistry internal registry;
     PermissionedRegistry internal orgRegistry;
     BranchRegistrarV2 internal registrar;
     OrgRegistrar internal org;
-    StubResolver internal resolver;
+    MockPermissionedResolver internal resolver;
 
-    bytes32 internal constant BRANCH_NODE = keccak256("tokyo.ensca.eth");
+    /// @dev \x05tokyo\x05ensca\x03eth\x00 — the DNS wire encoding the resolver re-hashes.
+    bytes internal constant BRANCH_DNS_NAME = hex"05746f6b796f05656e7363610365746800";
+    bytes32 internal BRANCH_NODE = NameCoder.namehash(BRANCH_DNS_NAME, 0);
 
     address internal organizer = _who(1);
 
@@ -56,7 +46,7 @@ contract BranchRegistrarV2Test is Test {
 
     function setUp() public {
         branchExpiry = uint64(block.timestamp + 30 days);
-        resolver = new StubResolver();
+        resolver = new MockPermissionedResolver();
 
         registry = new PermissionedRegistry(
             ILabelStore(address(new LabelStore(IContractNamer(address(0))))),
@@ -84,10 +74,12 @@ contract BranchRegistrarV2Test is Test {
             branchExpiry,
             organizer,
             org,
-            BRANCH_NODE
+            BRANCH_NODE,
+            BRANCH_DNS_NAME
         );
         // The branch registrar enrols Members on the organization's behalf.
         // NB: read the constant first — an external getter would consume the prank.
+        resolver.grantRootRoles(0, address(registrar));
         uint256 enrol = org.ROLE_ENROL();
         vm.prank(organizer);
         org.grantRootRoles(enrol, address(registrar));
@@ -128,7 +120,7 @@ contract BranchRegistrarV2Test is Test {
         registrar.defineRole("organizer", 0, true, false, none, noGrants);
     }
 
-    function _node(string memory label) internal pure returns (bytes32) {
+    function _node(string memory label) internal view returns (bytes32) {
         return keccak256(abi.encodePacked(BRANCH_NODE, keccak256(bytes(label))));
     }
 
@@ -237,30 +229,35 @@ contract BranchRegistrarV2Test is Test {
 
         // The mentor may write the two keys their role lists.
         vm.startPrank(priya);
-        registrar.setOwnRecord("avatar", "ipfs://priya", _node("priya"));
-        registrar.setOwnRecord("ssh.pubkey", "ssh-ed25519 AAAA", _node("priya"));
+        resolver.setText(_node("priya"), "avatar", "ipfs://priya");
+        resolver.setText(_node("priya"), "ssh.pubkey", "ssh-ed25519 AAAA");
         vm.stopPrank();
         assertEq(resolver.text(_node("priya"), "avatar"), "ipfs://priya");
         assertEq(resolver.text(_node("priya"), "ssh.pubkey"), "ssh-ed25519 AAAA");
 
         // ...and nothing else. `wifi.rate` is an entitlement, not a profile field.
         vm.prank(priya);
+        // The denial now comes from the resolver itself, on resource(node, partHash(key)) —
+        // this registrar is not in the path at all.
         vm.expectRevert(
             abi.encodeWithSelector(
-                BranchRegistrarV2.CannotEditKey.selector, priya, "wifi.rate"
+                MockPermissionedResolver.NotAuthorized.selector, priya, _node("priya"), "wifi.rate"
             )
         );
-        registrar.setOwnRecord("wifi.rate", "1000mbps", _node("priya"));
+        resolver.setText(_node("priya"), "wifi.rate", "1000mbps");
 
         // The hacker, at the very same level, may write nothing.
         vm.prank(kenji);
         vm.expectRevert(
-            abi.encodeWithSelector(BranchRegistrarV2.CannotEditKey.selector, kenji, "avatar")
+            abi.encodeWithSelector(
+                MockPermissionedResolver.NotAuthorized.selector, kenji, _node("kenji"), "avatar"
+            )
         );
-        registrar.setOwnRecord("avatar", "ipfs://kenji", _node("kenji"));
+        resolver.setText(_node("kenji"), "avatar", "ipfs://kenji");
     }
 
-    /// Redefining a role changes what its existing holders may do, with no per-member work.
+    /// Redefining a role changes what new members get. Existing members hold rights in the
+    /// resolver already, so catching them up is an explicit act — this pins that contract.
     function test_editing_the_catalogue_changes_existing_holders() public {
         address kenji = _who(11);
         vm.prank(organizer);
@@ -268,7 +265,7 @@ contract BranchRegistrarV2Test is Test {
 
         vm.prank(kenji);
         vm.expectRevert();
-        registrar.setOwnRecord("avatar", "ipfs://kenji", _node("kenji"));
+        resolver.setText(_node("kenji"), "avatar", "ipfs://kenji");
 
         // The organization decides hackers may set an avatar after all.
         string[] memory keys = new string[](1);
@@ -276,8 +273,17 @@ contract BranchRegistrarV2Test is Test {
         vm.prank(organizer);
         registrar.defineRole("hacker", 0, false, true, keys, new BranchRegistrarV2.Entitlement[](0));
 
+        // A redefinition alone does not reach back into the resolver.
         vm.prank(kenji);
-        registrar.setOwnRecord("avatar", "ipfs://kenji", _node("kenji"));
+        vm.expectRevert();
+        resolver.setText(_node("kenji"), "avatar", "ipfs://kenji");
+
+        uint256 resource = registrar.membershipOf(kenji);
+        vm.prank(organizer);
+        registrar.syncMemberKeys(resource, new string[](0));
+
+        vm.prank(kenji);
+        resolver.setText(_node("kenji"), "avatar", "ipfs://kenji");
         assertEq(resolver.text(_node("kenji"), "avatar"), "ipfs://kenji");
     }
 
@@ -296,7 +302,7 @@ contract BranchRegistrarV2Test is Test {
 
         // The new role's own rights work.
         vm.prank(dana);
-        registrar.setOwnRecord("clinic.speciality", "strength", _node("dana"));
+        resolver.setText(_node("dana"), "clinic.speciality", "strength");
         assertEq(resolver.text(_node("dana"), "clinic.speciality"), "strength");
 
         // And it inherited onboarding authority from its spec, with no grant.

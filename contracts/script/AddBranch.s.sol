@@ -22,6 +22,9 @@ contract AddBranch is Script {
     string constant LABEL = "osaka";
     bytes32 constant BRANCH_NODE = 0xcb93dc254db4ff713d8261ba97870b6ceac90fe3dc7f2885799a1ec724788897;
 
+    /// @dev DNS wire format of the organization: \x0aethglobal2\x03eth\x00
+    bytes internal constant ORG_DNS_NAME = hex"0a657468676c6f62616c320365746800";
+
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address me = vm.addr(pk);
@@ -48,7 +51,8 @@ contract AddBranch is Script {
             expiry,
             me,
             OrgRegistrar(orgRegistrar),
-            BRANCH_NODE
+            BRANCH_NODE,
+            abi.encodePacked(uint8(bytes(LABEL).length), LABEL, ORG_DNS_NAME)
         );
         branchRegistry.grantRootRoles(registrar.REQUIRED_REGISTRY_ROLES(), address(registrar));
         OrgRegistrar(orgRegistrar).grantRootRoles(

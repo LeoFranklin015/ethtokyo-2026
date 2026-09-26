@@ -10,6 +10,12 @@ import {RegistryRolesLib} from "@ens-v2/registry/libraries/RegistryRolesLib.sol"
 interface IBranchResolver {
     function setText(bytes32 node, string calldata key, string calldata value) external;
     function text(bytes32 node, string calldata key) external view returns (string memory);
+    /// @dev ENSv2's own per-(name, key) permission. Grants `ROLE_SET_TEXT` on
+    ///      `resource(namehash(toName), partHash(key))`, so the resolver itself enforces both
+    ///      dimensions. Caller needs `ROLE_SET_TEXT_ADMIN` on `resource(namehash(toName), 0)`.
+    function authorizeTextRoles(bytes calldata toName, string calldata key, address account, bool grant)
+        external
+        returns (bool updated);
 }
 
 /// @title BranchRegistrarV2
@@ -54,6 +60,12 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     uint256 public constant ROLE_ROLE_EDIT = 1 << 8;
     uint256 public constant ROLE_ROLE_EDIT_ADMIN = ROLE_ROLE_EDIT << 128;
 
+    /// @dev Root only: "may end a membership". Deliberately not `ROLE_EDIT_RECORD`: fixing a
+    ///      typo in somebody's avatar and burning their name are not the same privilege, and the
+    ///      record role is the one an organization hands out widely.
+    uint256 public constant ROLE_REVOKE = 1 << 12;
+    uint256 public constant ROLE_REVOKE_ADMIN = ROLE_REVOKE << 128;
+
     ////////////////////////////////////////////////////////////////////////
     // Types
     ////////////////////////////////////////////////////////////////////////
@@ -86,15 +98,24 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     ///      then reads back empty through the UniversalResolver.
     bytes32 public immutable BRANCH_NODE;
 
+    /// @notice DNS wire-format encoding of this branch, e.g. `\x05tokyo\x0aethglobal2\x03eth\x00`.
+    /// @dev `authorizeTextRoles` takes a name, not a node, and re-derives the namehash itself.
+    ///      Storing the encoding is what lets this contract delegate per-key rights on a
+    ///      membership without the caller ever supplying a node.
+    bytes public BRANCH_DNS_NAME;
+
     mapping(bytes32 roleId => RoleSpec) public roleSpec;
     /// @dev Records written to every membership minted at this role.
     mapping(bytes32 roleId => Entitlement[]) internal _entitlements;
-    /// @dev Text keys a role's holder may write **on their own name**.
+    /// @dev Text keys a role's holder may write **on their own name**. Authority is not stored
+    ///      here — it is delegated to the resolver at onboarding. This is the catalogue entry.
     mapping(bytes32 roleId => mapping(bytes32 keyHash => bool)) public selfEditable;
+    /// @dev The same keys as a list, so `defineRole` can clear the previous set. Without it a
+    ///      key removed from a role stays writable by its holders forever.
+    mapping(bytes32 roleId => string[]) internal _editableKeys;
 
-    /// @dev Reverse lookups, so `_getRoles` can tell what an opaque resource refers to.
+    /// @dev Reverse lookup, so `_getRoles` can tell what an opaque resource refers to.
     mapping(uint256 resource => bytes32 roleId) public roleAtResource;
-    mapping(uint256 resource => bytes32 keyHash) public keyAtResource;
 
     mapping(uint256 membershipResource => bytes32 roleId) public roleOf;
     mapping(uint256 membershipResource => address member) public memberOf;
@@ -107,6 +128,9 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     event Onboarded(uint256 indexed resource, string label, address indexed owner, bytes32 roleId);
     event RecordSet(uint256 indexed resource, string key, string value);
     event Revoked(uint256 indexed resource, address indexed member);
+    event RoleRetired(bytes32 indexed roleId);
+    event MembershipReleased(address indexed account, uint256 resource);
+    event MemberKeysSynced(uint256 indexed resource, address indexed member);
 
     error Reentrancy();
     error UnknownRole(bytes32 roleId);
@@ -117,6 +141,9 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     error AlreadyOnboarded(address account);
     error NotOnboarded(address account);
     error NotARevoker(address account);
+    error InvalidLabel(string label);
+    error InvalidOwner();
+    error MembershipStillLive(address account);
 
     modifier nonReentrant() {
         if (_entered == 1) revert Reentrancy();
@@ -131,17 +158,19 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         uint64 branchExpiry,
         address admin,
         OrgRegistrar org,
-        bytes32 branchNode
+        bytes32 branchNode,
+        bytes memory branchDnsName
     ) {
         REGISTRY = registry;
         RESOLVER = resolver;
         BRANCH_EXPIRY = branchExpiry;
         ORG = org;
         BRANCH_NODE = branchNode;
+        BRANCH_DNS_NAME = branchDnsName;
         _grantRoles(
             ROOT_RESOURCE,
             ROLE_MINT | ROLE_MINT_ADMIN | ROLE_EDIT_RECORD | ROLE_EDIT_RECORD_ADMIN | ROLE_ROLE_EDIT
-                | ROLE_ROLE_EDIT_ADMIN,
+                | ROLE_ROLE_EDIT_ADMIN | ROLE_REVOKE | ROLE_REVOKE_ADMIN,
             admin,
             false
         );
@@ -153,10 +182,6 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
 
     function roleResource(bytes32 roleId) public pure returns (uint256) {
         return uint256(keccak256(abi.encode("ensca.role", roleId)));
-    }
-
-    function keyResource(string memory key) public pure returns (uint256) {
-        return uint256(keccak256(abi.encode("ensca.key", keccak256(bytes(key)))));
     }
 
     function roleId(string memory name) public pure returns (bytes32) {
@@ -182,10 +207,17 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         roleSpec[id] = RoleSpec(registryBitmap, canOnboard, openToOnboarders, true);
         roleAtResource[roleResource(id)] = id;
 
+        // Clear before writing. A redefinition that drops a key must actually drop it —
+        // otherwise every existing holder keeps a permission the catalogue no longer lists.
+        string[] storage previous = _editableKeys[id];
+        for (uint256 i; i < previous.length; ++i) {
+            selfEditable[id][keccak256(bytes(previous[i]))] = false;
+        }
+        delete _editableKeys[id];
         for (uint256 i; i < editableKeys.length; ++i) {
             bytes32 keyHash = keccak256(bytes(editableKeys[i]));
             selfEditable[id][keyHash] = true;
-            keyAtResource[keyResource(editableKeys[i])] = keyHash;
+            _editableKeys[id].push(editableKeys[i]);
         }
         delete _entitlements[id];
         for (uint256 i; i < grants.length; ++i) {
@@ -196,6 +228,25 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
 
     function entitlementsOf(bytes32 role) external view returns (Entitlement[] memory) {
         return _entitlements[role];
+    }
+
+    /// @notice The text keys this role's holders may write on their own name.
+    function editableKeysOf(bytes32 role) external view returns (string[] memory) {
+        return _editableKeys[role];
+    }
+
+    /// @notice Retire a role. Existing memberships keep their name; nobody new can be minted at it.
+    function retireRole(bytes32 role) external {
+        if (!hasRootRoles(ROLE_ROLE_EDIT, msg.sender)) revert NotARoleEditor(msg.sender);
+        roleSpec[role].active = false;
+        emit RoleRetired(role);
+    }
+
+    /// @notice DNS wire-format name of a membership, e.g. `\x03leo\x05tokyo...`.
+    /// @dev Derived here and never supplied, for the same reason `membershipNode` is: a
+    ///      caller-chosen name is a caller-chosen namehash.
+    function membershipDnsName(string memory label) public view returns (bytes memory) {
+        return abi.encodePacked(uint8(bytes(label).length), label, BRANCH_DNS_NAME);
     }
 
     /// @notice ENS namehash of a membership in this branch.
@@ -221,6 +272,8 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         if (!hasRoles(roleResource(role), ROLE_MINT, msg.sender)) {
             revert CannotMintRole(msg.sender, role);
         }
+        if (owner == address(0)) revert InvalidOwner();
+        if (!_isValidLabel(label)) revert InvalidLabel(label);
         if (membershipOf[owner] != 0) revert AlreadyOnboarded(owner);
         if (REGISTRY.getStatus(uint256(keccak256(bytes(label)))) != IPermissionedRegistry.Status.AVAILABLE) {
             revert LabelUnavailable(label);
@@ -251,6 +304,11 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
             RESOLVER.setText(node, grants[i].key, grants[i].value);
         }
 
+        // Hand the member their own record rights, in the resolver's own terms: `ROLE_SET_TEXT`
+        // on `resource(theirNode, partHash(key))`. They then call `setText` directly and the
+        // resolver checks both dimensions — this contract never writes on their behalf again.
+        _delegateKeys(label, role, owner, true);
+
         emit Onboarded(resource, label, owner, role);
     }
 
@@ -259,20 +317,23 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     ///      survives; only Membership ends."* Clearing matters because the resolver keeps records
     ///      keyed by namehash even after the registry forgets the name.
     function revoke(uint256 anyId) external nonReentrant {
-        if (!hasRootRoles(ROLE_EDIT_RECORD, msg.sender)) revert NotARevoker(msg.sender);
+        if (!hasRootRoles(ROLE_REVOKE, msg.sender)) revert NotARevoker(msg.sender);
 
-        uint256 resource = REGISTRY.getResource(anyId);
+        uint256 resource = _resolveResource(anyId);
         address member = memberOf[resource];
-        if (member == address(0)) member = memberOf[anyId];
-        if (member == address(0)) revert NotOnboarded(msg.sender);
-        if (memberOf[anyId] != address(0)) resource = anyId;
+        if (member == address(0)) revert NotOnboarded(member);
 
         string memory label = labelOf[resource];
         bytes32 node = membershipNode(label);
-        Entitlement[] storage grants = _entitlements[roleOf[resource]];
+        bytes32 role = roleOf[resource];
+
+        Entitlement[] storage grants = _entitlements[role];
         for (uint256 i; i < grants.length; ++i) {
             RESOLVER.setText(node, grants[i].key, "");
         }
+        // Take the resolver-side rights back too, or a revoked member keeps writing their own
+        // records at a name the registry no longer says is theirs.
+        _delegateKeys(label, role, member, false);
 
         if (REGISTRY.getStatus(resource) != IPermissionedRegistry.Status.AVAILABLE) {
             REGISTRY.unregister(resource);
@@ -280,8 +341,83 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
 
         delete roleOf[resource];
         delete memberOf[resource];
+        delete labelOf[resource];
         delete membershipOf[member];
         emit Revoked(resource, member);
+    }
+
+    /// @notice Clear a membership pointer that no longer matches the registry.
+    ///
+    /// @dev Needed because the registry can move out from under this contract: a root holder
+    ///      calls `unregister` directly, or a label is re-registered and its `eacVersionId`
+    ///      bumps. The stale pointer would otherwise pin `membershipOf[account]` forever and
+    ///      lock that wallet out of ever being onboarded again.
+    function releaseMembership(address account) external {
+        uint256 resource = membershipOf[account];
+        if (resource == 0) revert NotOnboarded(account);
+        // Only if the registry disagrees that this is still their live name.
+        if (
+            REGISTRY.getStatus(resource) == IPermissionedRegistry.Status.REGISTERED
+                && REGISTRY.getOwner(resource) == account
+        ) revert MembershipStillLive(account);
+
+        delete roleOf[resource];
+        delete memberOf[resource];
+        delete labelOf[resource];
+        delete membershipOf[account];
+        emit MembershipReleased(account, resource);
+    }
+
+    /// @notice Re-apply a role's current editable keys to one existing member.
+    ///
+    /// @dev Delegated rights live in the resolver from the moment of onboarding, so redefining a
+    ///      role changes what *new* members get, not what existing ones hold. That is the cost of
+    ///      letting the resolver be the enforcer rather than mediating every write here. This is
+    ///      the deliberate catch-up: grant what the catalogue now lists, and name explicitly the
+    ///      keys being withdrawn, since the contract no longer knows what it handed out before.
+    function syncMemberKeys(uint256 anyId, string[] calldata withdraw) external {
+        if (!hasRootRoles(ROLE_ROLE_EDIT, msg.sender)) revert NotARoleEditor(msg.sender);
+        uint256 resource = _resolveResource(anyId);
+        address member = memberOf[resource];
+        if (member == address(0)) revert NotOnboarded(member);
+
+        string memory label = labelOf[resource];
+        bytes memory dnsName = membershipDnsName(label);
+        for (uint256 i; i < withdraw.length; ++i) {
+            RESOLVER.authorizeTextRoles(dnsName, withdraw[i], member, false);
+        }
+        _delegateKeys(label, roleOf[resource], member, true);
+        emit MemberKeysSynced(resource, member);
+    }
+
+    /// @dev Grant or revoke a role's self-editable keys to `account`, on their own name only.
+    function _delegateKeys(string memory label, bytes32 role, address account, bool grant) internal {
+        string[] storage keys = _editableKeys[role];
+        if (keys.length == 0) return;
+        bytes memory dnsName = membershipDnsName(label);
+        for (uint256 i; i < keys.length; ++i) {
+            RESOLVER.authorizeTextRoles(dnsName, keys[i], account, grant);
+        }
+    }
+
+    /// @dev A membership id survives version bumps; `getResource` normalises whatever we are given.
+    function _resolveResource(uint256 anyId) internal view returns (uint256) {
+        if (memberOf[anyId] != address(0)) return anyId;
+        return REGISTRY.getResource(anyId);
+    }
+
+    /// @dev `[a-z0-9-]`, 1-32 chars, no leading or trailing hyphen. The same restriction the
+    ///      factory and the org registrar apply — a label they would reject must not enter here
+    ///      through a side door, because a non-normalised label produces a node nothing resolves.
+    function _isValidLabel(string calldata label) internal pure returns (bool) {
+        bytes calldata b = bytes(label);
+        if (b.length == 0 || b.length > 32) return false;
+        if (b[0] == "-" || b[b.length - 1] == "-") return false;
+        for (uint256 i; i < b.length; ++i) {
+            bytes1 c = b[i];
+            if (!((c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "-")) return false;
+        }
+        return true;
     }
 
     /// @notice The role that actually applies to `account` at this branch.
@@ -289,7 +425,11 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     ///      otherwise the organization-wide role applies; otherwise nothing does.
     function effectiveRole(address account) public view returns (bytes32 role, bool fromOrg) {
         uint256 membership = membershipOf[account];
-        if (membership != 0) return (roleOf[membership], false);
+        // A closed branch confers no authority. `membershipOf` is only cleared by `revoke`, so
+        // without this check an organizer whose branch expired keeps minting forever.
+        if (membership != 0 && block.timestamp < BRANCH_EXPIRY) {
+            return (roleOf[membership], false);
+        }
         if (address(ORG) != address(0)) {
             bytes32 orgRole = ORG.orgRole(account);
             if (orgRole != bytes32(0) && roleSpec[orgRole].active) return (orgRole, true);
@@ -297,31 +437,15 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         return (bytes32(0), false);
     }
 
-    /// @notice Write one of your own text records — if your role permits that key.
+    /// @notice Write a record on a membership. For staff, not members.
     ///
-    /// @dev The resolver cannot express this on its own: its roles are argument-scoped but not
-    ///      name-scoped, so granting a member `ROLE_SET_TEXT` for `wifi.rate` would let them edit
-    ///      `wifi.rate` on *everyone's* name. The registrar holds the resolver role and mediates,
-    ///      adding the per-name dimension the resolver lacks.
-    function setOwnRecord(string calldata key, string calldata value, bytes32 node)
-        external
-        nonReentrant
-    {
-        uint256 resource = membershipOf[msg.sender];
-        if (resource == 0) revert NotOnboarded(msg.sender);
-        if (!hasRoles(keyResource(key), ROLE_EDIT_RECORD, msg.sender)) {
-            revert CannotEditKey(msg.sender, key);
-        }
-        RESOLVER.setText(node, key, value);
-        emit RecordSet(resource, key, value);
-    }
-
-    /// @notice Write a record on any membership. For staff, not members.
-    function setRecord(uint256 resource, string calldata key, string calldata value, bytes32 node)
-        external
-    {
+    /// @dev The node is derived from `resource`, never supplied. A caller-chosen node would let
+    ///      any record editor write any key at any name this resolver serves — including a
+    ///      sibling branch's members and the `ensca.registrar` discovery record.
+    function setRecord(uint256 anyId, string calldata key, string calldata value) external {
         if (!hasRootRoles(ROLE_EDIT_RECORD, msg.sender)) revert CannotEditKey(msg.sender, key);
-        RESOLVER.setText(node, key, value);
+        uint256 resource = _resolveResource(anyId);
+        RESOLVER.setText(membershipNode(labelOf[resource]), key, value);
         emit RecordSet(resource, key, value);
     }
 
@@ -330,8 +454,9 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     ////////////////////////////////////////////////////////////////////////
 
     /// @inheritdoc EnhancedAccessControl
-    /// @dev Adds roles implied by the caller's own membership. Nothing here writes storage, so
-    ///      none of it counts against EAC's 15-assignees-per-role-per-resource ceiling.
+    /// @dev Adds the one role implied by the caller's own membership: minting. Nothing here
+    ///      writes storage, so it never counts against EAC's 15-assignees-per-resource ceiling,
+    ///      which is what lets an organization run unlimited volunteers.
     function _getRoles(uint256 resource, address account)
         internal
         view
@@ -354,10 +479,8 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
             roleBitmap |= ROLE_MINT;
         }
 
-        // Records: does the caller's role list this key as self-editable?
-        bytes32 keyHash = keyAtResource[resource];
-        if (keyHash != bytes32(0) && selfEditable[holderRoleId][keyHash]) {
-            roleBitmap |= ROLE_EDIT_RECORD;
-        }
+        // Records are no longer derived here. A member's right to write their own keys lives in
+        // the resolver, on `resource(membershipNode, partHash(key))`, granted at onboarding —
+        // so the resolver enforces both the name and the key without this contract mediating.
     }
 }

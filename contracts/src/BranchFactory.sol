@@ -65,10 +65,17 @@ contract BranchFactory is EnhancedAccessControl {
     /// @notice `namehash` of the organization, e.g. `namehash("acme.eth")`.
     bytes32 public immutable ORG_NODE;
 
+    /// @notice DNS wire-format encoding of the organization, e.g. `\x04acme\x03eth\x00`.
+    /// @dev The resolver's per-key authorization takes a name rather than a node, so a branch
+    ///      needs its own encoding to delegate record rights. Derived here for the same reason
+    ///      the namehash is: a supplied name is a supplied namehash.
+    bytes public ORG_DNS_NAME;
+
     /// @dev Resolver role needed to publish the discovery record. Mirrors
     ///      `PermissionedResolverLib.ROLE_SET_TEXT`, which lives in a library this contract does
     ///      not otherwise depend on.
     uint256 private constant RESOLVER_ROLE_SET_TEXT = 1 << 4;
+    uint256 private constant RESOLVER_ROLE_SET_TEXT_ADMIN = RESOLVER_ROLE_SET_TEXT << 128;
 
     event BranchCreated(
         string label,
@@ -90,6 +97,7 @@ contract BranchFactory is EnhancedAccessControl {
         ILabelStore labelStore,
         address resolver,
         bytes32 orgNode,
+        bytes memory orgDnsName,
         address admin,
         IBranchRegistryDeployer registryDeployer,
         IBranchRegistrarDeployer registrarDeployer
@@ -102,12 +110,18 @@ contract BranchFactory is EnhancedAccessControl {
         LABEL_STORE = labelStore;
         RESOLVER = resolver;
         ORG_NODE = orgNode;
+        ORG_DNS_NAME = orgDnsName;
         _grantRoles(ROOT_RESOURCE, ROLE_CREATE_BRANCH | ROLE_CREATE_BRANCH_ADMIN, admin, false);
     }
 
     /// @notice The ENS namehash a branch label will have. Derived, never supplied.
     function branchNode(string memory label) public view returns (bytes32) {
         return keccak256(abi.encodePacked(ORG_NODE, keccak256(bytes(label))));
+    }
+
+    /// @notice DNS wire-format name a branch label will have.
+    function branchDnsName(string memory label) public view returns (bytes memory) {
+        return abi.encodePacked(uint8(bytes(label).length), label, ORG_DNS_NAME);
     }
 
     function isAvailable(string calldata label) external view returns (bool) {
@@ -152,37 +166,41 @@ contract BranchFactory is EnhancedAccessControl {
         // The factory takes root of the new registry only so it can wire everything up; it gives
         // that away before the call returns.
         registry = REGISTRY_DEPLOYER.deploy(LABEL_STORE, address(this));
-        PermissionedRegistry branchRegistry = PermissionedRegistry(registry);
 
         // Forward pointer: the org name resolves to this registry.
         ORG_REGISTRY.register(label, owner, IRegistry(registry), RESOLVER, 0, expiry);
         // Backward pointer: the registry knows where it sits, so the tree can be walked upward.
-        branchRegistry.setParent(ORG_REGISTRY, label);
+        PermissionedRegistry(registry).setParent(ORG_REGISTRY, label);
 
-        bytes32 node = branchNode(label);
         registrar = REGISTRAR_DEPLOYER.deploy(
             IPermissionedRegistry(registry),
             IBranchResolver(RESOLVER),
             expiry,
             owner,
             ORG_REGISTRAR,
-            node
+            branchNode(label),
+            branchDnsName(label)
         );
-        BranchRegistrarV2 branchRegistrar = BranchRegistrarV2(registrar);
 
         // Authority, in the three places a branch registrar needs it.
-        branchRegistry.grantRootRoles(branchRegistrar.REQUIRED_REGISTRY_ROLES(), registrar);
+        PermissionedRegistry(registry).grantRootRoles(
+            BranchRegistrarV2(registrar).REQUIRED_REGISTRY_ROLES(), registrar
+        );
         ORG_REGISTRAR.grantRootRoles(ORG_REGISTRAR.ROLE_ENROL(), registrar);
-        IResolverAdmin(RESOLVER).grantRootRoles(RESOLVER_ROLE_SET_TEXT, registrar);
+        // Both halves: SET_TEXT to write entitlements, SET_TEXT_ADMIN to hand members their own
+        // per-key rights through `authorizeTextRoles`.
+        IResolverAdmin(RESOLVER).grantRootRoles(
+            RESOLVER_ROLE_SET_TEXT | RESOLVER_ROLE_SET_TEXT_ADMIN, registrar
+        );
 
         // Publish the registrar so the branch is discoverable from ENS with nothing hardcoded.
-        IResolverAdmin(RESOLVER).setText(node, REGISTRAR_KEY, registrar.toHexString());
+        IResolverAdmin(RESOLVER).setText(branchNode(label), REGISTRAR_KEY, registrar.toHexString());
 
         // Hand the branch over, then keep nothing.
-        branchRegistry.grantRootRoles(EACBaseRolesLib.ALL_ROLES, owner);
-        branchRegistry.revokeRootRoles(EACBaseRolesLib.ALL_ROLES, address(this));
+        PermissionedRegistry(registry).grantRootRoles(EACBaseRolesLib.ALL_ROLES, owner);
+        PermissionedRegistry(registry).revokeRootRoles(EACBaseRolesLib.ALL_ROLES, address(this));
 
-        emit BranchCreated(label, node, registry, registrar, owner);
+        emit BranchCreated(label, branchNode(label), registry, registrar, owner);
     }
 
     /// @dev `[a-z0-9-]`, 1-32 chars, no leading or trailing hyphen — the same restriction the

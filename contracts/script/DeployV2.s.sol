@@ -15,6 +15,10 @@ contract DeployV2 is Script {
     bytes32 constant BRANCH_NODE =
         0x732fdef4e1b816694e7e4c9282554901f9d5c61a4636bbe8e6d5ffd322af4c16;
 
+    /// @dev DNS wire format of the organization: \x0aethglobal2\x03eth\x00
+    bytes internal constant ORG_DNS_NAME = hex"0a657468676c6f62616c320365746800";
+    string constant BRANCH_LABEL = "tokyo";
+
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address me = vm.addr(pk);
@@ -25,6 +29,7 @@ contract DeployV2 is Script {
         address resolver = vm.parseJsonAddress(cfg, ".resolver");
         uint64 expiry = uint64(vm.parseJsonUint(cfg, ".expiry"));
         bytes32 branchNode = vm.envOr("BRANCH_NODE", BRANCH_NODE);
+        string memory branchLabel = vm.envOr("BRANCH_LABEL", string(BRANCH_LABEL));
 
         vm.startBroadcast(pk);
 
@@ -41,7 +46,8 @@ contract DeployV2 is Script {
             expiry,
             me,
             org,
-            branchNode
+            branchNode,
+            abi.encodePacked(uint8(bytes(branchLabel).length), branchLabel, ORG_DNS_NAME)
         );
         org.grantRootRoles(org.ROLE_ENROL(), address(registrar));
         PermissionedRegistry(branchRegistry).grantRootRoles(

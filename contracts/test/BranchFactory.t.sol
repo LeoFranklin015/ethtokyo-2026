@@ -7,6 +7,8 @@ import {BranchRegistrarDeployer, BranchRegistryDeployer} from "../src/BranchDepl
 import {BranchRegistrarV2, IBranchResolver} from "../src/BranchRegistrarV2.sol";
 import {OrgRegistrar} from "../src/OrgRegistrar.sol";
 import {PermissionedRegistry} from "@ens-v2/registry/PermissionedRegistry.sol";
+import {MockPermissionedResolver} from "./MockPermissionedResolver.sol";
+import {NameCoder} from "@ens/contracts/utils/NameCoder.sol";
 import {IPermissionedRegistry} from "@ens-v2/registry/interfaces/IPermissionedRegistry.sol";
 import {IRegistry} from "@ens-v2/registry/interfaces/IRegistry.sol";
 import {ILabelStore} from "@ens-v2/utils/interfaces/ILabelStore.sol";
@@ -15,44 +17,26 @@ import {IContractNamer} from "@ens-v2/reverse-registrar/interfaces/IContractName
 import {EACBaseRolesLib} from "@ens-v2/access-control/libraries/EACBaseRolesLib.sol";
 import {RegistryRolesLib} from "@ens-v2/registry/libraries/RegistryRolesLib.sol";
 
-/// @dev Minimal resolver with the EAC surface the factory uses. Records who may write, so the
-///      tests can assert the factory delegated correctly rather than just that a write happened.
-contract StubResolver {
-    mapping(bytes32 => mapping(string => string)) public records;
-    mapping(address => uint256) public rootRoles;
-
-    function grantRootRoles(uint256 roleBitmap, address account) external returns (bool) {
-        rootRoles[account] |= roleBitmap;
-        return true;
-    }
-
-    function setText(bytes32 node, string calldata key, string calldata value) external {
-        records[node][key] = value;
-    }
-
-    function text(bytes32 node, string calldata key) external view returns (string memory) {
-        return records[node][key];
-    }
-}
-
 contract BranchFactoryTest is Test {
     PermissionedRegistry internal orgRegistry;
     OrgRegistrar internal orgRegistrar;
-    StubResolver internal resolver;
+    MockPermissionedResolver internal resolver;
     BranchFactory internal factory;
 
     address internal org = address(0xA001);
     address internal branchOwner = address(0xA002);
     address internal outsider = address(0xA003);
 
-    bytes32 internal constant ORG_NODE = keccak256("acme.eth");
+    /// @dev \x04acme\x03eth\x00 — what the resolver re-hashes when authorizing a key.
+    bytes internal constant ORG_DNS_NAME = hex"0461636d650365746800";
+    bytes32 internal ORG_NODE = NameCoder.namehash(ORG_DNS_NAME, 0);
     uint64 internal expiry;
 
     uint256 internal CREATE;
 
     function setUp() public {
         expiry = uint64(block.timestamp + 90 days);
-        resolver = new StubResolver();
+        resolver = new MockPermissionedResolver();
 
         orgRegistry = new PermissionedRegistry(
             ILabelStore(address(new LabelStore(IContractNamer(address(0))))),
@@ -72,6 +56,7 @@ contract BranchFactoryTest is Test {
             ILabelStore(address(new LabelStore(IContractNamer(address(0))))),
             address(resolver),
             ORG_NODE,
+            ORG_DNS_NAME,
             org,
             new BranchRegistryDeployer(),
             new BranchRegistrarDeployer()
@@ -80,6 +65,9 @@ contract BranchFactoryTest is Test {
         // The one-time grants the organization makes to the factory. Read from the contract so a
         // drift between what it needs and what setup gives it fails here, not in production.
         orgRegistry.grantRootRoles(factory.requiredOrgRegistryRoles(), address(factory));
+        // The factory publishes the discovery record and delegates the registrar's resolver
+        // rights, so it needs SET_TEXT and its admin half — exactly what it advertises.
+        resolver.grantRootRoles(factory.requiredResolverRoles(), address(factory));
         uint256 enrolAdmin = factory.requiredOrgRegistrarRoles();
         vm.prank(org);
         orgRegistrar.grantRootRoles(enrolAdmin, address(factory));
@@ -144,7 +132,7 @@ contract BranchFactoryTest is Test {
             "may enrol Members at the organization"
         );
         assertTrue(
-            resolver.rootRoles(registrar) & (1 << 4) != 0, "may write entitlement records"
+            resolver.rootWriter(registrar), "may write entitlement records"
         );
     }
 
