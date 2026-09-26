@@ -1,0 +1,6 @@
+# TLS-intercepting listener for wallet Layer 2 injection.
+# Floor >=9.0: the response / http_connect addon hooks and the
+# ignore_hosts option are stable from 9.x (py3.9 dev venv) through
+# 12.x (py3.14 VM). pip resolves the newest wheel for the running
+# interpreter — 9.0.1 on py3.9, 12.2.3 on py3.14.
+mitmproxy>=9.0
