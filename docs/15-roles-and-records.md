@@ -202,49 +202,65 @@ this contract.
 
 ## 5. Live evidence (Sepolia, 2026-09-26)
 
-Deployed fresh and exercised end to end. Organization `ethglobal2.eth`; branch
-`live-20260926.ethglobal2.eth`, registry `0xb634ac97…939f`, registrar `0x4c8f7ce5…5462`, factory
-`0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5`.
+Deployed fresh and exercised end to end, three times — twice to find problems, once to confirm.
 
-**The name is right.** `cast namehash live-20260926.ethglobal2.eth` and the registrar's own
-`BRANCH_NODE()` both return
-`0xa9891e9208e4b62ba06d261cfed7b07237d04ff50342220140fbdfb861df51ea`, and `ensca.registrar`
-resolves to the registrar address.
+Final deployment: organization `ethglobal2.eth`, factory
+`0x4C96E37b679427d362BDE6dFdF123A10f80caA0B`, branch `live-final.ethglobal2.eth`, registry
+`0xb582c492…b982`, registrar `0x42717939…b11c`.
 
-**The matrix holds**, simulated against the real resolver from each real wallet:
+**The name is right.** `cast namehash live-final.ethglobal2.eth` equals the registrar's own
+`BRANCH_NODE()`, and the constructor now *enforces* that — `NameNodeMismatch` reverts a
+deployment whose stored DNS name and stored node describe different things.
+
+**The matrix holds**, from each real wallet against the real resolver:
 
 | actor | target | expected | live result |
 |---|---|---|---|
-| mentor1 | own `avatar` | ALLOWED | ALLOWED |
-| mentor1 | own `ssh.pubkey` | ALLOWED | ALLOWED |
-| mentor1 | own `wifi.rate` | DENIED | DENIED |
-| mentor1 | **mentor2's `avatar`** | DENIED | DENIED |
-| mentor1 | branch node `avatar` | DENIED | DENIED |
-| mentor1 | branch `ensca.registrar` | DENIED | DENIED |
+| mentor2 | own `avatar` | ALLOWED | ALLOWED |
+| mentor2 | own `wifi.rate` | DENIED | DENIED |
+| mentor2 | **hacker1's `avatar`** | DENIED | DENIED |
+| mentor2 | branch `ensca.registrar` | DENIED | DENIED |
 | hacker1 | own `avatar` | DENIED | DENIED |
-| hacker1 | own `wifi.rate` | DENIED | DENIED |
 
-**A real member write landed**: tx `0xd284b040…bde9`, mentor1 signing with their own key, setting
-`avatar = ipfs://mentor1-live`.
-
-**The attack was refused on-chain**, as a real transaction, not a simulation:
+**A real member write landed** on the earlier run — tx `0xd284b040…bde9`, signed by the member's
+own key — and **the attack was refused on-chain**, as a real transaction:
 
 ```
 mentor1 → setText(namehash("mentor2.live-20260926.ethglobal2.eth"), "avatar", "ipfs://HIJACKED")
 reverted: EACUnauthorizedAccountRoles(
-    85919836228232650666444061861467787579888350421477960719618991915995950222191,
-    16,
-    0xa57Acaf9b940021065A5A760A53348279a45DFC7)
+    85919836228232650666444061861467787579888350421477960719618991915995950222191, 16, 0xa57A…DFC7)
 ```
 
-Role 16 is `ROLE_SET_TEXT`; the resource is `resource(mentor2Node, partHash("avatar"))`. mentor2's
-avatar stayed empty and the discovery record was untouched.
+Role 16 is `ROLE_SET_TEXT`; the resource is `resource(mentor2Node, partHash("avatar"))`.
 
-**Revocation withdraws everything.** On `live-20260926b` (registrar `0x1936c583…44e7`): the member
-wrote `avatar = ipfs://second-run`, then after `revoke` both the entitlements and the member's own
-record read back empty, `membershipOf` returned 0, and the member could no longer write.
+**A role that could escape the branch is refused.** `defineRole` with `ROLE_SET_RESOLVER`
+(`1 << 24`) reverts `ForbiddenRegistryRoles` — verified live.
 
----
+**The dropped-key case, which an adversarial review found and which the first fix got wrong:**
+
+```
+granted at onboarding:  avatar=YES  ssh.pubkey=YES
+organization drops ssh.pubkey from the mentor role
+after the drop:         avatar=YES  ssh.pubkey=YES    <- still held, by design
+after revoke:           avatar=NO   ssh.pubkey=NO     <- the dropped key is ALSO revoked
+```
+
+The first version iterated the role's *current* key list on teardown, so a key removed from the
+catalogue after onboarding was never handed back — and namehash carries no version id, so that
+stale grant would have landed on whoever took the label next. The registrar now records what each
+membership was actually granted (`_grantedKeys`) and tears down from that.
+
+**The portal admits on a signature, not a typed name.** Against the live deployment:
+
+```
+real member signs  → {"ok":true,"ens_name":"mentor2.live-final.ethglobal2.eth",
+                      "role":"mentor","entitlements":{"wifi.rate":"20mbps"}}
+stranger signs     → 403
+replayed nonce     → 401 "unknown, expired, or already used"
+```
+
+**Tests: 134 passing**, including 13 that assert this matrix against live Sepolia state
+(`test/LivePermissions.fork.t.sol`).
 
 ## 6. Known remaining issues
 
@@ -260,5 +276,16 @@ record read back empty, `membershipOf` returned 0, and the member could no longe
   on the resolver. Scope these per-branch, or revoke on close.
 - **`releaseMembership` is unpermissioned.** It only acts when the registry already disagrees, but
   it deserves a second look.
-- **Local tests: 109 passing.** The fork suite (`test/*.fork.t.sol`) still pins V1 addresses and
-  needs porting to V2 or deleting.
+- **The org label namespace is global and one-shot.** `onboard`'s `memberLabel` is minted into
+  the organization registry by any onboarder at any branch, and `OrgRegistrar` has no unregister
+  path. Hit for real during the live run: re-using `mentor2` as a member label on a second branch
+  reverted `LabelUnavailable`. So a malicious onboarder can permanently burn an org label —
+  including one reserved for a future branch, which then makes `createBranch` for it impossible.
+- **A revoked member who holds an org-wide role gets it back.** `revoke` clears `membershipOf`,
+  after which `effectiveRole` falls through to `ORG.orgRole(account)`. That is the documented
+  §5.4 fallback, but it means a branch cannot fully eject someone the organization has blessed.
+- **`BRANCH_EXPIRY` is immutable, so a branch cannot be extended.** Past it, `effectiveRole`
+  returns nothing *and* `onboard` cannot register (the registry rejects a past expiry), so a
+  branch is permanently closed even if its ENS names are renewed.
+- **The old V1 `BranchRegistrar` and its fork test still exist** and still pin V1 addresses. They
+  should be deleted; `DeployV2`/`DeployFactory`/`AddBranch`/`SeedRoles` are the live scripts.
