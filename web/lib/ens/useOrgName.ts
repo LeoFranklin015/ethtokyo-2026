@@ -110,3 +110,58 @@ export function useOrgName(label: string) {
 
   return { status, recheck: () => check(label) };
 }
+
+
+export type OwnedName = {
+  name: string;
+  label: string;
+  expiry: number | null;
+  isTopLevel: boolean;
+};
+
+/**
+ * The names this wallet already holds.
+ *
+ * Shown above the search so the common case — somebody who already has a name, or who just
+ * bought one and came back — is a click rather than retyping something they own. The list comes
+ * from the indexer and can lag; the search below it reads the registry directly, so a name too
+ * new to be listed is still reachable by typing it.
+ */
+export function useOwnedNames() {
+  const { address } = useAccount();
+  const [names, setNames] = useState<OwnedName[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!address) {
+      setNames(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/ens/owned?owner=${address}`);
+      if (!res.ok) throw new Error("could not read your names");
+      const body = (await res.json()) as { names: OwnedName[] };
+      setNames(body.names);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not read your names");
+      setNames(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    let live = true;
+    void Promise.resolve().then(() => {
+      if (live) void load();
+    });
+    return () => {
+      live = false;
+    };
+  }, [load]);
+
+  return { names, error, loading, reload: load };
+}

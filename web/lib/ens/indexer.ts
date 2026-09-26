@@ -47,11 +47,11 @@ const TEXT_SELECTION = ENTITLEMENT_KEYS.map(
   (key, i) => `k${i}: text(key: ${JSON.stringify(key)})`,
 ).join(" ");
 
-async function gql<T>(query: string): Promise<T> {
+async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const res = await fetch(INDEXER_URL, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(variables ? { query, variables } : { query }),
     cache: "no-store",
     signal: AbortSignal.timeout(8000),
   });
@@ -153,4 +153,50 @@ export async function getIndexerStatus(): Promise<{ block: number } | null> {
   } catch {
     return null;
   }
+}
+
+export type OwnedName = {
+  name: string;
+  label: string;
+  expiry: number | null;
+  /** A two-label `.eth` name can be an organization root; a deeper one is already somebody's subname. */
+  isTopLevel: boolean;
+};
+
+/**
+ * Every name this wallet holds.
+ *
+ * Convenience, not authority. The indexer runs behind the chain, so a name registered a minute
+ * ago will not be here yet — which is exactly when somebody comes back from the ENS app looking
+ * for it. The search box resolves ownership directly against the registry for that reason, and
+ * this list is the shortcut for names that have been around a while.
+ */
+export async function namesOwnedBy(owner: string): Promise<OwnedName[]> {
+  const data = await gql<{
+    domains: { name: string; expiryDate: string | null }[];
+  }>(
+    `query Owned($owner: String!) {
+       domains(where: { owner: $owner }, first: 200, orderBy: name) {
+         name
+         expiryDate
+       }
+     }`,
+    { owner: owner.toLowerCase() },
+  );
+
+  const now = Math.floor(Date.now() / 1000);
+  return (data.domains ?? [])
+    .map((d) => {
+      const parts = d.name.split(".");
+      const expiry = d.expiryDate ? Number(d.expiryDate) : null;
+      return {
+        name: d.name,
+        label: parts[0] ?? d.name,
+        expiry,
+        isTopLevel: parts.length === 2 && parts[1] === "eth",
+      };
+    })
+    // An expired name is not one you can build on, and showing it invites a confusing failure.
+    .filter((d) => d.expiry === null || d.expiry > now)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
-import { ensAppLink, useOrgName } from "@/lib/ens/useOrgName";
+import { ensAppLink, useOrgName, useOwnedNames } from "@/lib/ens/useOrgName";
 import { useEnsWrites } from "@/lib/ens/useEnsWrites";
 import type { Address } from "viem";
 import { sepolia } from "wagmi/chains";
@@ -231,6 +231,12 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
   const { address } = useAccount();
   const [label, setLabel] = useState("");
   const { status, recheck } = useOrgName(label);
+  const owned = useOwnedNames();
+
+  // Only a two-label `.eth` name can be an organization root. A subname is already somebody's
+  // branch or membership, and building a second organization inside it would be a different
+  // product to the one this wizard describes.
+  const roots = (owned.names ?? []).filter((n) => n.isTopLevel);
 
   return (
     <Panel as="section">
@@ -243,7 +249,47 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
           properly.
         </p>
 
-        <div className="mt-5 flex items-center gap-2">
+        {address ? (
+          <div className="mt-5">
+            <span className="label">Names this wallet holds</span>
+            {owned.loading && owned.names === null ? (
+              <p className="mt-2 font-mono text-xs text-ink-muted">reading…</p>
+            ) : owned.error ? (
+              <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+                Could not list them — {owned.error}. Search for the name below instead; that
+                reads the registry directly.
+              </p>
+            ) : roots.length === 0 ? (
+              <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+                None yet. Search below, then register one on the ENS app.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-rule rounded-sharp border border-rule">
+                {roots.map((n) => (
+                  <li key={n.name} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <span className="min-w-0">
+                      <span className="block truncate font-mono text-sm text-ink">{n.name}</span>
+                      {n.expiry ? (
+                        <span className="block font-mono text-[0.6875rem] text-ink-muted">
+                          expires {new Date(n.expiry * 1000).toLocaleDateString()}
+                        </span>
+                      ) : null}
+                    </span>
+                    <Button variant="outline" onClick={() => onDone(n.name)}>
+                      Use this
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
+
+        <div className="mt-6">
+          <span className="label">{address ? "Or search for another" : "Search for a name"}</span>
+        </div>
+
+        <div className="mt-2 flex items-center gap-2">
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())}
@@ -258,7 +304,7 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
         <div className="mt-4" role="status" aria-live="polite">
           {status.state === "idle" ? (
             <p className="text-xs text-ink-muted">
-              Already run one? Type its name and we will check whether this wallet holds it.
+              Type a name to see whether it is free — or whether this wallet already holds it.
             </p>
           ) : status.state === "checking" ? (
             <p className="font-mono text-xs text-ink-muted">checking…</p>
@@ -297,7 +343,10 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
                 </ButtonLink>
                 <button
                   type="button"
-                  onClick={recheck}
+                  onClick={() => {
+                    void recheck();
+                    void owned.reload();
+                  }}
                   className="font-mono text-xs text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
                 >
                   I have registered it
