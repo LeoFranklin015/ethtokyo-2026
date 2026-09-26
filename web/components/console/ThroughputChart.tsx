@@ -133,7 +133,7 @@ export function ThroughputChart({ data }: { data: Sample[] }) {
           />
 
           {/* Time axis: first, middle and last only */}
-          {[0, Math.floor(data.length / 2), data.length - 1].map((i) => (
+          {[...new Set([0, Math.floor(data.length / 2), data.length - 1])].map((i) => (
             <text
               key={i}
               x={points[i].x}
