@@ -1177,6 +1177,22 @@ def internal_group_by_tier(tier):
     return jsonify({"group_id": row["id"]})
 
 
+@app.route("/internal/ens-lookup/<name>")
+@require_local
+def internal_ens_lookup(name):
+    ens = (name or "").strip().lower()
+    db = get_db()
+    row = db.execute(
+        "SELECT u.id AS user_id, u.username AS ens_name, g.id AS group_id, g.network_tier "
+        "FROM users u JOIN groups g ON g.id = u.default_group_id "
+        "WHERE u.username = ? AND u.disabled = 0", (ens,)
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"user_id": row["user_id"], "ens_name": row["ens_name"],
+                    "group_id": row["group_id"], "network_tier": row["network_tier"]})
+
+
 @app.route("/internal/session-created", methods=["POST"])
 @require_local
 def internal_session_created():
