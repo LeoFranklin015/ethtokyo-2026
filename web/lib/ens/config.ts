@@ -16,7 +16,7 @@ export const ENS = {
 
   orgRegistry: "0xEb716b3fB749f357be2B74a10647675D11a94517",
   orgRegistrar: "0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7",
-  branchFactory: "0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5",
+  branchFactory: "0x4C96E37b679427d362BDE6dFdF123A10f80caA0B",
   resolver: "0x9D8f1376aED12F6F7Ba041285Cce833AcED13092",
 
   /**

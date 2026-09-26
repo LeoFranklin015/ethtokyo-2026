@@ -24,21 +24,21 @@ interface IResolverRead {
 ///   forge test --match-path test/LivePermissions.fork.t.sol --fork-url $SEPOLIA_RPC_URL -vv
 contract LivePermissionsForkTest is Test {
     /// Branch opened by the 2026-09-26 live run, via factory 0x56fFA42E…6ec5.
-    address internal constant REGISTRAR = 0x4c8F7ce5b0C43f739315cCd14F1D608198095462;
+    address internal constant REGISTRAR = 0x42717939d6f90385302B3aa77ba0666Fe61BB11C;
     address internal constant RESOLVER = 0x9D8f1376aED12F6F7Ba041285Cce833AcED13092;
-    address internal constant FACTORY = 0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5;
+    address internal constant FACTORY = 0x4C96E37b679427d362BDE6dFdF123A10f80caA0B;
     address internal constant ORG_REGISTRAR = 0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7;
 
     bytes32 internal constant BRANCH_NODE =
-        0xa9891e9208e4b62ba06d261cfed7b07237d04ff50342220140fbdfb861df51ea;
+        0xb5f1be1dc0b9d5d06c52da0fe4587173c6dbb2b9d5ee68e70da3e77d04d06e39;
 
     /// mentor1 — onboarded at `mentor`, which lists `avatar` and `ssh.pubkey`. Revoked at the end
     /// of the live run, so it stands for "a wallet whose membership has ended".
-    address internal constant MENTOR_1 = 0xa57Acaf9b940021065A5A760A53348279a45DFC7;
+    address internal constant MENTOR_1 = 0x3694C76CBc1f978525ac30B8ed468C5174696eDd;
     /// mentor2 — still live, same role, a different name. The cross-member target.
-    address internal constant MENTOR_2 = 0x07c47DAcae70C21832E90209F99aF9F6ae3F911e;
+    address internal constant MENTOR_2 = 0xAdC3C82A05E192c62f470568e1fA78eC2E684Ae3;
     /// hacker1 — onboarded at `hacker`, which lists no editable keys at all.
-    address internal constant HACKER_1 = 0x17b15b1B88146E51eB89307697e32c97126edBE5;
+    address internal constant HACKER_1 = 0xa0299E974EF51A298a5007eAE84B7068B2D1F7a4;
 
     BranchRegistrarV2 internal registrar = BranchRegistrarV2(REGISTRAR);
     IResolverRead internal resolver = IResolverRead(RESOLVER);
@@ -69,7 +69,7 @@ contract LivePermissionsForkTest is Test {
     function test_branch_node_is_the_real_namehash() public view {
         assertEq(registrar.BRANCH_NODE(), BRANCH_NODE, "registrar agrees with ENS");
         assertEq(
-            BranchFactory(FACTORY).branchNode("live-20260926"),
+            BranchFactory(FACTORY).branchNode("live-final"),
             BRANCH_NODE,
             "factory derives the same node"
         );

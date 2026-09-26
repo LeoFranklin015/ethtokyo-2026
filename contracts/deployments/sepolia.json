@@ -38,9 +38,14 @@
       "registry": "0x953F736943b037Ce92C04700b17a689f1eB9D099",
       "registrar": "0xc3cd571e284410d36a96fb8a4ca989e4fa7eb3d4",
       "node": "0x4dbc7e84a49538e21249c3bab1105795012c8d2e8f90cad348064243108b8f89"
+    },
+    "live-final": {
+      "registry": "0xb582c4925a67bc3d04724c2b9a5fc213402bb982",
+      "registrar": "0x42717939d6f90385302b3aa77ba0666fe61bb11c",
+      "node": "0xb5f1be1dc0b9d5d06c52da0fe4587173c6dbb2b9d5ee68e70da3e77d04d06e39"
     }
   },
-  "branchFactory": "0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5",
+  "branchFactory": "0x4C96E37b679427d362BDE6dFdF123A10f80caA0B",
   "orgNode": "0x291def960cdeed286467d6beeaad1ab15faeb706a2dcd0126a3a6a22ef3e3aef",
-  "previousBranchFactory": "0x9ab4aFB832b7669eA427df486287D75bb936b67f (pre per-key resolver roles)"
+  "previousBranchFactory": "0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5 (pre teardown hardening)"
 }
