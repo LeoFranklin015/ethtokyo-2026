@@ -1,6 +1,7 @@
 from flask import Flask, request, redirect, render_template, make_response, jsonify
 import subprocess
 import os
+import re
 import time
 import uuid
 import requests as _req
@@ -62,6 +63,8 @@ ADMIT_SECRET = os.environ.get("ENSCA_ADMIT_SECRET", "").strip()
 
 # iptables fwmark per tier — used for tc classification and cross-tier DROP
 TIER_MARK = {"basic": "10", "staff": "20", "vip": "30", "partner": "10", "hacker": "30"}
+# tc classid per fwmark — matches htb class 1:<classid> on enp10s0u1
+_TC_CLASSID = {"10": "1:10", "20": "1:20", "30": "1:30"}
 
 AUTHED_IPS: dict[str, str] = {}    # ip -> tier
 SESSION_IDS: dict[str, str] = {}   # ip -> session UUID (shared with proxy)
@@ -159,7 +162,38 @@ def _notify_session_ended(session_id: str) -> None:
         _log.warning("proxy session-ended notify failed: %s", e)
 
 
-def grant_access(ip: str, tier: str, ens_name=None, user_id=None) -> None:
+def _apply_tc_rate(tier: str, rate: str, ceil: str) -> None:
+    """Update the tc HTB class for a tier with ENS-sourced wifi.rate / wifi.ceil values.
+
+    Values must be valid tc rate strings (e.g. '10mbit', '5mbps').  A bare number
+    is treated as Mbit/s.  Silently skips if the classid is unknown or tc fails.
+    """
+    mark = TIER_MARK.get(tier)
+    classid = _TC_CLASSID.get(mark) if mark else None
+    if not classid:
+        return
+
+    def _norm(v: str) -> str:
+        v = v.strip()
+        if re.match(r'^\d+(\.\d+)?$', v):
+            return f"{v}mbit"
+        return v
+
+    try:
+        rate_val = _norm(rate) if rate else None
+        ceil_val = _norm(ceil) if ceil else None
+        if not rate_val:
+            return
+        cmd = ["tc", "class", "change", "dev", AP_IFACE,
+               "parent", "1:", "classid", classid,
+               "htb", "rate", rate_val, "ceil", ceil_val or rate_val]
+        _run(cmd)
+        _log.info("tc class updated: %s rate=%s ceil=%s", classid, rate_val, ceil_val or rate_val)
+    except Exception as exc:
+        _log.warning("tc class change failed for %s: %s", tier, exc)
+
+
+def grant_access(ip: str, tier: str, ens_name=None, user_id=None, wifi_rate=None, wifi_ceil=None) -> None:
     try:
         ipaddress.ip_address(ip)
     except ValueError:
@@ -168,6 +202,8 @@ def grant_access(ip: str, tier: str, ens_name=None, user_id=None) -> None:
         if ip in AUTHED_IPS:
             return
         mark = TIER_MARK[tier]
+        if wifi_rate:
+            _apply_tc_rate(tier, wifi_rate, wifi_ceil or "")
         _run(["iptables", "-I", "FORWARD", "1", "-s", ip, "-j", "ACCEPT"])
         try:
             # Mark upload traffic (src=device) — shapes enp2s0 egress
@@ -322,7 +358,8 @@ def login():
     if ip in AUTHED_IPS and ENS_NAMES.get(ip) != ident["ens_name"]:
         revoke_access(ip)
     ENS_NAMES[ip] = ident["ens_name"]
-    grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"])
+    grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"],
+                 wifi_rate=ident.get("wifi_rate"), wifi_ceil=ident.get("wifi_ceil"))
     return redirect(f"{PORTAL_URL}/connected", 302)
 
 
@@ -442,7 +479,8 @@ def internal_admit():
     if ip in AUTHED_IPS and ENS_NAMES.get(ip) != ident["ens_name"]:
         revoke_access(ip)
     ENS_NAMES[ip] = ident["ens_name"]
-    grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"])
+    grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"],
+                 wifi_rate=ident.get("wifi_rate"), wifi_ceil=ident.get("wifi_ceil"))
     return jsonify({"admitted": True, "ens_name": ident["ens_name"], "tier": ident["network_tier"]})
 
 

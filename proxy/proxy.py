@@ -1502,6 +1502,7 @@ def internal_ens_lookup(name):
                 usr = db.execute(
                     "SELECT id FROM users WHERE username = ? AND disabled = 0", (ens,)
                 ).fetchone()
+                ents = resolved.get("entitlements") or {}
                 return jsonify({
                     "user_id": usr["id"] if usr else None,
                     "ens_name": ens,
@@ -1510,6 +1511,8 @@ def internal_ens_lookup(name):
                     "role": resolved.get("role"),
                     "branch": resolved.get("branch"),
                     "source": "ens",
+                    "wifi_rate": ents.get("wifi.rate"),
+                    "wifi_ceil": ents.get("wifi.ceil"),
                 })
             # ENS named a group this enforcer does not run. Denying is safer than guessing.
             return jsonify({"error": "unknown_group", "group": group_name,

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
@@ -39,6 +40,10 @@ export function Sidebar() {
   const org = useOrg();
   const { branches } = useEnsBranches(org);
   const { data: status, error: statusError, isLoading: statusLoading } = useProxyStatus();
+  const activeLabel = pathname.startsWith("/console/branches/")
+    ? pathname.split("/console/branches/")[1]?.split("?")[0]
+    : null;
+  const [expanded, setExpanded] = useState<string | null>(activeLabel ?? null);
   const { session } = useConsoleSession();
 
   // Three states, not two. "Not yet answered" rendered as "unreachable" meant the first paint
@@ -62,23 +67,82 @@ export function Sidebar() {
         <p className="mt-1 truncate font-mono text-[0.6875rem] text-ink-muted">{org ? `${org}.eth` : "no organization"}</p>
       </div>
 
-      {/* Branches, discovered from ENS rather than configured */}
-      <div className="border-b border-rule px-4 py-3 lg:px-5">
-        <p className="label">Perimeters</p>
-        <ul className="mt-2 space-y-1">
+      {/* Perimeters — collapsible, each links to its detail page */}
+      <div className="border-b border-rule px-2 py-3 lg:px-3">
+        <div className="flex items-center justify-between px-2 pb-1.5">
+          <Link
+            href={withOrg("/console/branches", org)}
+            className="label hover:text-ink transition-colors"
+          >
+            Perimeters
+          </Link>
+        </div>
+        <ul className="space-y-0.5">
           {branches === undefined ? (
-            <li className="font-mono text-xs text-ink-muted">discovering…</li>
+            <li className="px-2 font-mono text-xs text-ink-faint">discovering…</li>
           ) : branches.length === 0 ? (
-            <li className="font-mono text-xs text-ink-muted">none yet</li>
+            <li className="px-2 font-mono text-xs text-ink-faint">none yet</li>
           ) : (
-            branches.map((b) => (
-              <li key={b.name} className="flex items-baseline justify-between gap-2">
-                <span className="truncate font-mono text-xs text-ink">{b.label}</span>
-                <span className="shrink-0 font-mono text-[0.6875rem] tabular-nums text-ink-muted">
-                  {b.memberCount}
-                </span>
-              </li>
-            ))
+            branches.map((b) => {
+              const isActive = activeLabel === b.label;
+              const isOpen = expanded === b.label;
+              const href = withOrg(`/console/branches/${b.label}`, org);
+              return (
+                <li key={b.name}>
+                  <div className={`flex items-center rounded-sharp transition-colors ${isActive ? "bg-ink/8" : "hover:bg-ink/5"}`}>
+                    <Link
+                      href={href}
+                      className="flex min-h-9 flex-1 items-center gap-1.5 px-2 font-mono text-xs"
+                    >
+                      <span
+                        aria-hidden
+                        className="h-3 w-px shrink-0"
+                        style={{ background: isActive ? "var(--signal)" : "transparent" }}
+                      />
+                      <span className={`truncate ${isActive ? "text-ink font-medium" : "text-ink-muted"}`}>
+                        {b.label}
+                      </span>
+                      {b.memberCount !== null ? (
+                        <span className="ml-auto shrink-0 tabular-nums text-ink-faint text-[0.6rem]">
+                          ({b.memberCount})
+                        </span>
+                      ) : null}
+                    </Link>
+                    <button
+                      type="button"
+                      aria-label={isOpen ? "Collapse" : "Expand"}
+                      onClick={() => setExpanded(isOpen ? null : b.label)}
+                      className="flex h-9 w-7 shrink-0 items-center justify-center text-ink-faint hover:text-ink transition-colors"
+                    >
+                      <svg
+                        width="10" height="10" viewBox="0 0 10 10" fill="none"
+                        aria-hidden
+                        style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+                      >
+                        <path d="M3 2l4 3-4 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                  {isOpen ? (
+                    <ul className="ml-4 mt-0.5 space-y-0.5 border-l border-rule pl-2">
+                      {[
+                        { label: "Groups", anchor: "groups" },
+                        { label: "Members", anchor: "members" },
+                      ].map(({ label: subLabel, anchor }) => (
+                        <li key={anchor}>
+                          <Link
+                            href={`${href}#${anchor}`}
+                            className="flex min-h-8 items-center px-2 font-mono text-[0.6875rem] text-ink-muted hover:text-ink transition-colors rounded-sharp hover:bg-ink/5"
+                          >
+                            {subLabel}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              );
+            })
           )}
         </ul>
       </div>

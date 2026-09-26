@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import { PageHeader } from "@/components/console/PageHeader";
-import { EnsBranches } from "@/components/console/EnsBranches";
+import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { NoOrgSelected } from "@/components/console/OrgPicker";
-import { useOrg } from "@/lib/hooks/useOrg";
+import { useOrg, withOrg } from "@/lib/hooks/useOrg";
+import { useEnsBranches } from "@/lib/hooks/useEns";
 import { Button } from "@/components/ui/Button";
 import { useEnsWrites } from "@/lib/ens/useEnsWrites";
 import { useAccount } from "wagmi";
@@ -31,7 +33,7 @@ export default function BranchesPage() {
         }
       />
       <div className="px-5 py-6 lg:px-8">
-        <EnsBranches org={org} />
+        <PerimeterList org={org} />
       </div>
 
       {showCreate ? (
@@ -45,6 +47,58 @@ export default function BranchesPage() {
         />
       ) : null}
     </>
+  );
+}
+
+function PerimeterList({ org }: { org: string }) {
+  const { branches, isLoading, error } = useEnsBranches(org);
+
+  if (isLoading) {
+    return <p className="font-mono text-xs text-ink-muted">Discovering perimeters…</p>;
+  }
+  if (error) {
+    return <p className="font-mono text-xs" style={{ color: "var(--alert)" }}>Could not read perimeters.</p>;
+  }
+  if (!branches || branches.length === 0) {
+    return (
+      <Panel as="section">
+        <div className="px-4 py-10 text-center">
+          <p className="text-sm text-ink">No perimeters yet</p>
+          <p className="mx-auto mt-1.5 max-w-[44ch] text-sm text-ink-muted">
+            A perimeter is a branch registry. Use "Create perimeter" to open one.
+          </p>
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel as="section" className="overflow-hidden">
+      <PanelHeader>All perimeters</PanelHeader>
+      <ul className="divide-y divide-rule">
+        {branches.map((b) => (
+          <li key={b.name}>
+            <Link
+              href={withOrg(`/console/branches/${b.label}`, org)}
+              className="flex items-center justify-between gap-4 px-4 py-4 hover:bg-ink/4 transition-colors"
+            >
+              <div className="min-w-0">
+                <p className="font-mono text-sm text-ink">{b.label}</p>
+                <p className="truncate font-mono text-xs text-ink-muted">{b.name}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                {b.memberCount !== null ? (
+                  <span className="font-mono text-xs tabular-nums text-ink-muted">
+                    {b.memberCount} member{b.memberCount === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+                <span className="font-mono text-xs text-ink-faint">→</span>
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 
