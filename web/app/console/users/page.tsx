@@ -296,10 +296,11 @@ function UserDetailPanel({
               ) : (
                 <ul className="mt-2 divide-y divide-rule border-y border-rule">
                   {Object.entries(groupDetail.limits).map(([slug, l]) => (
-                    <li key={slug} className="flex items-baseline justify-between gap-3 py-2">
-                      <span className="truncate font-mono text-xs text-ink">{slug}</span>
-                      <span className="shrink-0 font-mono text-[0.625rem] tabular-nums text-ink-muted">
-                        {l.per_device_per_day ?? "—"} / {l.group_per_day ?? "—"} per day
+                    <li key={slug} className="py-2">
+                      <span className="block truncate font-mono text-xs text-ink">{slug}</span>
+                      <span className="mt-0.5 block font-mono text-[0.625rem] tabular-nums text-ink-muted">
+                        {l.per_device_per_day ?? "—"} per device · {l.group_per_day ?? "—"} per
+                        group · {l.per_ens_per_day ?? "—"} per person, each day
                       </span>
                     </li>
                   ))}

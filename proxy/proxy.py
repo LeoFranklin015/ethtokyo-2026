@@ -260,8 +260,12 @@ def get_group(gid):
     return jsonify({
         **dict(g_row),
         "members": [dict(m) for m in members],
+        # All three caps, including per-ENS. It used to be accepted on PUT and returned
+        # nowhere, so a cap that was set read back as unlimited and any console that
+        # round-tripped a row silently cleared it.
         "limits": {l["slug"]: {"per_device_per_day": l["per_device_per_day"],
-                                "group_per_day": l["group_per_day"]} for l in limits},
+                                "group_per_day": l["group_per_day"],
+                                "per_ens_per_day": l["per_ens_per_day"]} for l in limits},
         "usage_today": usage,
     })
 
@@ -631,7 +635,8 @@ def get_resource(rid):
     d = _resource_dict(row, include_key=True)
     d["group_access"] = [{"group_id": l["group_id"], "group_name": l["group_name"],
                            "per_device_per_day": l["per_device_per_day"],
-                           "group_per_day": l["group_per_day"]} for l in limits]
+                           "group_per_day": l["group_per_day"],
+                           "per_ens_per_day": l["per_ens_per_day"]} for l in limits]
     return jsonify(d)
 
 

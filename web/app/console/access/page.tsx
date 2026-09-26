@@ -10,6 +10,7 @@ import {
   revokeAccess,
   useAccessMatrix,
   type Group,
+  type Limits,
   type Resource,
 } from "@/lib/hooks/useEnforcer";
 
@@ -122,9 +123,7 @@ export default function AccessPage() {
                                   : "border-dashed border-rule text-ink-faint hover:border-ink hover:text-ink"
                               }`}
                             >
-                              {grant
-                                ? `${cap(grant.per_device_per_day)} / ${cap(grant.group_per_day)}`
-                                : "no access"}
+                              {grant ? <Caps limits={grant} /> : "no access"}
                             </button>
                           </td>
                         );
@@ -137,7 +136,7 @@ export default function AccessPage() {
           )}
 
           <p className="border-t border-rule px-4 py-3 font-mono text-[0.625rem] text-ink-muted">
-            per device / whole group per day · — is unlimited
+            requests per day · — is unlimited
           </p>
         </Panel>
 
@@ -165,6 +164,33 @@ export default function AccessPage() {
   );
 }
 
+/**
+ * The three caps, each labelled.
+ *
+ * They were once rendered as a bare `50 / 500` pair, which left the per-ENS cap — the only one
+ * that follows a person across their devices — with nowhere to appear. A grant with just that
+ * cap set therefore read as completely unlimited.
+ */
+function Caps({ limits }: { limits: Limits }) {
+  const rows: [string, number | null][] = [
+    ["device", limits.per_device_per_day],
+    ["group", limits.group_per_day],
+    ["person", limits.per_ens_per_day],
+  ];
+  return (
+    <span className="block space-y-0.5">
+      {rows.map(([label, value]) => (
+        <span key={label} className="flex items-baseline justify-between gap-2">
+          <span className="text-ink-muted">{label}</span>
+          <span className={`tabular-nums ${value === null ? "text-ink-faint" : "text-ink"}`}>
+            {cap(value)}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function GrantDialog({
   group,
   resource,
@@ -174,13 +200,13 @@ function GrantDialog({
 }: {
   group: Group;
   resource: Resource;
-  existing: { per_device_per_day: number | null; group_per_day: number | null } | null;
+  existing: Limits | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [perDevice, setPerDevice] = useState(text(existing?.per_device_per_day ?? null));
   const [perGroup, setPerGroup] = useState(text(existing?.group_per_day ?? null));
-  const [perEns, setPerEns] = useState("");
+  const [perEns, setPerEns] = useState(text(existing?.per_ens_per_day ?? null));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -243,11 +269,7 @@ function GrantDialog({
           <Cap label="Whole group, per day" hint="Shared across everyone in it." value={perGroup} onChange={setPerGroup} />
           <Cap
             label="Per ENS name, per day"
-            hint={
-              existing
-                ? "Set, but the enforcer does not return it — whatever you type here replaces it."
-                : "One person across all their devices. Requires them to have signed in with a name."
-            }
+            hint="One person across all their devices. Requires them to have signed in with a name."
             value={perEns}
             onChange={setPerEns}
           />

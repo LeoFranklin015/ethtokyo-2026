@@ -51,7 +51,7 @@ These are verified against `proxy/proxy.py`, not taken from the doc — several 
 | # | Trap | What the UI must do |
 |---|---|---|
 | T1 | **`PUT /limits` is a full replace.** Omitting `per_ens_per_day` sets it to `NULL` = unlimited. | Always send all three fields, every time. Never PATCH-by-omission. |
-| T2 | **`GET /admin/groups/:id` does not return `per_ens_per_day`**, though `PUT` accepts it. The value is invisible through the API. | Show it as "not readable back" rather than blank, which would imply unlimited. Do not round-trip it. |
+| T2 | ~~**`GET /admin/groups/:id` does not return `per_ens_per_day`**, though `PUT` accepts it.~~ **Fixed in the enforcer.** Both reads that describe a grant now return all three caps. | Nothing. It was not fixable in the UI: a cap that was set read back as unlimited, and the only honest fix was to return it. Covered by `test_per_ens_cap_is_readable_back`. |
 | T3 | **Creates are not idempotent.** 409 `name_taken` / `username_taken` / `slug_taken`. | Treat 409 as a named, recoverable outcome with a useful message — not a generic failure. |
 | T4 | **`GET /admin/resources` returns no key field at all**, though the doc says masked. `GET /admin/resources/:id` does include `api_key_masked`. | Only show key state on the detail view. |
 | T5 | **Delete guards.** Group with members → 409; group with active sessions → 409; resource with any limit row → 409. | Say which thing is blocking and link to it, rather than reporting "delete failed". |
@@ -107,8 +107,9 @@ This screen exists because the relationship is invisible otherwise: it lives in 
 no page of its own, and an operator otherwise has to open each group in turn to discover who can
 reach what.
 
-Per T1, saving always sends all three fields. Per T2, the per-ENS cap shows as "set, not
-readable" once written.
+Per T1, saving always sends all three fields. Each cell shows all three, labelled — a bare
+`device / group` pair left the per-ENS cap nowhere to appear, so a grant carrying only that cap
+read as entirely unlimited.
 
 ### 3.3 Users — `/console/users`
 
@@ -182,7 +183,7 @@ proven owner pointed at a deployment operates that one enforcer. The screens say
 - [ ] Groups × resources matrix
 - [ ] Grant / edit limits, always sending all three (T1)
 - [ ] Revoke
-- [ ] Per-ENS cap shown as "set, not readable" (T2)
+- [x] All three caps shown and prefilled, after making the enforcer return the third (T2)
 
 **Users**
 - [ ] List with group/disabled filters and paging

@@ -11,6 +11,12 @@ import { api } from "@/lib/api";
  * live next to the fetch rather than be remembered at every call site.
  */
 
+export type Limits = {
+  per_device_per_day: number | null;
+  group_per_day: number | null;
+  per_ens_per_day: number | null;
+};
+
 export type Resource = {
   id: string;
   slug: string;
@@ -27,12 +33,7 @@ export type Resource = {
   /** Only on the detail read — the list returns no key field at all. */
   api_key_masked?: string;
   api_key_b64_user?: string;
-  group_access?: {
-    group_id: string;
-    group_name: string;
-    per_device_per_day: number | null;
-    group_per_day: number | null;
-  }[];
+  group_access?: ({ group_id: string; group_name: string } & Limits)[];
 };
 
 export type Group = {
@@ -46,7 +47,7 @@ export type Group = {
 
 export type GroupDetail = Group & {
   members: { id: string; username: string; disabled: number }[];
-  limits: Record<string, { per_device_per_day: number | null; group_per_day: number | null }>;
+  limits: Record<string, Limits>;
   usage_today: Record<string, { used: number; limit: number | null }>;
 };
 
@@ -65,12 +66,6 @@ export type UserDetail = Omit<User, "default_group_id"> & {
   notes: string | null;
   active_session: { id: string; ip: string; logged_in_at: number } | null;
   usage_today: Record<string, { used: number; limit: number | null }>;
-};
-
-export type Limits = {
-  per_device_per_day: number | null;
-  group_per_day: number | null;
-  per_ens_per_day: number | null;
 };
 
 export function useResources() {
@@ -135,8 +130,7 @@ export function useUserDetail(id: string | null) {
  * Grant or update a group's access to a resource.
  *
  * All three caps are sent every time, deliberately. `PUT` is a full replace on the enforcer, so
- * omitting `per_ens_per_day` silently sets it to unlimited — and since `GET /admin/groups/:id`
- * does not return that column, the loss would be invisible through the API.
+ * omitting any one of them silently sets it to unlimited rather than leaving it alone.
  */
 export function grantAccess(groupId: string, resourceId: string, limits: Limits) {
   return api.put(`groups/${groupId}/limits/${resourceId}`, {
@@ -170,12 +164,13 @@ export function useAccessMatrix() {
     { refreshInterval: 30_000 },
   );
 
-  const grants = new Map<string, { per_device_per_day: number | null; group_per_day: number | null }>();
+  const grants = new Map<string, Limits>();
   for (const detail of details.data ?? []) {
     for (const access of detail.group_access ?? []) {
       grants.set(`${access.group_id}:${detail.id}`, {
         per_device_per_day: access.per_device_per_day,
         group_per_day: access.group_per_day,
+        per_ens_per_day: access.per_ens_per_day,
       });
     }
   }
