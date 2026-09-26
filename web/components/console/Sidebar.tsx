@@ -84,7 +84,6 @@ export function Sidebar() {
             <span aria-hidden className="size-1.5 rounded-full" style={{ background: online ? "var(--signal)" : "var(--alert)" }} />
             {online ? "Proxy online" : "Proxy unreachable"}
           </p>
-          {status && <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">{status.active_sessions} active sessions</p>}
         </div>
       </div>
     </div>

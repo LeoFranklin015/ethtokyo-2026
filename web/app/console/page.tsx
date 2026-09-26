@@ -28,7 +28,7 @@ export default function OverviewPage() {
   const sessions = sessionsData?.sessions ?? [];
   const samples = throughputData?.samples ?? [];
   const totalUsers = usersData?.total ?? 0;
-  const activeSessions = sessionsData?.total ?? status?.active_sessions ?? 0;
+  const activeSessions = sessionsData?.total ?? 0;
   const totalDevices = groups.reduce((s, g) => s + g.devices, 0);
   const totalUsed = groups.reduce((s, g) => s + g.used, 0);
   const totalPool = groups.reduce((s, g) => s + g.pool, 0);
