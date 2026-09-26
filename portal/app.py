@@ -36,6 +36,12 @@ ALLOW_NAME_LOGIN = os.environ.get("ENSCA_ALLOW_NAME_LOGIN", "") == "1"
 # is why the example above is the gateway. Port 80 is not an option either way, because
 # `_bootstrap_captive_redirect` hijacks it back to this portal.
 CONSOLE_URL = os.environ.get("ENSCA_CONSOLE_URL", "").strip().rstrip("/")
+# Proves to the console that a relayed call really came from this gateway, so it may believe the
+# guest's address in `X-Forwarded-For`. The console admits whatever address that header carries,
+# so without this anyone who can reach the console could have an arbitrary device let onto the
+# network. Must equal `PORTAL_RELAY_TOKEN` there; unset, the console ignores the header and
+# nothing is admitted.
+CONSOLE_TOKEN = os.environ.get("ENSCA_CONSOLE_TOKEN", "").strip()
 # Shown on the captive page so a guest can tell which network they are joining.
 SSID = os.environ.get("ENSCA_SSID", "the branch network")
 PORTAL_URL = f"http://{GATEWAY_IP}:8080"
@@ -241,7 +247,10 @@ def check_authed():
         return None
     if request.path in CAPTIVE_PROBE_PATHS:
         return redirect(f"{PORTAL_URL}/", 302)
-    if request.path in ("/", "/login"):
+    # The captive page does the whole sign-in itself and calls these to do it, so they have to
+    # answer for a device that is by definition not admitted yet. Redirecting them to the portal
+    # would hand JSON callers an HTML login page.
+    if request.path in ("/", "/login") or request.path.startswith("/api/"):
         return None
     return redirect("http://192.168.0.1:8080/", 302)
 
@@ -262,6 +271,11 @@ def _login_page(error=None, status=200):
 
 @app.route("/", methods=["GET"])
 def index():
+    # Already on the network: show them that, rather than a badge they have no reason to scan.
+    # A captive page is reopened constantly — every OS probe reopens it — so this is the common
+    # case, not an edge one.
+    if client_ip() in AUTHED_IPS:
+        return redirect(f"{PORTAL_URL}/connected", 302)
     return _login_page()
 
 
@@ -291,6 +305,60 @@ def login():
     ENS_NAMES[ip] = ident["ens_name"]
     grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"])
     return redirect(f"{PORTAL_URL}/connected", 302)
+
+
+def _console(method, path, **kwargs):
+    """Relay one call to the console's portal API on the guest's behalf.
+
+    The page cannot call the console directly. An unadmitted device has no forwarded traffic at
+    all — `grant_access` is what opens that — so the only host it can talk to is this one, which
+    does have a route out. Relaying here also keeps the page same-origin, so there is no CORS to
+    arrange and no second address for an operator to get wrong.
+
+    `X-Forwarded-For` carries the guest's address rather than this gateway's, because the console
+    binds its nonce to the caller and then asks *us* to admit that same address. Without it every
+    guest would look like 127.0.0.1 and the wrong device would be let onto the network.
+    """
+    if not CONSOLE_URL:
+        return jsonify({"error": "this branch has no console configured"}), 503
+    try:
+        r = _req.request(
+            method,
+            f"{CONSOLE_URL}{path}",
+            headers={
+                "X-Forwarded-For": client_ip(),
+                "X-Portal-Token": CONSOLE_TOKEN,
+            },
+            timeout=30,
+            **kwargs,
+        )
+    except Exception as exc:
+        # Not a refusal, and the page words it as an outage. A console that cannot be reached
+        # must never read as "you are not a member".
+        _log.warning("console unreachable: %s", exc)
+        return jsonify({"error": "the console could not be reached from this branch"}), 504
+    try:
+        return jsonify(r.json()), r.status_code
+    except ValueError:
+        return jsonify({"error": f"the console answered {r.status_code}"}), 502
+
+
+@app.route("/api/badge", methods=["GET"])
+def api_badge():
+    """Which membership does this badge belong to, and whose wallet holds it?"""
+    return _console("GET", "/api/portal/badge", params={"id": request.args.get("id", "")})
+
+
+@app.route("/api/challenge", methods=["POST"])
+def api_challenge():
+    """A one-time nonce, and the exact text to sign. Both composed by the console."""
+    return _console("POST", "/api/portal/challenge")
+
+
+@app.route("/api/verify", methods=["POST"])
+def api_verify():
+    """The signature. The console checks it, then calls this host back on /internal/admit."""
+    return _console("POST", "/api/portal/verify", json=request.get_json(silent=True) or {})
 
 
 @app.route("/connected", methods=["GET"])

@@ -7,27 +7,32 @@
   <!--
     The page a guest actually lands on, served by the branch host with no internet behind it.
 
-    Everything is inline and self-hosted: an unadmitted device cannot reach a CDN, a web font or
-    an analytics script, so anything external would simply not arrive. The fonts are system
-    stacks for the same reason.
+    It does the whole sign-in itself: scan the badge, connect the wallet that badge was
+    registered to, sign one message. The chain reads and the signature check live in the console,
+    which this host relays to over /api/* — an unadmitted device has no forwarded traffic, so
+    this gateway is the only thing it can talk to.
 
-    The sign-in itself does not happen here. It needs a wallet and a chain client, which live in
-    the console — so this page hands the guest to it and says plainly what will be asked of them.
+    Everything is inline and self-hosted. An unadmitted device cannot reach a CDN, a web font or
+    a script host, so anything external would simply never arrive; the fonts are system stacks
+    for the same reason and the QR decoding is the browser's own `BarcodeDetector`.
   -->
   <style>
     :root {
       --paper:       #dce1ec;
       --paper-raise: #e5e9f1;
       --ink:         #343b63;
+      --ink-80:      rgba(52, 59, 99, 0.86);
       --ink-muted:   rgba(52, 59, 99, 0.77);
       --ink-faint:   rgba(52, 59, 99, 0.45);
       --rule:        rgba(52, 59, 99, 0.22);
       --rule-soft:   rgba(52, 59, 99, 0.11);
+      --signal:      #343b63;
       --alert:       #a8331c;
       --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
       --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       margin: 0;
       min-height: 100vh;
@@ -48,12 +53,7 @@
       color: var(--ink);
       -webkit-font-smoothing: antialiased;
     }
-    .wordmark {
-      font-family: var(--mono);
-      font-size: 0.875rem;
-      font-weight: 500;
-      letter-spacing: 0.18em;
-    }
+    .wordmark { font-family: var(--mono); font-size: 0.875rem; font-weight: 500; letter-spacing: 0.18em; }
     .panel {
       width: 100%;
       max-width: 420px;
@@ -62,112 +62,84 @@
       background: var(--paper-raise);
     }
     .panel-head {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 0.75rem;
-      padding: 0.75rem 1rem;
-      border-bottom: 1px solid var(--rule);
+      display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem;
+      padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule);
     }
-    .ssid {
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .ssid { font-family: var(--mono); font-size: 0.75rem; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .label {
-      flex-shrink: 0;
-      font-family: var(--mono);
-      font-size: 0.6875rem;
-      line-height: 1;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--ink-muted);
+      margin: 0; flex-shrink: 0;
+      font-family: var(--mono); font-size: 0.6875rem; line-height: 1;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted);
     }
+    ol.steps {
+      display: flex; align-items: center; gap: 0.375rem; margin: 0; padding: 0.5rem 1rem;
+      list-style: none; border-bottom: 1px solid var(--rule);
+      font-family: var(--mono); font-size: 0.625rem; letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    ol.steps li { display: flex; align-items: center; gap: 0.375rem; color: var(--ink-faint); }
+    ol.steps li.done { color: var(--ink-muted); }
+    ol.steps li.now { color: var(--ink); }
+    ol.steps li .sep { color: var(--ink-faint); }
     .body { padding: 1.25rem 1rem; }
     h1 { margin: 0; font-size: 1.125rem; line-height: 1.4; letter-spacing: -0.01em; font-weight: 500; }
+    h2 { margin: 0.5rem 0 0; font-size: 0.875rem; font-weight: 500; }
     p { margin: 0.5rem 0 0; font-size: 0.875rem; line-height: 1.6; color: var(--ink-muted); }
-    ol.steps {
-      margin: 1.25rem 0 0;
-      padding: 0;
-      list-style: none;
-      border-top: 1px solid var(--rule);
-      border-bottom: 1px solid var(--rule);
+    .mono { font-family: var(--mono); font-size: 0.75rem; color: var(--ink); }
+    dl { margin: 1rem 0 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+    dl div {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0;
     }
-    ol.steps li {
-      display: flex;
-      gap: 0.75rem;
-      padding: 0.625rem 0;
-      font-size: 0.875rem;
-      line-height: 1.5;
-      color: var(--ink-muted);
+    dl div + div { border-top: 1px solid var(--rule); }
+    dt {
+      flex-shrink: 0; font-family: var(--mono); font-size: 0.6875rem; line-height: 1;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted);
     }
-    ol.steps li + li { border-top: 1px solid var(--rule); }
-    ol.steps .n {
-      flex-shrink: 0;
-      font-family: var(--mono);
-      font-size: 0.6875rem;
-      letter-spacing: 0.12em;
-      color: var(--ink-faint);
-      padding-top: 0.2rem;
+    dd {
+      margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      text-align: right; font-family: var(--mono); font-size: 0.75rem; color: var(--ink-80);
     }
-    /* 44px tall, which is the smallest tap target that works on a phone held one-handed. */
-    .action {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      min-height: 44px;
-      margin-top: 1.5rem;
-      padding: 0 1.25rem;
-      border: 1px solid var(--ink);
-      border-radius: 999px;
-      background: var(--ink);
-      color: var(--paper);
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      text-decoration: none;
-      cursor: pointer;
+    /* 44px is the smallest tap target that works on a phone held one-handed. */
+    button, .btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; min-height: 44px; padding: 0 1.25rem;
+      border: 1px solid var(--ink); border-radius: 999px;
+      background: var(--ink); color: var(--paper);
+      font-family: var(--mono); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.12em;
+      text-decoration: none; cursor: pointer;
     }
-    .error {
-      margin-top: 1.25rem;
-      padding-top: 1rem;
-      border-top: 1px solid var(--rule);
-    }
-    .error .label { color: var(--alert); }
-    .fallback { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+    button.outline { background: transparent; color: var(--ink); border-color: rgba(52, 59, 99, 0.35); }
+    button.ghost { background: transparent; color: var(--ink-muted); border-color: transparent; }
+    button:disabled { opacity: 0.4; pointer-events: none; }
+    .actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.25rem; }
+    .trouble { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+    .trouble .label { color: var(--alert); }
+    .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--signal); display: inline-block; }
     .field { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
     .field input {
-      flex: 1;
-      min-width: 0;
-      height: 44px;
-      padding: 0 0.75rem;
-      border: 1px solid var(--rule);
-      border-radius: 2px;
-      background: var(--paper);
-      font-family: var(--mono);
-      font-size: 0.875rem;
-      color: var(--ink);
+      flex: 1; min-width: 0; height: 44px; padding: 0 0.75rem;
+      border: 1px solid var(--rule); border-radius: 2px; background: var(--paper);
+      font-family: var(--mono); font-size: 0.875rem; letter-spacing: 0.2em; color: var(--ink);
     }
-    .field .suffix { font-family: var(--mono); font-size: 0.75rem; color: var(--ink-muted); }
-    .field button {
-      flex-shrink: 0;
-      min-height: 44px;
-      padding: 0 1.25rem;
-      border: 1px solid var(--ink);
-      border-radius: 999px;
-      background: var(--ink);
-      color: var(--paper);
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      cursor: pointer;
-    }
+    .field button { width: auto; flex-shrink: 0; }
     .note { font-size: 0.75rem; }
+
+    /* Scanner dialog. Bottom-anchored on a phone, where the thumb is. */
+    .scrim { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
+    @media (min-width: 640px) { .scrim { align-items: center; } }
+    .scrim-bg { position: absolute; inset: 0; border: 0; border-radius: 0; min-height: 0; padding: 0; background: rgba(52, 59, 99, 0.2); cursor: default; }
+    .dialog {
+      position: relative; width: 100%; max-width: 420px; padding: 1.25rem;
+      border: 1px solid var(--rule); border-radius: 2px; background: var(--paper);
+      max-height: 100vh; overflow-y: auto;
+    }
+    video {
+      width: 100%; aspect-ratio: 1 / 1; margin-top: 0.5rem; object-fit: cover;
+      border: 1px solid var(--rule); border-radius: 2px; background: rgba(52, 59, 99, 0.05);
+    }
+    .scanned { margin-top: 1rem; text-align: center; font-family: var(--mono); font-size: 1.5rem; letter-spacing: 0.2em; }
+    .hint { min-height: 1rem; margin-top: 0.5rem; font-family: var(--mono); font-size: 0.6875rem; }
+    .hint.bad { color: var(--alert); }
+    .divider { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
   </style>
 </head>
 <body>
@@ -179,39 +151,79 @@
       <p class="label">SSID</p>
     </div>
 
+    <ol class="steps" id="steps" aria-label="Progress">
+      <li data-step="badge"><span>Badge</span></li>
+      <li data-step="wallet"><span class="sep" aria-hidden="true">·</span><span>Wallet</span></li>
+      <li data-step="sign"><span class="sep" aria-hidden="true">·</span><span>Sign</span></li>
+      <li data-step="online"><span class="sep" aria-hidden="true">·</span><span>Online</span></li>
+    </ol>
+
     <div class="body">
-      <h1>Get on the network</h1>
-      <p>
-        Your badge is your membership. Scan it, connect the wallet it was registered to, and sign
-        one message — no password, no transaction, nothing to pay.
-      </p>
-
-      <ol class="steps">
-        <li><span class="n">01</span><span>Scan the code on your lanyard.</span></li>
-        <li><span class="n">02</span><span>Connect the wallet that badge was registered to.</span></li>
-        <li><span class="n">03</span><span>Sign to prove you hold it, and you are online.</span></li>
-      </ol>
-
-      {% if console_url %}
-        <a class="action" href="{{ console_url }}/portal">Scan my badge</a>
-      {% else %}
+      {% if not console_url %}
         {#
-          Without a console there is nothing to hand the guest to, and a button that goes nowhere
-          is worse than none. Say which knob is missing, because the person who can fix it is the
-          organizer standing in the room.
+          Say it before they scan, not after. Without a console there is nothing to check a badge
+          against, and the person who can fix it is the organizer standing in the room.
         #}
-        <div class="error">
+        <div class="trouble" style="margin-top: 0; padding-top: 0; border-top: 0;">
           <p class="label">Sign-in is unavailable here</p>
           <p>
-            This branch has no console address set, so there is nowhere to scan your badge. Ask an
-            organizer to set <span style="font-family: var(--mono); font-size: 0.75rem; color: var(--ink);">ENSCA_CONSOLE_URL</span>
-            on the portal host.
+            This branch has no console address set, so a badge cannot be checked. Ask an organizer
+            to set <span class="mono">ENSCA_CONSOLE_URL</span> on the portal host.
           </p>
         </div>
       {% endif %}
 
+      <!-- Step 1 -->
+      <section id="step-badge">
+        <h1>Scan your badge</h1>
+        <p>
+          Point the camera at the code on your lanyard. Then sign with the wallet it was
+          registered to — a signature only, no transaction and nothing to pay.
+        </p>
+        <div class="actions">
+          <button type="button" id="open-scanner">Scan my badge</button>
+        </div>
+      </section>
+
+      <!-- Step 2 -->
+      <section id="step-wallet" hidden>
+        <h1 id="wallet-title">Connect the badge&rsquo;s wallet</h1>
+        <dl id="badge-facts"></dl>
+        <div id="wallet-body"></div>
+      </section>
+
+      <!-- Step 3 -->
+      <section id="step-sign" hidden>
+        <h1>Check your wallet</h1>
+        <p>
+          Approve the signature request. It proves you hold
+          <span class="mono" id="sign-name"></span> and moves no funds.
+        </p>
+        <div class="actions">
+          <button type="button" class="outline" id="sign-cancel">Cancel</button>
+        </div>
+      </section>
+
+      <!-- Step 4 -->
+      <section id="step-online" hidden>
+        <p class="label"><span class="dot" aria-hidden="true"></span> Admitted</p>
+        <h1 style="margin-top: 0.75rem;">You are online</h1>
+        <p>
+          Your wallet signed for this badge and the branch opened the network for this device.
+        </p>
+        <dl id="grant"></dl>
+        <div class="actions">
+          <a class="btn outline" href="/connected">See this device&rsquo;s access</a>
+        </div>
+      </section>
+
+      <div class="trouble" id="trouble" hidden role="status">
+        <p class="label" id="trouble-title"></p>
+        <p id="trouble-body"></p>
+      </div>
+
       {% if error %}
-        <div class="error">
+        <div class="trouble">
           <p class="label">Not admitted</p>
           <p>{{ error }}</p>
         </div>
@@ -223,7 +235,7 @@
           ENS names are public — so it stays off unless an operator deliberately turns it on, and
           it says so rather than presenting itself as an equal choice.
         #}
-        <div class="fallback">
+        <div class="divider">
           <p class="label">Fallback</p>
           <p class="note">
             This branch also accepts a typed name. It proves nothing on its own and is enabled
@@ -233,7 +245,6 @@
             <div class="field">
               <input type="text" name="ens_name" placeholder="yourname" autocomplete="off"
                      autocapitalize="off" spellcheck="false" required>
-              <span class="suffix">.eth</span>
               <button type="submit">Connect</button>
             </div>
           </form>
@@ -241,5 +252,559 @@
       {% endif %}
     </div>
   </main>
+
+  <!-- Scanner -->
+  <div class="scrim" id="scanner" hidden>
+    <button type="button" class="scrim-bg" id="scanner-close-bg" aria-label="Close"></button>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Scan your badge" tabindex="-1" id="scanner-dialog">
+      <p class="label">Scan a badge</p>
+
+      <div id="scan-live">
+        <h2>Point the camera at the badge</h2>
+        <span class="label" id="video-label">Camera</span>
+        <video id="video" aria-labelledby="video-label" playsinline muted></video>
+        <p class="hint" id="scan-hint" role="status">looking for a code…</p>
+      </div>
+
+      <div id="scan-trouble" hidden>
+        <h2 id="scan-trouble-title"></h2>
+        <p id="scan-trouble-body"></p>
+      </div>
+
+      <div id="scan-confirm" hidden>
+        <h2>Is this your badge?</h2>
+        <p class="scanned" id="scanned-id"></p>
+        <p style="text-align: center;">
+          Check it against the code on your lanyard — the network will only admit the wallet this
+          badge was registered to.
+        </p>
+        <div class="actions">
+          <button type="button" id="scan-accept">This is mine</button>
+          <button type="button" class="ghost" id="scan-again">Scan another</button>
+        </div>
+      </div>
+
+      <div class="divider" id="manual-wrap">
+        <button type="button" class="ghost" id="manual-open">Enter the id instead</button>
+        <label id="manual-field" hidden>
+          <span class="label">Badge id</span>
+          <span class="field">
+            <input id="manual-id" placeholder="sdiuf" autocomplete="off" spellcheck="false"
+                   autocapitalize="off" inputmode="latin" maxlength="5">
+            <button type="button" id="manual-use" disabled>Use</button>
+          </span>
+          <span class="note" style="display: block; margin-top: 0.25rem; color: var(--ink-muted);">
+            The five characters at the end of the badge&rsquo;s link.
+          </span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="ghost" id="scan-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MEMBER_ID = /^[a-z0-9]{5}$/;
+
+  /**
+   * The id a badge carries.
+   *
+   * A badge encodes a URL whose last path segment is the id, and that id is the member's ENS
+   * label — so it is validated here rather than trusted, whatever the camera happened to decode.
+   * A badge printed with the bare id still works.
+   */
+  function parseMemberId(scanned) {
+    var text = (scanned || "").trim();
+    if (!text) return null;
+    var path = text.split(/[?#]/)[0];
+    var segments = path.split("/").filter(Boolean);
+    var last = segments[segments.length - 1];
+    if (!last) return null;
+    var id = last.toLowerCase();
+    return MEMBER_ID.test(id) ? id : null;
+  }
+
+  function $(id) { return document.getElementById(id); }
+  function show(el, on) { el.hidden = !on; }
+  function short(a) { return a.slice(0, 6) + "…" + a.slice(-4); }
+
+  var STEPS = ["badge", "wallet", "sign", "online"];
+  var state = { step: "badge", badge: null, account: null, attempt: 0 };
+
+  function setStep(step) {
+    state.step = step;
+    var at = STEPS.indexOf(step);
+    STEPS.forEach(function (name, i) {
+      show($("step-" + name), name === step);
+      var li = document.querySelector('#steps li[data-step="' + name + '"]');
+      li.className = i === at ? "now" : i < at ? "done" : "";
+      if (i === at) li.setAttribute("aria-current", "step");
+      else li.removeAttribute("aria-current");
+    });
+  }
+
+  function trouble(title, body) {
+    if (!title) { show($("trouble"), false); return; }
+    $("trouble-title").textContent = title;
+    $("trouble-body").textContent = body;
+    show($("trouble"), true);
+  }
+
+  function rows(el, pairs) {
+    el.textContent = "";
+    pairs.forEach(function (pair) {
+      var div = document.createElement("div");
+      var dt = document.createElement("dt");
+      var dd = document.createElement("dd");
+      dt.textContent = pair[0];
+      dd.textContent = pair[1];
+      div.appendChild(dt); div.appendChild(dd);
+      el.appendChild(div);
+    });
+  }
+
+  /* ── The camera ─────────────────────────────────────────────────────────
+     Every way this can fail — a page served over plain HTTP, a blocked camera, no camera, a
+     browser without barcode decoding — is reported as itself and leaves the id typeable by
+     hand, because a guest in a lobby cannot debug their browser.
+     ─────────────────────────────────────────────────────────────────── */
+  var stream = null, timer = null;
+
+  function stopCamera() {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    $("video").srcObject = null;
+  }
+
+  function scanTrouble(title, body) {
+    stopCamera();
+    $("scan-trouble-title").textContent = title;
+    $("scan-trouble-body").textContent = body;
+    show($("scan-live"), false);
+    show($("scan-trouble"), true);
+    openManual();
+  }
+
+  function openManual() {
+    show($("manual-open"), false);
+    show($("manual-field"), true);
+  }
+
+  function startCamera() {
+    show($("scan-live"), true);
+    show($("scan-trouble"), false);
+    show($("scan-confirm"), false);
+    show($("manual-wrap"), true);
+    $("scan-hint").textContent = "looking for a code…";
+    $("scan-hint").className = "hint";
+
+    // getUserMedia exists only on a secure origin. A captive portal is served over plain HTTP by
+    // definition, so this is the failure most guests will actually hit — say which one it is and
+    // what to do, rather than showing a camera that never starts.
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      scanTrouble(
+        "This page is not served securely",
+        "Cameras are only available over HTTPS, so the camera cannot open here. Read the five " +
+        "characters at the end of your badge's link and enter them below."
+      );
+      return;
+    }
+    if (!window.BarcodeDetector) {
+      scanTrouble(
+        "Scanning is unavailable in this browser",
+        "It has no barcode decoding. Chrome on Android and Safari can scan; otherwise enter the " +
+        "id below."
+      );
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(function (s) {
+      stream = s;
+      var video = $("video");
+      video.srcObject = s;
+      var play = video.play();
+      if (play && play.catch) play.catch(function () {});
+
+      var detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+      var busy = false;
+      timer = setInterval(function () {
+        if (busy || video.readyState < 2) return;
+        busy = true;
+        detector.detect(video).then(function (found) {
+          var raw = found[0] && found[0].rawValue;
+          if (!raw) return;
+          var id = parseMemberId(raw);
+          if (id) {
+            stopCamera();
+            confirmScan(id);
+          } else {
+            // A QR that decodes to something else is a different state from no QR at all: the
+            // guest is pointing at the wrong code and needs telling, not leaving to wait.
+            $("scan-hint").textContent = "that code is not a member badge — still scanning";
+            $("scan-hint").className = "hint bad";
+          }
+        }).catch(function () {
+          // A single failed frame is not worth an error state; the next one is 200ms away.
+        }).then(function () { busy = false; });
+      }, 200);
+    }).catch(function (e) {
+      var name = e && e.name;
+      if (name === "NotAllowedError") {
+        scanTrouble(
+          "The browser blocked the camera",
+          "Allow camera access for this site, then open the scanner again — or enter the id below."
+        );
+      } else if (name === "NotFoundError") {
+        scanTrouble("No camera on this device", "Nothing here can scan a badge. Enter the id below instead.");
+      } else {
+        scanTrouble("The camera would not start", (e && e.message) || "Unknown error.");
+      }
+    });
+  }
+
+  function confirmScan(id) {
+    $("scanned-id").textContent = id;
+    show($("scan-live"), false);
+    show($("scan-trouble"), false);
+    show($("manual-wrap"), false);
+    show($("scan-confirm"), true);
+  }
+
+  function openScanner() {
+    show($("scanner"), true);
+    $("scanner-dialog").focus();
+    startCamera();
+  }
+
+  function closeScanner() {
+    stopCamera();
+    show($("scanner"), false);
+  }
+
+  $("open-scanner").addEventListener("click", openScanner);
+  $("scan-cancel").addEventListener("click", closeScanner);
+  $("scanner-close-bg").addEventListener("click", closeScanner);
+  $("scan-again").addEventListener("click", startCamera);
+  $("scan-accept").addEventListener("click", function () {
+    closeScanner();
+    lookUpBadge($("scanned-id").textContent);
+  });
+  $("manual-open").addEventListener("click", openManual);
+  $("manual-id").addEventListener("input", function () {
+    this.value = this.value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().slice(0, 5);
+    $("manual-use").disabled = !MEMBER_ID.test(this.value);
+  });
+  $("manual-use").addEventListener("click", function () {
+    var id = $("manual-id").value;
+    if (!MEMBER_ID.test(id)) return;
+    closeScanner();
+    lookUpBadge(id);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !$("scanner").hidden) closeScanner();
+  });
+
+  /* ── The badge ──────────────────────────────────────────────────────── */
+  function lookUpBadge(id) {
+    trouble(null);
+    $("open-scanner").disabled = true;
+    $("open-scanner").textContent = "Checking…";
+
+    fetch("/api/badge?id=" + encodeURIComponent(id), { cache: "no-store" }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) {
+        if (res.status === 404) {
+          trouble(
+            "Badge " + id + " is not a membership",
+            "Nobody at this organization holds that badge. Check you scanned your own, or ask an " +
+            "organizer to onboard you at the desk."
+          );
+          return;
+        }
+        if (res.status === 502 || res.status === 504) {
+          trouble(
+            "That badge could not be checked",
+            "The branch could not reach what it needs to check your badge, so this is not a " +
+            "refusal. Wait a moment and scan again."
+          );
+          return;
+        }
+        if (!res.ok) {
+          trouble(
+            "This portal is not set up",
+            (body.error || "The portal could not look up a badge.") +
+            " An organizer has to fix this — scanning again will not help."
+          );
+          return;
+        }
+        state.badge = body;
+        renderWallet();
+        setStep("wallet");
+      });
+    }).catch(function () {
+      trouble(
+        "The portal did not answer",
+        "Nothing could be looked up from this device. Stay on this network and try again."
+      );
+    }).then(function () {
+      $("open-scanner").disabled = false;
+      $("open-scanner").textContent = "Scan my badge";
+    });
+  }
+
+  /* ── The wallet ─────────────────────────────────────────────────────── */
+  function provider() { return window.ethereum || null; }
+
+  function renderWallet() {
+    var badge = state.badge;
+    var facts = [];
+    if (badge.displayName) facts.push(["Member", badge.displayName]);
+    facts.push(["Badge", badge.id], ["Membership", badge.name], ["Registered to", short(badge.wallet)]);
+    rows($("badge-facts"), facts);
+
+    var body = $("wallet-body");
+    body.textContent = "";
+
+    if (!state.account) {
+      if (!provider()) {
+        // A captive-portal window usually has no wallet behind it, and a connect button that
+        // cannot work is worse than none.
+        $("wallet-title").textContent = "Connect the badge's wallet";
+        body.appendChild(paragraph(
+          "There is no wallet in this browser. Captive-portal windows cannot reach one. Open " +
+          "this page in your wallet app's own browser, or finish joining on a phone that has " +
+          "the wallet installed."
+        ));
+        return;
+      }
+      $("wallet-title").textContent = "Connect the badge's wallet";
+      body.appendChild(paragraph(
+        "Connect the wallet this badge was registered to. Any other wallet will be refused, so " +
+        "there is nothing to lose by trying."
+      ));
+      body.appendChild(actions([button("Connect wallet", "", connectWallet)]));
+      return;
+    }
+
+    if (state.account !== badge.wallet.toLowerCase()) {
+      $("wallet-title").textContent = "Wrong wallet";
+      body.appendChild(paragraph(
+        "This badge belongs to a different wallet. It is registered to " + short(badge.wallet) +
+        ", and you are connected as " + short(state.account) +
+        ". Switch accounts in your wallet, or scan your own badge."
+      ));
+      body.appendChild(actions([
+        button("Use another account", "", connectWallet),
+        button("Scan another badge", "ghost", startOver),
+      ]));
+      return;
+    }
+
+    $("wallet-title").textContent = "Sign to get online";
+    body.appendChild(paragraph(
+      "Connected as " + short(state.account) + ", which is the wallet on this badge. Sign the " +
+      "challenge to prove you hold it and the branch will let this device through."
+    ));
+    body.appendChild(actions([
+      button("Sign and get online", "", signIn),
+      button("Scan another badge", "ghost", startOver),
+    ]));
+  }
+
+  function paragraph(text) { var p = document.createElement("p"); p.textContent = text; return p; }
+  function actions(list) {
+    var d = document.createElement("div");
+    d.className = "actions";
+    list.forEach(function (b) { d.appendChild(b); });
+    return d;
+  }
+  function button(text, cls, onClick) {
+    var b = document.createElement("button");
+    b.type = "button";
+    if (cls) b.className = cls;
+    b.textContent = text;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function connectWallet() {
+    trouble(null);
+    var eth = provider();
+    if (!eth) return;
+    eth.request({ method: "eth_requestAccounts" }).then(function (accounts) {
+      state.account = (accounts[0] || "").toLowerCase();
+      renderWallet();
+    }).catch(function (e) {
+      if (e && e.code === 4001) {
+        trouble(
+          "You declined the connection",
+          "The wallet was not connected, so nothing could be checked against your badge. Tap " +
+          "connect again and approve it."
+        );
+      } else {
+        trouble("Your wallet would not connect", (e && e.message) || "The wallet returned no account.");
+      }
+    });
+  }
+
+  function startOver() {
+    state.attempt += 1;
+    state.badge = null;
+    trouble(null);
+    setStep("badge");
+  }
+
+  /* ── The signature ──────────────────────────────────────────────────── */
+  function signIn() {
+    trouble(null);
+    // A wallet prompt cannot be withdrawn from this side, so leaving the signing screen only
+    // abandons the attempt. Bumping this marks everything in flight as stale, otherwise a
+    // signature approved a minute after the guest gave up would drag them back onto a screen
+    // they had left.
+    var mine = ++state.attempt;
+    function live() { return state.attempt === mine; }
+
+    var badge = state.badge;
+    var account = state.account;
+    $("sign-name").textContent = badge.name;
+    setStep("sign");
+
+    // Always a fresh challenge, worded by the console. One abandoned in the wallet is left to
+    // expire rather than reused.
+    fetch("/api/challenge", { method: "POST", cache: "no-store" }).then(function (res) {
+      if (!res.ok) throw new Error("challenge");
+      return res.json();
+    }).then(function (challenge) {
+      return provider().request({
+        method: "personal_sign",
+        params: [challenge.message, account],
+      }).then(function (signature) {
+        return fetch("/api/verify", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            nonce: challenge.nonce,
+            signature: signature,
+            wallet_address: account,
+            ens_name: badge.name,
+          }),
+        });
+      }, function (e) {
+        if (e && e.code === 4001) {
+          throw tagged("declined", "");
+        }
+        throw tagged("wallet", (e && e.message) || "The wallet returned no signature.");
+      });
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (result) {
+        if (!live()) return;
+        if (!result.ok) { setStep("wallet"); refusal(res.status, result.reason); return; }
+        // Identified is not admitted. The signature check happens in the console; the firewall
+        // rule happens here, and the page must never claim the second because the first passed.
+        if (!result.admitted) { setStep("wallet"); notAdmitted(result.admissionKind, result.admissionError); return; }
+
+        var grant = [];
+        if (badge.displayName) grant.push(["Member", badge.displayName]);
+        grant.push(
+          ["Badge", badge.id],
+          ["Membership", result.ens_name || badge.name],
+          ["Group", result.group_name || badge.role],
+          ["Wallet", short(account)]
+        );
+        rows($("grant"), grant);
+        setStep("online");
+      });
+    }).catch(function (e) {
+      if (!live()) return;
+      setStep("wallet");
+      if (e && e.tag === "declined") {
+        trouble(
+          "You declined the signature",
+          "Nothing was signed, so nothing was proved. Tap sign again and approve the request in " +
+          "your wallet — it is a signature, not a transaction, and costs nothing."
+        );
+      } else if (e && e.tag === "wallet") {
+        trouble("Your wallet could not sign", e.detail);
+      } else {
+        trouble(
+          "The portal did not answer",
+          "It could not issue a challenge to sign. Stay on this network and try again."
+        );
+      }
+    });
+  }
+
+  function tagged(tag, detail) { var e = new Error(tag); e.tag = tag; e.detail = detail; return e; }
+
+  /**
+   * What the console refused, in words. The status carries the distinction that matters: 401 is
+   * the challenge, 403 is a decision about this membership, 502 and 504 are something that did
+   * not answer — and that last one must never be worded as a refusal.
+   */
+  function refusal(status, reason) {
+    if (status === 401) {
+      trouble("That signature was not accepted",
+        (reason || "The challenge did not check out.") +
+        " Challenges are good once and expire quickly — sign again for a fresh one.");
+    } else if (status === 403) {
+      trouble("That badge is not admitted here",
+        (reason || "The membership was refused.") +
+        " Ask an organizer to check your membership at the desk.");
+    } else if (status === 502 || status === 504) {
+      trouble("Your membership could not be checked",
+        "The branch could not reach what it needs to check you, so this is not a refusal and " +
+        "you have not been turned away. Try again in a moment.");
+    } else if (status === 503) {
+      trouble("This portal is not set up",
+        (reason || "The portal is misconfigured.") +
+        " An organizer has to fix this — signing again will not help.");
+    } else {
+      trouble("Sign-in did not complete", reason || ("The portal answered " + status + "."));
+    }
+  }
+
+  /**
+   * Verified, but not on the network. All of this is somebody else's outage rather than the
+   * guest's fault, and "you are not allowed" would send them to argue with an organizer about a
+   * daemon that is simply down.
+   */
+  function notAdmitted(kind, detail) {
+    if (kind === "unreachable" || kind === "no-address") {
+      trouble("The network gate did not answer",
+        "Your membership checks out, so this is not a refusal — the branch enforcer is " +
+        "unreachable from this device" + (detail ? " (" + detail + ")" : "") +
+        ". Try again; if it keeps happening, tell an organizer the portal daemon is down.");
+    } else if (kind === "unconfigured") {
+      trouble("This portal has no enforcer",
+        "Your membership checks out, but this portal is not wired to a branch that can open the " +
+        "network. An organizer has to fix this.");
+    } else {
+      trouble("The branch refused this device",
+        "Your membership checks out, but the enforcer would not open the network" +
+        (detail ? ": " + detail : "") + ". Ask an organizer what this branch allows your group.");
+    }
+  }
+
+  $("sign-cancel").addEventListener("click", function () {
+    state.attempt += 1;
+    trouble(null);
+    setStep("wallet");
+  });
+
+  // Keep the wallet screen honest when the guest switches accounts in their wallet.
+  if (provider() && provider().on) {
+    provider().on("accountsChanged", function (accounts) {
+      state.account = ((accounts && accounts[0]) || "").toLowerCase() || null;
+      if (state.step === "wallet") renderWallet();
+    });
+  }
+
+  setStep("badge");
+})();
+</script>
 </body>
 </html>

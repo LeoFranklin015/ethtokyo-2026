@@ -23,13 +23,29 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Best-effort client address.
+ * The guest's address, and only when something is entitled to say what it is.
  *
- * `x-forwarded-for` is set by the client unless a trusted proxy overwrites it, and nothing here
- * is configured as one — so this is a weak hint, not an identity. It narrows casual nonce reuse
- * and nothing more; the actual proof is the signature.
+ * `x-forwarded-for` is a request header: any client can set it. The address it carries is not
+ * merely used to scope a nonce — `verify` hands it to `admit()`, which opens a firewall rule for
+ * it. Honoured unconditionally, that let an already-admitted member sign with their own valid
+ * membership while claiming somebody else's address, and put an unlimited number of devices on
+ * the network from one badge. That is precisely what this product exists to prevent.
+ *
+ * So the header counts only from the branch portal, which proves itself with a shared secret.
+ * Everything else is treated as having no address at all, which fails closed: `admit()` refuses
+ * `"unknown"` outright rather than guessing.
+ *
+ * With `PORTAL_RELAY_TOKEN` unset the header is never honoured. That is deliberate — a missing
+ * secret must not mean "trust everyone", which is how this was open to begin with.
  */
 export function clientIp(req: NextRequest): string {
+  const expected = process.env.PORTAL_RELAY_TOKEN;
+  const presented = req.headers.get("x-portal-token");
+  const fromPortal =
+    Boolean(expected) && presented !== null && presented.length === expected!.length && presented === expected;
+
+  if (!fromPortal) return "unknown";
+
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0]!.trim();
   return req.headers.get("x-real-ip") ?? "unknown";
