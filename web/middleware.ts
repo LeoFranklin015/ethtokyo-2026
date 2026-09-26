@@ -3,21 +3,21 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * The gate in front of everything privileged.
  *
- * Two surfaces need it, for the same reason: both spend a credential the caller does not hold.
+ * One surface needs it: `/api/admin/*` attaches the enforcer's admin bearer token to whatever
+ * arrives. Ungated, an anonymous browser could POST /api/admin/tokens and mint itself a
+ * permanent admin token, rewrite a resource's upstream URL, or revoke every session.
  *
- *   /api/admin/*  attaches the enforcer's admin bearer token to whatever arrives. Ungated, an
- *                 anonymous browser could POST /api/admin/tokens and mint itself a permanent
- *                 admin token, rewrite a resource's upstream URL, or revoke every session.
- *   /api/ens/*    writes are signed by ORG_PRIVATE_KEY, the organization's root key. Ungated,
- *                 anyone could onboard themselves into any group.
+ * `/api/ens/*` is deliberately open, reads and writes alike. There is no server wallet any
+ * more: every ENS write is signed by the person making it, and the contracts check whether that
+ * wallet holds the role — `ROLE_CREATE_BRANCH`, `ROLE_ROLE_EDIT`, `ROLE_MINT`. Gating it here
+ * would add a weaker check in front of a stronger one, and would stop anyone but us from
+ * running an organization, which is the opposite of the point.
  *
- * Reads of /api/ens/* stay open on purpose: `/api/ens/resolve` is the enforcer's admission
- * lookup and must answer without a console session, and the rest is public ENS data anyway.
+ * `/api/ens/mirror` writes to the enforcer but verifies every claim against the chain first, so
+ * it needs no gate either — see its own comment.
  */
 
 const CONSOLE_TOKEN = process.env.CONSOLE_TOKEN;
-const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
 function unauthorized(reason: string) {
   return NextResponse.json({ error: reason }, { status: 401 });
 }
@@ -27,9 +27,7 @@ export function middleware(req: NextRequest) {
   // The sign-in route itself must be reachable without a session.
   if (pathname.startsWith("/api/console/session")) return NextResponse.next();
 
-  const isAdmin = pathname.startsWith("/api/admin");
-  const isEnsWrite = pathname.startsWith("/api/ens") && WRITE_METHODS.has(req.method);
-  if (!isAdmin && !isEnsWrite) return NextResponse.next();
+  if (!pathname.startsWith("/api/admin")) return NextResponse.next();
 
   // Fail closed. An unset token must not mean "no gate" — that is how this was open to begin
   // with, and a misconfigured deployment should refuse rather than expose the org key.
@@ -55,5 +53,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/admin/:path*", "/api/ens/:path*", "/api/console/:path*"],
+  matcher: ["/api/admin/:path*", "/api/console/:path*"],
 };

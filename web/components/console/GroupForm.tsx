@@ -4,6 +4,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsBranches } from "@/lib/hooks/useEns";
+import { useEnsWrites } from "@/lib/ens/useEnsWrites";
+import { useAccount } from "wagmi";
+import type { Address } from "viem";
 
 type Row = { key: string; value: string };
 
@@ -31,33 +34,41 @@ export function GroupForm({ onDone }: { onDone?: () => void }) {
   const [openToOnboarders, setOpenToOnboarders] = useState(true);
   const [editableKeys, setEditableKeys] = useState("");
   const [rows, setRows] = useState<Row[]>(STARTER_ENTITLEMENTS);
+  const { address } = useAccount();
+  const writes = useEnsWrites();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const target = registrar || withRegistrar[0]?.registrar || "";
-  const valid = /^[a-z0-9-]{1,32}$/.test(name) && target;
+  const valid = /^[a-z0-9-]{1,32}$/.test(name) && Boolean(target) && Boolean(address);
 
   async function submit() {
     setBusy(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/ens/groups", {
+      // Signed by whoever is connected. The registrar checks `ROLE_ROLE_EDIT` itself, so a
+      // wallet without it is refused by the chain rather than by us.
+      const written = await writes.defineGroup({
+        registrar: target as Address,
+        name: name.trim().toLowerCase(),
+        canOnboard,
+        openToOnboarders,
+        editableKeys: editableKeys
+          .split(",")
+          .map((k) => k.trim())
+          .filter(Boolean),
+        entitlements: rows.filter((r) => r.key && r.value),
+      });
+      if (!written) throw new Error(writes.error ?? "the transaction did not go through");
+
+      // Now ask the server to copy it into the enforcer. It re-reads the chain before writing,
+      // so this is a request to verify-and-copy, not a claim it has to believe.
+      const res = await fetch("/api/ens/mirror", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          registrar: target,
-          name,
-          canOnboard,
-          openToOnboarders,
-          editableKeys: editableKeys
-            .split(",")
-            .map((k) => k.trim())
-            .filter(Boolean),
-          entitlements: rows.filter((r) => r.key && r.value),
-        }),
+        body: JSON.stringify({ kind: "group", registrar: target, name: name.trim().toLowerCase() }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "failed");
       setMessage({
         ok: true,
         text: body.mirrored
@@ -181,6 +192,12 @@ export function GroupForm({ onDone }: { onDone?: () => void }) {
         <Button variant="solid" onClick={submit} disabled={!valid || busy}>
           {busy ? "Defining…" : "Define group"}
         </Button>
+        {!address ? (
+          <p className="text-xs text-ink-muted">
+            Connect the wallet that owns this branch — it signs the transaction, and the
+            registrar checks its roles on chain.
+          </p>
+        ) : null}
       </div>
     </Panel>
   );

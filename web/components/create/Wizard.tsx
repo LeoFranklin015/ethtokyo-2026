@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
+import { useOrgRegistration } from "@/lib/ens/useOrgRegistration";
+import { useEnsWrites } from "@/lib/ens/useEnsWrites";
+import type { Address } from "viem";
 import { sepolia } from "wagmi/chains";
 import Link from "next/link";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -226,27 +229,16 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
 
 function NameStep({ onDone }: { onDone: (name: string) => void }) {
   const { address } = useAccount();
+  const reg = useOrgRegistration();
   const [label, setLabel] = useState("");
   const [check, setCheck] = useState<{
     valid: boolean;
     reason?: string;
     name?: string;
     available?: boolean;
+    price?: string;
     priceFormatted?: string;
   } | null>(null);
-  const [phase, setPhase] = useState<"idle" | "committing" | "waiting" | "registering" | "error">(
-    "idle",
-  );
-  const [countdown, setCountdown] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [signer, setSigner] = useState<{ configured: boolean } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/ens/org")
-      .then((r) => r.json())
-      .then(setSigner)
-      .catch(() => setSigner({ configured: false }));
-  }, []);
 
   useEffect(() => {
     const value = label.trim().toLowerCase();
@@ -263,36 +255,10 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
     return () => clearTimeout(t);
   }, [label]);
 
-  useEffect(() => {
-    if (phase !== "waiting" || countdown <= 0) return;
-    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [phase, countdown]);
-
-  async function run(step: "commit" | "register") {
-    setError(null);
-    setPhase(step === "commit" ? "committing" : "registering");
-    try {
-      const res = await fetch("/api/ens/org", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // `owner` is the connected wallet: it must be byte-identical between commit and
-        // register, because the commitment hash covers it.
-        body: JSON.stringify({ step, label: label.trim().toLowerCase(), owner: address }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "failed");
-      if (step === "commit") {
-        setCountdown(body.readyInSeconds);
-        setPhase("waiting");
-      } else {
-        onDone(body.name);
-      }
-    } catch (e) {
-      setPhase("error");
-      setError(e instanceof Error ? e.message : "failed");
-    }
-  }
+  const price = check?.price ? BigInt(check.price) : null;
+  const usdc = (v: bigint) => (Number(v) / 1e6).toFixed(2);
+  const pending = reg.pending;
+  const short = reg.balance !== null && price !== null && reg.balance < price;
 
   return (
     <Panel as="section">
@@ -300,8 +266,40 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
         <h2 className="text-lg tracking-[-0.01em] text-ink">Claim the organization name</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           This name is the trust root. Every branch is registered beneath it and every membership
-          resolves through it, so it is the one name that has to be bought.
+          resolves through it, so it is the one name that has to be bought — by you, from your own
+          wallet. Nobody holds it on your behalf.
         </p>
+
+        {pending ? (
+          <div className="mt-5 rounded-sharp border border-rule px-4 py-3">
+            <p className="text-sm text-ink">
+              You have an unfinished claim on <span className="font-mono">{pending.label}.eth</span>.
+            </p>
+            <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+              Its commitment is already on chain. Finish it rather than starting again — a new
+              commitment means waiting out the window a second time.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <Button
+                variant="solid"
+                onClick={async () => {
+                  const name = await reg.register();
+                  if (name) onDone(name);
+                }}
+                disabled={reg.phase === "registering"}
+              >
+                {reg.phase === "registering" ? "Claiming…" : `Finish claiming ${pending.label}.eth`}
+              </Button>
+              <button
+                type="button"
+                onClick={reg.discardPending}
+                className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+              >
+                discard it
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-5 flex items-center gap-2">
           <input
@@ -319,63 +317,100 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
         </div>
 
         <div className="mt-2 min-h-[1.25rem]" role="status" aria-live="polite">
-          {check && !check.valid ? (
-            <p className="font-mono text-xs" style={{ color: "var(--alert)" }}>
-              {check.reason}
-            </p>
-          ) : check?.available ? (
-            <p className="font-mono text-xs text-ink-80">
-              <span style={{ color: "var(--signal)" }}>available</span> · {check.priceFormatted} /
-              year
-            </p>
-          ) : check ? (
-            <p className="font-mono text-xs" style={{ color: "var(--alert)" }}>
-              {check.name} is taken
-            </p>
-          ) : null}
+          {check === null ? null : !check.valid ? (
+            <span className="font-mono text-xs" style={{ color: "var(--alert)" }}>
+              {check.reason ?? "not a usable name"}
+            </span>
+          ) : check.available ? (
+            <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
+              available · {check.priceFormatted} / year
+            </span>
+          ) : (
+            <span className="font-mono text-xs" style={{ color: "var(--alert)" }}>
+              already taken
+            </span>
+          )}
         </div>
 
-        {phase === "waiting" ? (
-          <p className="mt-4 text-sm text-ink-muted">
-            {countdown > 0
-              ? `Waiting ${countdown}s. ENS enforces this delay so nobody watching the mempool can take the name first.`
-              : "The commitment has matured — register it now."}
+        {address && price !== null && check?.available ? (
+          <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">
+            this wallet holds {reg.balance === null ? "…" : `${usdc(reg.balance)} USDC`}
           </p>
         ) : null}
 
-        {error ? (
-          <p className="mt-4 text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
-            {error}
+        {address && short ? (
+          <div className="mt-4 rounded-sharp border border-rule px-4 py-3">
+            <p className="text-sm text-ink">This wallet cannot cover the fee yet.</p>
+            <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+              Sepolia names are paid for in a mock token whose mint is open to anyone, so you can
+              top yourself up. On mainnet this would be a real purchase.
+            </p>
+            <div className="mt-3">
+              <Button variant="solid" onClick={reg.mintTestFunds}>
+                Mint 100 test USDC
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {reg.phase === "waiting" && !pending ? null : null}
+
+        {reg.phase === "waiting" ? (
+          <p className="mt-4 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
+            Committed. ENS makes you wait{" "}
+            <span className="font-mono text-ink">{reg.countdown}s</span> before revealing, so
+            nobody watching the mempool can take the name ahead of you.
           </p>
         ) : null}
 
-        <div className="mt-6 flex flex-wrap gap-2">
-          {phase === "waiting" ? (
-            <Button variant="solid" onClick={() => run("register")} disabled={countdown > 0}>
-              {phase === "waiting" && countdown > 0 ? `Register in ${countdown}s` : "Register"}
+        {reg.error ? (
+          <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+            {reg.error}
+          </p>
+        ) : null}
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          {!address ? (
+            <p className="font-mono text-xs text-ink-muted">Connect a wallet first.</p>
+          ) : reg.phase === "waiting" ? (
+            <Button
+              variant="solid"
+              onClick={async () => {
+                const name = await reg.register();
+                if (name) onDone(name);
+              }}
+              disabled={reg.countdown > 0}
+            >
+              {reg.countdown > 0 ? `Reveal in ${reg.countdown}s` : "Claim this name"}
             </Button>
           ) : (
             <Button
               variant="solid"
-              onClick={() => run("commit")}
+              onClick={() => price !== null && reg.commit(label.trim().toLowerCase(), price)}
               disabled={
-                !check?.available || phase === "committing" || !signer?.configured
+                !check?.available ||
+                price === null ||
+                short ||
+                reg.phase === "committing" ||
+                reg.phase === "approving"
               }
             >
-              {phase === "committing" ? "Committing…" : "Claim this name"}
+              {reg.phase === "approving"
+                ? "Approving…"
+                : reg.phase === "committing"
+                  ? "Committing…"
+                  : "Claim this name"}
             </Button>
           )}
-          <Button variant="ghost" onClick={() => onDone("")}>
-            I already have one
-          </Button>
-        </div>
 
-        {signer && !signer.configured ? (
-          <p className="mt-4 text-xs text-ink-muted">
-            Set <code className="font-mono">ORG_PRIVATE_KEY</code> to claim a name. Availability
-            and pricing work without it.
-          </p>
-        ) : null}
+          <button
+            type="button"
+            onClick={() => onDone("")}
+            className="font-mono text-xs text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+          >
+            I already have one
+          </button>
+        </div>
       </div>
     </Panel>
   );
@@ -393,6 +428,7 @@ function BranchStep({
   onSkip: () => void;
 }) {
   const { address } = useAccount();
+  const writes = useEnsWrites();
   const [label, setLabel] = useState("");
   const [free, setFree] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -420,15 +456,16 @@ function BranchStep({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/ens/branch", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // The connected wallet takes root of the new branch registry, not the server key.
-        body: JSON.stringify({ label: label.trim().toLowerCase(), owner: address }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "failed");
-      onDone(body.label, body.registrar ?? null);
+      // Signed by the connected wallet, which must hold ROLE_CREATE_BRANCH on the factory —
+      // the organization's own check, not ours — and which takes root of the new registry.
+      const created = await writes.createBranch(
+        label.trim().toLowerCase(),
+        BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60),
+        address as Address,
+      );
+      if (!created) throw new Error(writes.error ?? "the transaction did not go through");
+      const body = created;
+      onDone(body.label, body.registrar);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");
     } finally {
@@ -515,6 +552,7 @@ function GroupsStep({
 }) {
   const [branches, setBranches] = useState<{ label: string; registrar: string | null }[]>([]);
   const [target, setTarget] = useState(registrar ?? "");
+  const writes = useEnsWrites();
   const [created, setCreated] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -536,25 +574,25 @@ function GroupsStep({
     setBusy(preset.name);
     setError(null);
     try {
-      const res = await fetch("/api/ens/groups", {
+      const written = await writes.defineGroup({
+        registrar: target as Address,
+        name: preset.name,
+        canOnboard: preset.onboard,
+        openToOnboarders: true,
+        editableKeys: [],
+        entitlements: [
+          { key: "wifi.group", value: preset.group },
+          { key: "role", value: preset.name },
+          { key: "wifi.rate", value: preset.rate },
+          { key: "wifi.ceil", value: preset.ceil },
+        ],
+      });
+      if (!written) throw new Error(writes.error ?? "the transaction did not go through");
+      await fetch("/api/ens/mirror", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          registrar: target,
-          name: preset.name,
-          canOnboard: preset.onboard,
-          openToOnboarders: !preset.onboard,
-          editableKeys: [],
-          entitlements: [
-            { key: "role", value: preset.name },
-            { key: "wifi.group", value: preset.group },
-            { key: "wifi.rate", value: preset.rate },
-            { key: "wifi.ceil", value: preset.ceil },
-          ],
-        }),
+        body: JSON.stringify({ kind: "group", registrar: target, name: preset.name }),
       });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "failed");
       setCreated((c) => [...c, preset.name]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");

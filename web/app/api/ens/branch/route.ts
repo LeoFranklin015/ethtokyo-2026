@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { branchLabelAvailable, createBranch, signerConfigured } from "@/lib/ens/write";
-import type { Address } from "viem";
+import { branchLabelAvailable } from "@/lib/ens/availability";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -22,32 +21,13 @@ export async function GET(req: NextRequest) {
 }
 
 /** Open a branch — registry, registrar, pointers and discovery record, in one transaction. */
-export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as {
-    label?: string;
-    expiry?: number;
-    owner?: string;
-  };
 
-  if (!body.label) return NextResponse.json({ error: "label required" }, { status: 400 });
-  if (!signerConfigured()) {
-    return NextResponse.json({ error: "ORG_PRIVATE_KEY not set" }, { status: 503 });
-  }
-
-  // Default to a year out, which is the organization name's own horizon.
-  const expiry = body.expiry ?? Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-
-  try {
-    const result = await createBranch({
-      label: body.label.trim().toLowerCase(),
-      expiry,
-      owner: body.owner as Address | undefined,
-    });
-    return NextResponse.json(result);
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "transaction failed" },
-      { status: 502 },
-    );
-  }
-}
+/**
+ * There is no POST here any more.
+ *
+ * Opening a branch used to be a server operation signed by `ORG_PRIVATE_KEY`. The factory
+ * already checks `ROLE_CREATE_BRANCH` on the caller, so a server key holding that role replaced
+ * a per-actor on-chain check with "did the request reach our server" — weaker, and it made the
+ * web host custodian of the organization. `lib/ens/useEnsWrites.ts` signs it from the owner's
+ * wallet instead.
+ */

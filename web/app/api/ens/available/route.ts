@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkAvailability, labelAvailable } from "@/lib/ens/write";
+import { checkAvailability, labelAvailable } from "@/lib/ens/availability";
 import type { Address } from "viem";
 
 export const dynamic = "force-dynamic";

@@ -5,6 +5,9 @@ import useSWR from "swr";
 import { Button } from "@/components/ui/Button";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsBranches } from "@/lib/hooks/useEns";
+import { useEnsWrites } from "@/lib/ens/useEnsWrites";
+import { useAccount } from "wagmi";
+import { keccak256, toHex, type Address, type Hex } from "viem";
 import type { RoleInfo } from "@/lib/ens/read";
 
 /**
@@ -22,8 +25,13 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
   const [registrar, setRegistrar] = useState("");
   const [label, setLabel] = useState("");
   const [owner, setOwner] = useState("");
+  // The org-wide Member name. It lives in the organization's registry alongside branch names,
+  // so it must not collide with one — hence its own field rather than reusing the label.
+  const [memberLabel, setMemberLabel] = useState("");
   const [group, setGroup] = useState("");
   // Derived rather than synced from an effect: the first group is the default until one is picked.
+  const { address } = useAccount();
+  const writes = useEnsWrites();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [free, setFree] = useState<boolean | null>(null);
@@ -75,26 +83,36 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
   }, [label, branch?.registry]);
 
   const validAddress = /^0x[0-9a-fA-F]{40}$/.test(owner.trim());
-  const canSubmit = Boolean(target && label && validAddress && selectedGroup && free && !busy);
+  const canSubmit = Boolean(
+    target && label && validAddress && selectedGroup && free && address && !busy,
+  );
 
   async function submit() {
     setBusy(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/ens/onboard", {
+      // Signed by whoever is connected. The registrar decides whether they may mint this role —
+      // including the derived path, so a volunteer onboarding a hacker works here unchanged.
+      const written = await writes.onboard({
+        registrar: target as Address,
+        label,
+        owner: owner.trim() as Address,
+        roleId: keccak256(toHex(selectedGroup)) as Hex,
+        memberLabel: memberLabel.trim().toLowerCase() || label,
+      });
+      if (!written) throw new Error(writes.error ?? "the transaction did not go through");
+
+      const res = await fetch("/api/ens/mirror", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          kind: "member",
           registrar: target,
           label,
-          owner: owner.trim(),
-          group: selectedGroup,
-          // The enforcer joins on the full name, so it needs the branch too.
-          branch: branch?.name,
+          wallet: owner.trim(),
         }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "failed");
       setMessage({
         ok: true,
         text: body.mirrored
@@ -180,6 +198,23 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
         </label>
 
         <label className="block">
+          <span className="label">Member name</span>
+          <input
+            value={memberLabel}
+            onChange={(e) =>
+              setMemberLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())
+            }
+            placeholder="leaves blank to reuse the name above"
+            autoComplete="off"
+            className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink placeholder:text-ink-faint"
+          />
+          <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
+            Their organization-wide name, minted once and reused at every branch. It shares a
+            namespace with branch names, so it cannot be one of those.
+          </span>
+        </label>
+
+        <label className="block">
           <span className="label">Group</span>
           <select
             value={selectedGroup}
@@ -216,6 +251,12 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
         <Button variant="solid" onClick={submit} disabled={!canSubmit}>
           {busy ? "Onboarding…" : "Onboard"}
         </Button>
+        {!address ? (
+          <p className="text-xs text-ink-muted">
+            Connect a wallet that may onboard into this group — branch staff, or a member of a
+            group the organization marked as able to onboard others.
+          </p>
+        ) : null}
       </div>
     </Panel>
   );

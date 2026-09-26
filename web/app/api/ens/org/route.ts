@@ -1,47 +1,25 @@
-import { NextRequest, NextResponse } from "next/server";
-import { commitOrg, registerOrg, signerAddress, signerConfigured } from "@/lib/ens/write";
+import { NextResponse } from "next/server";
+import { ENS } from "@/lib/ens/config";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
-
-/** Who the console signs as, and whether it can sign at all. */
-export async function GET() {
-  return NextResponse.json({ configured: signerConfigured(), signer: signerAddress() });
-}
 
 /**
- * `{ step: "commit", label }`   → approve payment and publish the commitment
- * `{ step: "register", label }` → reveal it once MIN_COMMITMENT_AGE has passed
+ * What organization this console is pointed at.
+ *
+ * There is no signer to report any more. This route used to answer "can the server sign, and as
+ * whom", and to accept a POST that bought an organization name with the server's own key and
+ * money — which is why claiming a name sat behind a shared console token and told newcomers
+ * "console authentication required" before they had done anything.
+ *
+ * An organization is a name somebody owns. They buy it from their own wallet
+ * (`lib/ens/useOrgRegistration.ts`), so there is nothing of ours to protect and nobody to
+ * authorise.
  */
-export async function POST(req: NextRequest) {
-  const { step, label, owner } = (await req.json().catch(() => ({}))) as {
-    step?: string;
-    label?: string;
-    owner?: string;
-  };
-
-  if (!label) return NextResponse.json({ error: "label required" }, { status: 400 });
-  if (!/^[a-z0-9-]{1,32}$/.test(label)) {
-    return NextResponse.json({ error: "invalid label" }, { status: 400 });
-  }
-  // The connected wallet owns the org name. Without it the server key would own it instead,
-  // which is the whole thing this flow exists to avoid.
-  if (!owner || !/^0x[0-9a-fA-F]{40}$/.test(owner)) {
-    return NextResponse.json({ error: "connect a wallet first" }, { status: 400 });
-  }
-  if (!signerConfigured()) {
-    return NextResponse.json({ error: "ORG_PRIVATE_KEY not set" }, { status: 503 });
-  }
-
-  try {
-    if (step === "commit") return NextResponse.json(await commitOrg(label, owner as `0x${string}`));
-    if (step === "register")
-      return NextResponse.json(await registerOrg(label, owner as `0x${string}`));
-    return NextResponse.json({ error: "step must be commit or register" }, { status: 400 });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "transaction failed" },
-      { status: 502 },
-    );
-  }
+export async function GET() {
+  return NextResponse.json({
+    organization: ENS.organization,
+    chainId: 11155111,
+    registrar: ENS.ethRegistrar,
+    paymentToken: ENS.paymentToken,
+  });
 }
