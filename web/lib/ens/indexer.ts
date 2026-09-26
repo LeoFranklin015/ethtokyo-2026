@@ -4,33 +4,45 @@ import { ENS, ENTITLEMENT_KEYS } from "./config";
 /**
  * The ENS staging indexer for ENSv2.
  *
- * It indexes our user-deployed branch registry, which the self-hosted route could not be relied on
- * to do — memberships, owners and resolver text records all come back in a single round trip.
- * That replaces roughly ten contract reads per membership.
+ * The whole organization is discoverable from ENS alone, with no hardcoded branch list:
  *
- * What it cannot serve is anything defined by *our* contracts: the readable role name (a role id is
- * `keccak256(name)`, recoverable only from our `RoleDefined` event), the EAC bitmap a holder has
- * over their own name, and the Member↔Membership link. Those still come from `read.ts`, so the two
- * are complementary rather than alternatives.
+ *   - a **Branch** is a name under the organization that has a *subregistry*; a Member name is one
+ *     that does not. That distinction is the domain model, and the index exposes it directly.
+ *   - a branch publishes its **registrar** as an `ensca.registrar` text record, because a registrar
+ *     is only an EAC role holder and is otherwise invisible to any indexer.
+ *
+ * So adding a branch requires no redeploy and no config change here — it appears as soon as it is
+ * registered and its registrar record is written.
  */
 
-export const INDEXER_URL =
-  process.env.ENS_INDEXER_URL ?? "https://staging-graphql.ens.dev";
+export const INDEXER_URL = process.env.ENS_INDEXER_URL ?? "https://staging-graphql.ens.dev";
+
+type Resolved = Record<string, string | null> | null;
 
 type IndexedDomain = {
   name: string;
   owner: { id: string } | null;
-  resolver: Record<string, string | null> | null;
+  subregistry: { address: string; labelCount: number } | null;
+  resolver: Resolved;
+};
+
+export type IndexedBranch = {
+  label: string;
+  name: string;
+  registry: string;
+  registrar: string | null;
+  memberCount: number;
 };
 
 export type IndexedMembership = {
+  branch: string;
+  branchLabel: string;
   label: string;
   name: string;
   owner: string;
   entitlements: Record<string, string>;
 };
 
-/** GraphQL aliases, so every entitlement key arrives in the one query. */
 const TEXT_SELECTION = ENTITLEMENT_KEYS.map(
   (key, i) => `k${i}: text(key: ${JSON.stringify(key)})`,
 ).join(" ");
@@ -51,35 +63,87 @@ async function gql<T>(query: string): Promise<T> {
   return body.data;
 }
 
-/** Every membership in the branch, with its entitlements, in one request. */
-export async function getIndexedMemberships(): Promise<IndexedMembership[]> {
-  const suffix = `.${ENS.branch}`;
-  const data = await gql<{ domains: IndexedDomain[] }>(`{
-    domains(where: { name_ends_with: ${JSON.stringify(suffix)} }) {
-      name
-      owner { id }
-      resolver { ${TEXT_SELECTION} }
-    }
-  }`);
-
-  return data.domains
-    .filter((d) => d.name !== ENS.branch && d.owner)
-    .map((d) => {
-      const entitlements: Record<string, string> = {};
-      ENTITLEMENT_KEYS.forEach((key, i) => {
-        const value = d.resolver?.[`k${i}`];
-        if (value) entitlements[key] = value;
-      });
-      return {
-        label: d.name.slice(0, -suffix.length),
-        name: d.name,
-        owner: d.owner!.id,
-        entitlements,
-      };
-    });
+function entitlementsFrom(resolver: Resolved): Record<string, string> {
+  const out: Record<string, string> = {};
+  ENTITLEMENT_KEYS.forEach((key, i) => {
+    const value = resolver?.[`k${i}`];
+    if (value) out[key] = value;
+  });
+  return out;
 }
 
-/** Liveness plus how far behind the chain the index is. */
+/**
+ * Every name under the organization, in one query.
+ *
+ * One request covers the whole tree — branches and their memberships — rather than one per branch,
+ * which is what keeps this cheap as an organization grows.
+ */
+async function orgTree(): Promise<IndexedDomain[]> {
+  const data = await gql<{ domains: IndexedDomain[] }>(`{
+    domains(where: { name_ends_with: ${JSON.stringify(`.${ENS.organization}`)} }) {
+      name
+      owner { id }
+      subregistry { address labelCount }
+      resolver { registrar: text(key: "ensca.registrar") ${TEXT_SELECTION} }
+    }
+  }`);
+  return data.domains;
+}
+
+/** Branches: names under the organization that carry a registry of their own. */
+export async function getIndexedBranches(): Promise<IndexedBranch[]> {
+  const suffix = `.${ENS.organization}`;
+  return orgTree()
+    .then((domains) =>
+      domains
+        .filter((d) => d.subregistry !== null)
+        .map((d) => ({
+          label: d.name.slice(0, -suffix.length),
+          name: d.name,
+          registry: d.subregistry!.address,
+          registrar: d.resolver?.registrar ?? null,
+          memberCount: d.subregistry!.labelCount,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    );
+}
+
+/**
+ * Memberships across every branch, or one branch if `branchLabel` is given.
+ *
+ * A membership is a name two levels below the organization; a Member name is one level below. The
+ * depth is what tells them apart, so no per-branch query is needed.
+ */
+export async function getIndexedMemberships(branchLabel?: string): Promise<IndexedMembership[]> {
+  const domains = await orgTree();
+  const branchLabels = new Set(
+    domains.filter((d) => d.subregistry !== null).map((d) => d.name.split(".")[0]),
+  );
+
+  const rows: IndexedMembership[] = [];
+  for (const d of domains) {
+    if (!d.owner || d.subregistry) continue;
+
+    const parts = d.name.split(".");
+    // <member>.<branch>.<org>.eth — an org-level Member name is one part shorter.
+    if (parts.length !== 4) continue;
+
+    const [label, branch] = parts;
+    if (!branchLabels.has(branch)) continue;
+    if (branchLabel && branch !== branchLabel) continue;
+
+    rows.push({
+      branch: `${branch}.${ENS.organization}`,
+      branchLabel: branch,
+      label,
+      name: d.name,
+      owner: d.owner.id,
+      entitlements: entitlementsFrom(d.resolver),
+    });
+  }
+  return rows;
+}
+
 export async function getIndexerStatus(): Promise<{ block: number } | null> {
   try {
     const data = await gql<{ _meta: { block: { number: number } } }>(

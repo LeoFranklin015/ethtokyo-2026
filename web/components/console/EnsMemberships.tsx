@@ -4,7 +4,7 @@ import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsMemberships } from "@/lib/hooks/useEns";
 import { ENS, explorer } from "@/lib/ens/config";
 
-const COLUMNS = ["Membership", "Member name", "Role", "Own roles", "Entitlements"];
+const COLUMNS = ["Membership", "Branch", "Member name", "Role", "Own roles", "Entitlements"];
 
 function short(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -39,18 +39,11 @@ export function EnsMemberships() {
                   : "direct contract reads"}
               </span>
             ) : null}
-            <a
-              href={explorer(ENS.branchRegistrar)}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
-            >
-              {ENS.branch}
-            </a>
+            <span className="font-mono text-[0.6875rem] text-ink-muted">{ENS.organization}</span>
           </span>
         }
       >
-        On-chain memberships
+        On-chain memberships · all branches
       </PanelHeader>
 
       {isLoading ? (
@@ -96,7 +89,7 @@ export function EnsMemberships() {
                   <th scope="row" className="px-4 py-3 text-left font-normal">
                     <span className="font-mono text-sm text-ink">{m.label}</span>
                     <span className="font-mono text-sm text-ink-muted">
-                      .{ENS.branch}
+                      .{m.branch}
                     </span>
                     <a
                       href={explorer(m.owner)}
@@ -107,6 +100,9 @@ export function EnsMemberships() {
                       {short(m.owner)}
                     </a>
                   </th>
+                  <td className="px-4 py-3">
+                    <span className="font-mono text-xs text-ink-80">{m.branchLabel}</span>
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-ink-80">
                     {m.memberName ?? <span className="text-ink-muted">—</span>}
                   </td>
@@ -152,10 +148,11 @@ export function EnsMemberships() {
       )}
 
       <p className="border-t border-rule px-4 py-3 text-xs leading-relaxed text-ink-muted">
-        Names, owners and entitlement records come from the ENS indexer in one query; role names
-        and the registry bitmap come from the contracts, because a role id is{" "}
-        <code className="font-mono">keccak256(name)</code> and no ENS indexer knows our registrar.
-        If the indexer is unreachable the same rows are read straight from the chain.
+        Branches are discovered from ENS — a branch is a name with a subregistry, and it publishes
+        its registrar as an <code className="font-mono">ensca.registrar</code> record. Names, owners
+        and entitlements come from the indexer in one query across every branch; role names and the
+        registry bitmap are read from each branch&rsquo;s own registrar, because a role id is{" "}
+        <code className="font-mono">keccak256(name)</code>.
       </p>
     </Panel>
   );
