@@ -340,3 +340,37 @@ async function fromChain(): Promise<EnsMembership[]> {
 
   return rows.filter((row): row is EnsMembership => row !== null);
 }
+
+export type ResolvedIdentity = {
+  name: string;
+  owner: Address;
+  branch: string;
+  role: string;
+  /** Entitlement records as published on the resolver. */
+  entitlements: Record<string, string>;
+  source: MembershipSource;
+};
+
+/**
+ * Resolve one membership name to the policy an enforcer should apply.
+ *
+ * This is the authoritative answer to "what does this name grant", and it is the read an enforcer
+ * makes at admission time. It deliberately returns the raw entitlement records rather than a
+ * tier or VLAN: ENS says which group a person belongs to, and the enforcer decides what that group
+ * means on its own network.
+ */
+export async function resolveIdentity(name: string): Promise<ResolvedIdentity | null> {
+  const lower = name.trim().toLowerCase();
+  const { memberships, source } = await getMemberships();
+  const match = memberships.find((m) => m.name.toLowerCase() === lower);
+  if (!match) return null;
+
+  return {
+    name: match.name,
+    owner: match.owner,
+    branch: match.branch,
+    role: match.role,
+    entitlements: match.entitlements,
+    source,
+  };
+}
