@@ -4,3 +4,12 @@
 # 12.x (py3.14 VM). pip resolves the newest wheel for the running
 # interpreter — 9.0.1 on py3.9, 12.2.3 on py3.14.
 mitmproxy>=9.0
+# bcrypt==4.0.1: on py3.9, mitmproxy 9.0.1 pulls passlib 1.7.4 (for its
+# unused proxyauth addon). passlib 1.7.4 reads bcrypt.__about__, removed in
+# bcrypt 5.x, so mitmdump crashes on start and never writes its CA. 4.0.1 is
+# the last release keeping __about__; its hashpw/gensalt/checkpw API is
+# identical to 5.x, so the proxy's password hashing (proxy/auth.py,
+# proxy/proxy.py) is unaffected. passlib is terminal at 1.7.4 (cannot
+# upgrade) and mitmproxy hard-deps it (cannot drop) — pinning bcrypt is the
+# only fix that touches neither the proxy's behavior nor mitmproxy's deps.
+bcrypt==4.0.1

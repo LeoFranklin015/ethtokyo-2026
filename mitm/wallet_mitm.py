@@ -9,11 +9,13 @@ import os
 import re
 import sys
 
-# Reach proxy/upstream — the shared injector lives there so Layer 1 and
-# Layer 2 splice identically.
+# Reach proxy/csp_headers — the CSP-header list is the single source of
+# truth shared with the Layer-1 injector (proxy/upstream.py). csp_headers is
+# dependency-free (no flask/requests), so importing it here does NOT pull the
+# proxy's web stack into this isolated mitm venv.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "proxy"))
-from upstream import _CSP_HEADERS  # noqa: E402
+from csp_headers import _CSP_HEADERS  # noqa: E402
 
 PROVIDER_L2_URL = os.environ.get(
     "WALLET_L2_PROVIDER_URL", "http://192.168.0.1:8081/wallet/provider.l2.js"

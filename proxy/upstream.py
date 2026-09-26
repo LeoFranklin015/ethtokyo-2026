@@ -4,10 +4,10 @@ import time
 from urllib.parse import parse_qs, urlencode
 import requests
 from db import get_db
+from csp_headers import _CSP_HEADERS
 
 
 PROVIDER_URL = os.environ.get("WALLET_PROVIDER_URL", "/wallet/provider.js")
-_CSP_HEADERS = ("content-security-policy", "content-security-policy-report-only", "x-frame-options")
 
 
 def inject_provider(content: bytes, content_type: str, headers: dict) -> tuple:

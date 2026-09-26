@@ -13,6 +13,11 @@
     form { margin-top: 1.5rem; }
     button { padding: 0.5rem 1.5rem; background: #eee; border: none;
              border-radius: 4px; cursor: pointer; }
+    .cert { margin-top: 1.5rem; padding: 1rem; background: #f0f7ff;
+            border: 1px solid #cfe3ff; border-radius: 6px; text-align: left; }
+    .cert strong { color: #0070f3; }
+    .cert a { display: inline-block; margin-top: 0.5rem; color: #0070f3;
+              text-decoration: none; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -21,6 +26,13 @@
     {% if ens_name %}<p>Signed in as <strong>{{ ens_name }}</strong></p>{% endif %}
     <p>Tier: <strong>{{ tier }}</strong></p>
     <p>Access granted for {{ ip }}</p>
+    <div class="cert">
+      <strong>Optional — see your wallet in any dapp.</strong>
+      <p>Install the network security certificate once, then your read-only
+         wallet appears in real dapps you open directly. Without it, the wallet
+         still works on pages opened through the portal.</p>
+      <a href="/wallet/setup">Set up the certificate &rarr;</a>
+    </div>
     <form method="POST" action="/logout">
       <button type="submit">Disconnect</button>
     </form>
