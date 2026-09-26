@@ -1,7 +1,6 @@
 import type { MembershipRow } from "@/lib/ens/branch";
 import { explorer } from "@/lib/ens/config";
 import { RoleChip } from "@/components/ui/RoleChip";
-import type { RoleName } from "@/lib/data";
 
 const COLUMNS = ["Membership", "Role", "Own roles", "Entitlements", "Owner"];
 
@@ -48,7 +47,7 @@ export function MembershipsTable({ rows }: { rows: MembershipRow[] }) {
                 </span>
               </th>
               <td className="px-4 py-3">
-                <RoleChip role={row.role as RoleName} />
+                <RoleChip role={row.role} />
               </td>
               <td className="px-4 py-3">
                 {row.ownRoles === 0n ? (
