@@ -10,7 +10,7 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { branchFactoryAbi, orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
-import { ENS, ENTITLEMENT_KEYS, RPC_URL } from "./config";
+import { ENS, ENTITLEMENT_KEYS, RPC_BATCH_SIZE, RPC_URL } from "./config";
 import { getIndexedBranches, getIndexedMemberships } from "./indexer";
 
 /**
@@ -26,7 +26,7 @@ import { getIndexedBranches, getIndexedMemberships } from "./indexer";
 // otherwise, since each one is its own round trip to a public node.
 const client = createPublicClient({
   chain: sepolia,
-  transport: http(RPC_URL, { batch: { wait: 8 } }),
+  transport: http(RPC_URL, { batch: { batchSize: RPC_BATCH_SIZE, wait: 8 } }),
   batch: { multicall: { wait: 8 } },
 });
 
@@ -95,11 +95,20 @@ async function roleNames(registrar: Address): Promise<Map<string, string>> {
   // against its id, so this is one call at any chain height — where scanning `RoleDefined`
   // meant an `eth_getLogs` range that grows by a block every twelve seconds until whichever
   // provider is in use refuses it, and then reports "no groups" rather than an error.
-  const roleNameList = (await client.readContract({
-    address: registrar,
-    abi: registrarV2Abi,
-    functionName: "allRoleNames",
-  })) as string[];
+  let roleNameList: string[];
+  try {
+    roleNameList = (await client.readContract({
+      address: registrar,
+      abi: registrarV2Abi,
+      functionName: "allRoleNames",
+    })) as string[];
+  } catch {
+    // Registrars deployed before the catalogue was stored on chain have no such function, and
+    // the call reverts. Their names only ever existed in `RoleDefined` events, so there is
+    // nothing to read — an empty catalogue is the honest answer, and it does not take the
+    // whole membership list down with it the way a thrown error did.
+    roleNameList = [];
+  }
 
   const names = new Map<string, string>();
   for (const name of roleNameList) {

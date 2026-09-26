@@ -7,6 +7,9 @@
 
 export const SEPOLIA_CHAIN_ID = 11155111;
 
+/** Conservative enough for every provider we have measured. See `lib/wagmi.ts`. */
+export const RPC_BATCH_SIZE = 40;
+
 export const RPC_URL =
   process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
 

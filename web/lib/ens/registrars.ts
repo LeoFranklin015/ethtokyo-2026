@@ -8,9 +8,9 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { registrarV2Abi, registryAbi } from "./abis";
-import { ENS, RPC_URL } from "./config";
+import { ENS, RPC_BATCH_SIZE, RPC_URL } from "./config";
 
-const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL) });
+const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL, { batch: { batchSize: RPC_BATCH_SIZE, wait: 8 } }) });
 
 /**
  * Is this address a registrar belonging to this organization?

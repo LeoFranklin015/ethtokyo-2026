@@ -2,7 +2,7 @@ import "server-only";
 import { createPublicClient, http, keccak256, toHex, type Address } from "viem";
 import { sepolia } from "viem/chains";
 import { branchFactoryAbi, erc20Abi, ethRegistrarAbi, registryAbi } from "./abis";
-import { ENS, RPC_URL } from "./config";
+import { ENS, RPC_BATCH_SIZE, RPC_URL } from "./config";
 
 /**
  * Reads that answer "is this name free, and what does it cost".
@@ -17,7 +17,7 @@ import { ENS, RPC_URL } from "./config";
  * Nothing here signs anything. There is no key.
  */
 
-const publicClient = createPublicClient({ chain: sepolia, transport: http(RPC_URL) });
+const publicClient = createPublicClient({ chain: sepolia, transport: http(RPC_URL, { batch: { batchSize: RPC_BATCH_SIZE, wait: 8 } }) });
 
 export const ONE_YEAR = 31_536_000n;
 

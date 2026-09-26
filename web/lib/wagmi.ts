@@ -40,8 +40,20 @@ export const wagmiConfig = createConfig({
   // halfway through buying a name is the one thing this flow cannot afford.
   storage: createStorage({ storage: cookieStorage }),
   ssr: true,
-  // The browser reads through the chain default; the server keeps its own client in lib/ens.
-  transports: { [sepolia.id]: http() },
+  // Explicitly configured, and batched conservatively.
+  //
+  // `http()` with no URL falls back to viem's chain default, which for Sepolia is thirdweb —
+  // and that caps keyless access at 100 calls per JSON-RPC batch and 1,000 blocks per
+  // `eth_getLogs`. Reading a handful of branches is enough to cross the first, and the wallet
+  // surfaces it as "Request exceeds defined limit", which points at nothing you can act on.
+  //
+  // A batch ceiling well under the lowest cap we have measured matters more than the endpoint:
+  // it means no provider can be overrun, whichever one an operator points this at.
+  transports: {
+    [sepolia.id]: http(process.env.NEXT_PUBLIC_RPC_URL || undefined, {
+      batch: { batchSize: 40, wait: 16 },
+    }),
+  },
 });
 
 declare module "wagmi" {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createPublicClient, http, keccak256, toHex, type Address, type Hex } from "viem";
 import { sepolia } from "viem/chains";
 import { registrarV2Abi } from "@/lib/ens/abis";
-import { RPC_URL } from "@/lib/ens/config";
+import { RPC_BATCH_SIZE, RPC_URL } from "@/lib/ens/config";
 import { getRoles } from "@/lib/ens/read";
 import { branchForRegistrar } from "@/lib/ens/registrars";
 import { enforcerGroupName, mirrorGroup, mirrorMember, mirrorRevoke } from "@/lib/enforcer/mirror";
@@ -10,7 +10,7 @@ import { enforcerGroupName, mirrorGroup, mirrorMember, mirrorRevoke } from "@/li
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL) });
+const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL, { batch: { batchSize: RPC_BATCH_SIZE, wait: 8 } }) });
 
 /**
  * Copy a fact from the chain into the enforcer.
