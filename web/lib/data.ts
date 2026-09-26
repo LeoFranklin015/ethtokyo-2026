@@ -6,5 +6,11 @@
  * arbitrary strings an organization defines; branches come from ENS.
  */
 
-/** One point of the enforcer's 10-minute throughput buckets. */
-export type Sample = { t: string; mbps: number; admitted: number };
+/**
+ * One point of the enforcer's 10-minute throughput buckets.
+ *
+ * `active_ips` is the distinct client addresses that sent traffic in the bucket. It used to be
+ * called `admitted`, which it never was: somebody admitted and idle sends nothing and so
+ * appears in no bucket at all.
+ */
+export type Sample = { t: string; mbps: number; active_ips: number };

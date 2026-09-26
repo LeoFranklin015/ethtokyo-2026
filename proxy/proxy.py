@@ -1400,6 +1400,14 @@ def bandwidth_sessions():
     params = []
     if active_only:
         where.append("s.logged_out_at IS NULL AND s.revoked_at IS NULL")
+    # Attributed through the account rather than the session's own copy of the name, for the
+    # same reason `list_sessions` is: a session started before the person was mirrored carries
+    # no name and would silently drop out of its own organization's totals.
+    org = _org_filter(qp)
+    if org is None:
+        return jsonify({"error": "invalid_param"}), 400
+    if org[0]:
+        where.append(org[0].replace("ens_name", "u.ens_name")); params.extend(org[1])
     if qp.get("group_id"):
         where.append("s.group_id=?"); params.append(qp["group_id"])
     if qp.get("network_tier"):
@@ -1432,17 +1440,35 @@ def bandwidth_sessions():
 @require_admin
 def bandwidth_timeseries():
     db = get_db()
-    # 10-minute buckets over the last 6 hours, ordered by bucket
-    rows = db.execute("""
+    org = _org_filter(request.args)
+    if org is None:
+        return jsonify({"error": "invalid_param"}), 400
+    clause, params = org
+
+    # A usage event carries no name, so it is attributed through its session's account. Its
+    # `session_id` is nullable — it is nulled out when a session is deleted, and an event
+    # recorded outside any session never had one — and such an event cannot be attributed to
+    # anybody, so a scoped query drops it rather than charging it to whichever organization
+    # happens to be asking. Unscoped, the join is absent and every event still counts.
+    join = ""
+    where = ["ue.ts >= strftime('%s', 'now', '-6 hours')"]
+    if clause:
+        join = "JOIN sessions s ON s.id = ue.session_id JOIN users u ON u.id = s.user_id"
+        where.append(clause.replace("ens_name", "u.ens_name"))
+
+    # `active_ips`, not `admitted`: this counts the distinct client addresses that sent traffic
+    # in the bucket. Somebody admitted and idle produces no event and so appears nowhere here,
+    # which was already true before the scoping and made the old name a quiet overstatement.
+    rows = db.execute(f"""
         SELECT
-            strftime('%H:%M', datetime(ts, 'unixepoch', 'localtime')) AS t,
-            CAST(SUM(resp_bytes) * 8.0 / (10.0 * 60.0 * 1000000.0) AS REAL) AS mbps,
-            COUNT(DISTINCT ip) AS admitted
-        FROM usage_events
-        WHERE ts >= strftime('%s', 'now', '-6 hours')
-        GROUP BY (ts / 600)
-        ORDER BY (ts / 600)
-    """).fetchall()
+            strftime('%H:%M', datetime(ue.ts, 'unixepoch', 'localtime')) AS t,
+            CAST(SUM(ue.resp_bytes) * 8.0 / (10.0 * 60.0 * 1000000.0) AS REAL) AS mbps,
+            COUNT(DISTINCT ue.ip) AS active_ips
+        FROM usage_events ue {join}
+        WHERE {' AND '.join(where)}
+        GROUP BY (ue.ts / 600)
+        ORDER BY (ue.ts / 600)
+    """, params).fetchall()
     return jsonify({"samples": [dict(r) for r in rows]})
 
 

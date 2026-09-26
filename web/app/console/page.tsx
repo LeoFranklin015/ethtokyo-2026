@@ -27,7 +27,7 @@ export default function OverviewPage() {
   const groups = useGroups(org);
   const active = useSessions(org, true);
   const ended = useSessions(org, false);
-  const throughput = useThroughput();
+  const throughput = useThroughput(org);
   const users = useUsers(org);
   const { branches } = useEnsBranches(org);
 

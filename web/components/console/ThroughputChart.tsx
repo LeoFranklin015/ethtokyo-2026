@@ -174,7 +174,7 @@ export function ThroughputChart({ data }: { data: Sample[] }) {
               {cursor.mbps} Mbps
             </p>
             <p className="font-mono text-[0.6875rem] tabular-nums text-ink-muted">
-              {cursor.t} · {cursor.admitted} admitted
+              {cursor.t} · {cursor.active_ips} sending
             </p>
           </div>
         ) : null}
@@ -188,7 +188,7 @@ export function ThroughputChart({ data }: { data: Sample[] }) {
             <tr>
               <th scope="col">Time</th>
               <th scope="col">Mbps</th>
-              <th scope="col">Admitted</th>
+              <th scope="col">Addresses sending</th>
             </tr>
           </thead>
           <tbody>
@@ -196,7 +196,7 @@ export function ThroughputChart({ data }: { data: Sample[] }) {
               <tr key={d.t}>
                 <th scope="row">{d.t}</th>
                 <td>{d.mbps}</td>
-                <td>{d.admitted}</td>
+                <td>{d.active_ips}</td>
               </tr>
             ))}
           </tbody>
