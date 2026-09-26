@@ -54,7 +54,13 @@ const COLUMNS = ["Person", "On chain", "Enforcer", "Network", "Standing", ""];
 export default function PeoplePage() {
   const org = useOrg();
 
-  const { memberships, error: chainError, isLoading: chainLoading } = useEnsMemberships(org);
+  const {
+    memberships,
+    error: chainError,
+    isLoading: chainLoading,
+    stale: chainStale,
+    lag: chainLag,
+  } = useEnsMemberships(org);
   const { branches } = useEnsBranches(org);
   // `useUsers` rather than the paginated `useEnforcerUsers`: a join that only saw the first page
   // of the enforcer would report everybody after it as "not mirrored", which is exactly the
@@ -71,7 +77,12 @@ export default function PeoplePage() {
 
   // "Answered" is stricter than "no error": SWR reports neither while the first request is in
   // flight, and a row must not be called one-sided before the other side has had its turn.
-  const chainAnswered = !chainError && memberships !== undefined;
+  //
+  // A stale index does not count as an answer. Memberships can only be read from the index —
+  // nothing on chain enumerates a branch's members — so when that index is far behind, an empty
+  // list means "we do not know yet", not "there is nobody". Treating it as an answer is what put
+  // `NOT ON CHAIN` beside a member who was registered, owned and perfectly valid on chain.
+  const chainAnswered = !chainError && memberships !== undefined && !chainStale;
   const enforcerAnswered = !enforcerError && usersData !== undefined;
   const sessionsAnswered = !sessionsError && sessionsData !== undefined;
 
@@ -201,6 +212,17 @@ export default function PeoplePage() {
           >
             {org}.eth
           </PanelHeader>
+
+          {chainStale && !chainError ? (
+            <p className="border-b border-rule px-4 py-2.5 text-xs leading-relaxed text-ink-muted">
+              The ENS index is{" "}
+              <span className="font-mono text-ink">{chainLag ?? "?"}</span> blocks behind, so
+              on-chain memberships cannot be listed right now. Nobody below is being called
+              unregistered on the strength of that — the chain column reads{" "}
+              <span className="font-mono">not read</span> until the index catches up. Branches and
+              organizations are unaffected; those are read from the chain directly.
+            </p>
+          ) : null}
 
           {!chainAnswered && !enforcerAnswered ? (
             <p role="status" className="px-4 py-16 text-center text-sm" style={{ color: chainError || enforcerError ? "var(--alert)" : undefined }}>

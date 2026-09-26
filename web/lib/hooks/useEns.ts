@@ -18,6 +18,10 @@ export function useEnsMemberships(org: string | null, branch?: string) {
     total: number;
     source: "indexer" | "chain";
     indexedBlock: number | null;
+    /** Blocks behind the chain; `null` when either side could not be read. */
+    lag: number | null;
+    /** The index is too far behind to be read as settled fact. */
+    stale: boolean;
   }>(
     // Keyed by organization as well as branch: two organizations must never share a cache
     // entry, and a null key means "nothing selected yet" rather than "fetch the default".
@@ -33,6 +37,8 @@ export function useEnsMemberships(org: string | null, branch?: string) {
     total: data?.total,
     source: data?.source,
     indexedBlock: data?.indexedBlock,
+    lag: data?.lag ?? null,
+    stale: data?.stale ?? false,
     error,
     isLoading,
   };

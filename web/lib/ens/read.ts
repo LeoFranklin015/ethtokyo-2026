@@ -144,11 +144,29 @@ export async function getRoles(registrar: Address): Promise<RoleInfo[]> {
 }
 
 /**
+ * How far behind the chain the indexer is, in blocks.
+ *
+ * `null` when either side could not be read. Anything that presents indexed data as settled
+ * fact needs this: a stale index does not report itself as stale, it reports an empty list, and
+ * an empty list is indistinguishable from "there is nobody" unless you ask how old it is.
+ */
+export async function indexerLag(indexedBlock: number | null): Promise<number | null> {
+  if (indexedBlock === null) return null;
+  try {
+    const head = await client.getBlockNumber();
+    return Math.max(0, Number(head) - indexedBlock);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Live memberships in the branch.
  *
- * Built from `Onboarded` logs, then re-checked against the registry so anything revoked or expired
- * drops out. This is what an indexer would do; ENS's own Sepolia v2 instance is down, and reading
- * logs keeps the console honest about on-chain state regardless.
+ * Index-only, and unavoidably so: nothing on chain enumerates the members of a branch. The
+ * registrar emits `Onboarded` but keeps no list, so the alternative is an `eth_getLogs` range
+ * that grows by a block every twelve seconds until a provider refuses it — which is how this
+ * once reported "no members" during an outage rather than an error.
  */
 export async function getMemberships(
   organization: string,
