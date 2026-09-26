@@ -295,6 +295,18 @@ contract BranchFactoryTest is Test {
     // Two branches coexist
     ////////////////////////////////////////////////////////////////////////
 
+    /// Branches must be listable from state, for the same reason groups are.
+    function test_branches_are_listable_without_event_logs() public {
+        _create("tokyo");
+        _create("osaka");
+
+        string[] memory labels = factory.allBranchLabels();
+        assertEq(labels.length, 2);
+        assertEq(labels[0], "tokyo");
+        assertEq(labels[1], "osaka");
+        assertEq(factory.branchCount(), 2);
+    }
+
     function test_branches_are_independent() public {
         (address tokyoRegistry, address tokyoRegistrar) = _create("tokyo");
         (address osakaRegistry, address osakaRegistrar) = _create("osaka");

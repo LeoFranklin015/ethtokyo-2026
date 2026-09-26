@@ -48,8 +48,8 @@
   "branchFactory": "0x4C96E37b679427d362BDE6dFdF123A10f80caA0B",
   "orgNode": "0x291def960cdeed286467d6beeaad1ab15faeb706a2dcd0126a3a6a22ef3e3aef",
   "previousBranchFactory": "0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5 (pre teardown hardening)",
-  "orgFactory": "0xBCFb2BB689BCD4D5E74D183f43572d95B5FFf681",
-  "resolverImplementation": "0xF26E49F6a7F36f0F23436cD2e6C8A7bd85036bC5",
+  "orgFactory": "0x3ED205a5AD7Cc1545AEa8FAE0113DF3026d9a861",
+  "resolverImplementation": "0x4Cb3d9C79b93a8cDd42eF32d607590aC88aF317c",
   "note.orgFactory": "Shared and unprivileged: anyone who owns a .eth name can stand up their own organization with it.",
   "organizations": {
     "sairann.eth": {
@@ -63,6 +63,17 @@
       "registry": "0x388032BEb66051d33BFE7a9cbaD9341d8d321836",
       "resolver": "0x586c3fE43E4273cb5456DC46BbA33b1c37481FF7",
       "note": "created and pointed in one createOrganization call, with the pointing roles delegated and returned"
+    },
+    "ethglobal1.eth": {
+      "registry": "0x17069a349d8C78fEbFf0124a3D7F31F8A196a3E5",
+      "resolver": "0xacc755dc3B5Fab20C87d24a7877CE090E2e7623d",
+      "branchFactory": "0x12Fdfe27b73d44Cdd10c989C68D3C34683CE46d9",
+      "branches": {
+        "tokyo": {
+          "registry": "0x82E9490f794aa2c8d79666859d5E16e9831cF300",
+          "registrar": "0xc87c857a6a41f193a24d005c0b1a71a11865bb69"
+        }
+      }
     }
   }
 }

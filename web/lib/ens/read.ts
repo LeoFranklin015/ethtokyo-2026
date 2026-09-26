@@ -91,18 +91,19 @@ async function roleNames(registrar: Address): Promise<Map<string, string>> {
   const cached = roleNameCache.get(registrar);
   if (cached && Date.now() - cached.at < 60_000) return cached.names;
 
-  const logs = await client.getContractEvents({
+  // Read from state, not from event logs. The registrar stores each group's readable name
+  // against its id, so this is one call at any chain height — where scanning `RoleDefined`
+  // meant an `eth_getLogs` range that grows by a block every twelve seconds until whichever
+  // provider is in use refuses it, and then reports "no groups" rather than an error.
+  const roleNameList = (await client.readContract({
     address: registrar,
     abi: registrarV2Abi,
-    eventName: "RoleDefined",
-    fromBlock: ENS.fromBlock,
-    toBlock: "latest",
-  });
+    functionName: "allRoleNames",
+  })) as string[];
 
   const names = new Map<string, string>();
-  for (const log of logs) {
-    const { roleId, name } = log.args as { roleId?: Hex; name?: string };
-    if (roleId && name) names.set(roleId.toLowerCase(), name);
+  for (const name of roleNameList) {
+    names.set(keccak256(toHex(name)).toLowerCase(), name);
   }
   roleNameCache.set(registrar, { at: Date.now(), names });
   return names;
@@ -434,24 +435,36 @@ export async function chainBranches(): Promise<ChainBranch[]> {
     return chainBranchCache.branches;
   }
 
-  const logs = await client.getContractEvents({
+  // The factory keeps the list; no log scan, and no growing block range to be refused.
+  const labels = (await client.readContract({
     address: ENS.branchFactory as Address,
     abi: branchFactoryAbi,
-    eventName: "BranchCreated",
-    fromBlock: ENS.fromBlock,
-    toBlock: "latest",
-  });
+    functionName: "allBranchLabels",
+  })) as string[];
 
   const byLabel = new Map<string, { registrar: Address; registry: Address }>();
-  for (const log of logs) {
-    const { label, registrar, registry } = log.args as {
-      label?: string;
-      registrar?: Address;
-      registry?: Address;
-    };
-    // Later entries win: a label re-opened points at its newest registrar.
-    if (label && registrar && registry) byLabel.set(label, { registrar, registry });
-  }
+  await Promise.all(
+    labels.map(async (label) => {
+      const registry = (await client.readContract({
+        address: ENS.orgRegistry as Address,
+        abi: registryAbi,
+        functionName: "getSubregistry",
+        args: [label],
+      })) as Address;
+      if (registry === ZERO_ADDRESS) return;
+
+      // The registrar is published as a text record precisely so it is discoverable.
+      const published = (await client.readContract({
+        address: ENS.resolver as Address,
+        abi: resolverAbi,
+        functionName: "text",
+        args: [namehash(`${label}.${ENS.organization}`), "ensca.registrar"],
+      })) as string;
+      if (!/^0x[0-9a-fA-F]{40}$/.test(published)) return;
+
+      byLabel.set(label, { registrar: published as Address, registry });
+    }),
+  );
   const branches = [...byLabel]
     .map(([label, { registrar, registry }]) => ({
       name: `${label}.${ENS.organization}`,

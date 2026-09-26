@@ -220,6 +220,26 @@ contract RecordPermissionsTest is Test {
         );
     }
 
+    /// The catalogue must be readable from state. It used to exist only in event logs, which
+    /// meant listing it was an `eth_getLogs` scan whose range grows forever — and which fails,
+    /// on every RPC provider, as "this organization has no groups".
+    function test_the_catalogue_is_readable_without_event_logs() public view {
+        string[] memory names = registrar.allRoleNames();
+        assertEq(names.length, 2, "both groups");
+        assertEq(registrar.roleCount(), 2);
+        assertEq(registrar.roleNameOf(MENTOR), "mentor", "the id maps back to a readable name");
+        assertEq(registrar.roleNameOf(HACKER), "hacker");
+    }
+
+    /// Redefining a group must not list it twice.
+    function test_redefining_a_group_does_not_duplicate_it() public {
+        vm.prank(organizer);
+        registrar.defineRole(
+            "mentor", 0, false, true, new string[](0), new BranchRegistrarV2.Entitlement[](0)
+        );
+        assertEq(registrar.roleCount(), 2, "still two groups, not three");
+    }
+
     function test_editable_keys_are_readable_back() public view {
         string[] memory keys = registrar.editableKeysOf(MENTOR);
         assertEq(keys.length, 2);

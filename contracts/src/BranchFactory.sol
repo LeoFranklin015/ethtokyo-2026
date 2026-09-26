@@ -78,6 +78,10 @@ contract BranchFactory is EnhancedAccessControl {
     uint256 private constant RESOLVER_ROLE_SET_TEXT = 1 << 4;
     uint256 private constant RESOLVER_ROLE_SET_TEXT_ADMIN = RESOLVER_ROLE_SET_TEXT << 128;
 
+    /// @dev Every branch this organization has opened, so a console can list them from state
+    ///      rather than scanning `BranchCreated` logs across an ever-growing block range.
+    string[] internal _branchLabels;
+
     event BranchRetired(address indexed registrar);
 
     event BranchCreated(
@@ -132,6 +136,15 @@ contract BranchFactory is EnhancedAccessControl {
         return _validLabel(label)
             && ORG_REGISTRY.getStatus(uint256(keccak256(bytes(label))))
                 == IPermissionedRegistry.Status.AVAILABLE;
+    }
+
+    /// @notice Every branch label this factory has opened.
+    function allBranchLabels() external view returns (string[] memory) {
+        return _branchLabels;
+    }
+
+    function branchCount() external view returns (uint256) {
+        return _branchLabels.length;
     }
 
     /// @notice What the organization must grant this factory before it can open branches.
@@ -204,6 +217,7 @@ contract BranchFactory is EnhancedAccessControl {
         PermissionedRegistry(registry).grantRootRoles(EACBaseRolesLib.ALL_ROLES, owner);
         PermissionedRegistry(registry).revokeRootRoles(EACBaseRolesLib.ALL_ROLES, address(this));
 
+        _branchLabels.push(label);
         emit BranchCreated(label, branchNode(label), registry, registrar, owner);
     }
 

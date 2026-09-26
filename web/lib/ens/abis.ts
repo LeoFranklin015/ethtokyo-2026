@@ -11,6 +11,9 @@ export const registryAbi = [
 ] as const;
 
 export const registrarV2Abi = [
+  { type: "function", name: "allRoleNames", stateMutability: "view", inputs: [], outputs: [{ type: "string[]" }] },
+  { type: "function", name: "roleCount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "roleNameOf", stateMutability: "view", inputs: [{ name: "roleId", type: "bytes32" }], outputs: [{ type: "string" }] },
   { type: "function", name: "BRANCH_DNS_NAME", stateMutability: "view", inputs: [], outputs: [{ type: "bytes" }] },
   { type: "function", name: "BRANCH_NODE", stateMutability: "view", inputs: [], outputs: [{ type: "bytes32" }] },
   { type: "function", name: "REGISTRY", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -100,6 +103,7 @@ export const registrarWriteAbi = [
 
 /** BranchFactory — opens a branch in one transaction. */
 export const branchFactoryAbi = [
+  { type: "function", name: "allBranchLabels", stateMutability: "view", inputs: [], outputs: [{ type: "string[]" }] },
   { type: "function", name: "createBranch", stateMutability: "nonpayable", inputs: [
     { name: "label", type: "string" },
     { name: "expiry", type: "uint64" },

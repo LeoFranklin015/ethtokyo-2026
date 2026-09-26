@@ -115,6 +115,17 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     ///      key removed from a role stays writable by its holders forever.
     mapping(bytes32 roleId => string[]) internal _editableKeys;
 
+    /// @dev The readable name behind a role id, and the list of every role defined here.
+    ///
+    ///      `roleId` is `keccak256(name)`, which is one-way — so without this the only place a
+    ///      group's name existed was its `RoleDefined` event, and reading the catalogue meant an
+    ///      `eth_getLogs` scan from the deployment block to the chain head. That span grows by a
+    ///      block every twelve seconds and every RPC provider caps it, so a query that worked on
+    ///      the day of deployment fails a week later — and fails as "this organization has no
+    ///      groups", which is indistinguishable from the truth.
+    mapping(bytes32 roleId => string name) public roleNameOf;
+    string[] internal _roleNames;
+
     /// @dev Reverse lookup, so `_getRoles` can tell what an opaque resource refers to.
     mapping(uint256 resource => bytes32 roleId) public roleAtResource;
 
@@ -229,6 +240,10 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         if (registryBitmap & FORBIDDEN_REGISTRY_ROLES != 0) revert ForbiddenRegistryRoles(registryBitmap);
 
         bytes32 id = roleId(name);
+        if (bytes(roleNameOf[id]).length == 0) {
+            roleNameOf[id] = name;
+            _roleNames.push(name);
+        }
         roleSpec[id] = RoleSpec(registryBitmap, canOnboard, openToOnboarders, true);
         roleAtResource[roleResource(id)] = id;
 
@@ -253,6 +268,15 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
 
     function entitlementsOf(bytes32 role) external view returns (Entitlement[] memory) {
         return _entitlements[role];
+    }
+
+    /// @notice Every group defined on this branch, readable without touching event logs.
+    function allRoleNames() external view returns (string[] memory) {
+        return _roleNames;
+    }
+
+    function roleCount() external view returns (uint256) {
+        return _roleNames.length;
     }
 
     /// @notice The text keys this role's holders may write on their own name.

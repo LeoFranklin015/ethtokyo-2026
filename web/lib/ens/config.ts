@@ -20,7 +20,7 @@ export const ENS = {
 
   /// Shared and unprivileged: anyone who owns a `.eth` name turns it into an organization with
   /// this. It keeps nothing, so one instance serves everybody.
-  orgFactory: "0xBCFb2BB689BCD4D5E74D183f43572d95B5FFf681",
+  orgFactory: "0x3ED205a5AD7Cc1545AEa8FAE0113DF3026d9a861",
   resolver: "0x9D8f1376aED12F6F7Ba041285Cce833AcED13092",
 
   /**
@@ -44,7 +44,6 @@ export const ENS = {
   paymentToken: "0x16f95D91DBa7dA3Aca778Ec053dF0FF6C6A8aA8e",
 
   /** Floor for log queries — the block the V2 registrar was deployed in. */
-  fromBlock: 11782000n,
 } as const;
 
 export const ENTITLEMENT_KEYS = ["role", "wifi.group", "wifi.rate", "wifi.ceil"] as const;
