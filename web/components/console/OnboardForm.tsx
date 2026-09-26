@@ -38,6 +38,8 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   const [checkFailed, setCheckFailed] = useState(false);
   // Separate from `free`, because it is a different registry answering a different question.
   const [nameBlocked, setNameBlocked] = useState(false);
+  // When a label is taken on chain but missing from the enforcer DB, sync it automatically.
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "synced" | "sync-failed">("idle");
 
   const branch = withRegistrar.find((b) => b.registrar === registrar) ?? withRegistrar[0];
   const target = branch?.registrar ?? "";
@@ -54,10 +56,38 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   const groups = (groupData?.groups ?? []).filter((g) => g.active);
   const selectedGroup = group || groups[0]?.name || "";
 
+  // Sync a name that exists on chain into the enforcer DB so it appears in the members list.
+  async function syncToEnforcer(labelVal: string, branchRef: typeof branch) {
+    if (!branchRef || !org) return;
+    setSyncState("syncing");
+    try {
+      const name = `${labelVal}.${branchRef.name}`;
+      const resolveRes = await fetch(`/api/ens/resolve?name=${encodeURIComponent(name)}`);
+      if (!resolveRes.ok) { setSyncState("sync-failed"); return; }
+      const identity = await resolveRes.json() as { owner: string };
+
+      const mirrorRes = await fetch("/api/ens/mirror", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "member",
+          org,
+          registrar: branchRef.registrar,
+          label: labelVal,
+          wallet: identity.owner,
+        }),
+      });
+      setSyncState(mirrorRes.ok ? "synced" : "sync-failed");
+    } catch {
+      setSyncState("sync-failed");
+    }
+  }
+
   // Is this label still free inside the chosen branch?
   useEffect(() => {
     const value = label.trim().toLowerCase();
     if (!value || !branch) return;
+    setSyncState("idle");
 
     const t = setTimeout(async () => {
       try {
@@ -73,7 +103,15 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
         }
         const body = await res.json();
         setCheckFailed(false);
+        const taken = body.valid ? !body.available : true;
         setFree(body.valid ? body.available : false);
+
+        // Name is taken on chain — sync it to the enforcer DB automatically so it shows in the
+        // members list. The enforcer may not have it if the mirror call failed when it was minted.
+        if (taken) {
+          void syncToEnforcer(value, branch);
+          return;
+        }
 
         // The same id is minted as their organization-wide Member name, in a registry that also
         // holds every branch name. An id equal to a branch label reverts the whole transaction
@@ -199,7 +237,26 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
             ) : free === true ? (
               <span style={{ color: "var(--signal)" }}>available</span>
             ) : free === false ? (
-              <span style={{ color: "var(--alert)" }}>already taken in this perimeter</span>
+              <span style={{ color: "var(--alert)" }}>
+                already taken in this perimeter
+                {syncState === "syncing" && (
+                  <span className="ml-2 text-ink-muted">— syncing to enforcer…</span>
+                )}
+                {syncState === "synced" && (
+                  <span style={{ color: "var(--signal)" }} className="ml-2">
+                    — synced, reload members list
+                  </span>
+                )}
+                {syncState === "sync-failed" && (
+                  <button
+                    type="button"
+                    className="ml-2 underline"
+                    onClick={() => void syncToEnforcer(label.trim().toLowerCase(), branch)}
+                  >
+                    retry sync
+                  </button>
+                )}
+              </span>
             ) : nameBlocked ? (
               <span style={{ color: "var(--alert)" }}>
                 already an organization name — this badge cannot be minted
