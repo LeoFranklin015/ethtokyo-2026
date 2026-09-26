@@ -149,6 +149,14 @@ def grant_access(ip: str, tier: str, ens_name=None, user_id=None) -> None:
             # are not bounced back to the portal.
             _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
                   "-s", ip, "-p", "tcp", "--dport", "80", "-j", "RETURN"])
+            # HTTPS :443 -> :8443 transparent MITM listener (wallet Layer 2).
+            # Injects the read-only provider into cold third-party HTTPS tabs.
+            # Only authed IPs are steered into the listener; unauthed traffic
+            # never reaches it. HSTS-preloaded hosts pass through inside mitm
+            # (ignore_hosts), so those tabs still load with their real cert.
+            _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
+                  "-s", ip, "-p", "tcp", "--dport", "443",
+                  "-j", "REDIRECT", "--to-ports", "8443"])
             _apply_ens_isolation(ip, action="I")
         except Exception:
             _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
@@ -179,6 +187,9 @@ def revoke_access(ip: str) -> None:
                  "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
         _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
                  "-s", ip, "-p", "tcp", "--dport", "80", "-j", "RETURN"])
+        _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
+                 "-s", ip, "-p", "tcp", "--dport", "443",
+                 "-j", "REDIRECT", "--to-ports", "8443"])
         _apply_ens_isolation(ip, action="D")
         sid = SESSION_IDS.pop(ip, None)
         ENS_NAMES.pop(ip, None)
