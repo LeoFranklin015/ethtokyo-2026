@@ -113,6 +113,14 @@ export function Sidebar() {
             {enforcer.label}
           </p>
         </div>
+        <div className="border-t border-rule px-5 py-2.5">
+          <Link
+            href="/console/signin"
+            className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+          >
+            Console sign-in
+          </Link>
+        </div>
       </div>
     </div>
   );

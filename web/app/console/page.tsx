@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/console/PageHeader";
 import { ThroughputChart } from "@/components/console/ThroughputChart";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
+import { ButtonLink } from "@/components/ui/Button";
 import { useGroups } from "@/lib/hooks/useGroups";
 import { useSessions } from "@/lib/hooks/useSessions";
 import { useThroughput } from "@/lib/hooks/useThroughput";
@@ -41,7 +42,9 @@ export default function OverviewPage() {
     return () => clearInterval(t);
   }, []);
 
-  const enforcerDown = groups.error ?? active.error ?? users.error;
+  const firstError = groups.error ?? active.error ?? users.error;
+  const signedOut = firstError instanceof Error && firstError.message === "NOT_SIGNED_IN";
+  const enforcerDown = signedOut ? null : firstError;
   const loading = groups.isLoading || active.isLoading || users.isLoading;
 
   const sessions = active.data?.sessions ?? [];
@@ -69,7 +72,20 @@ export default function OverviewPage() {
       />
 
       <div className="px-4 pb-16 pt-6 sm:px-6">
-        {enforcerDown ? (
+        {signedOut ? (
+          <Panel as="section" className="mb-6">
+            <div className="px-4 py-5">
+              <p className="text-sm text-ink">This browser is not signed in to the console.</p>
+              <p className="mt-1 max-w-[60ch] text-xs leading-relaxed text-ink-muted">
+                Enforcer figures are gated behind the console token. Anything sourced from ENS
+                below is public and shown regardless.
+              </p>
+              <p className="mt-3">
+                <ButtonLink href="/console/signin">Sign in</ButtonLink>
+              </p>
+            </div>
+          </Panel>
+        ) : enforcerDown ? (
           <Panel as="section" className="mb-6">
             <div className="px-4 py-5">
               <p className="text-sm" style={{ color: "var(--alert)" }}>
@@ -90,6 +106,7 @@ export default function OverviewPage() {
             value={users.data?.total}
             sub="known to this enforcer"
             failed={Boolean(users.error)}
+            signedOut={signedOut}
             loading={users.isLoading}
           />
           <Kpi
@@ -97,6 +114,7 @@ export default function OverviewPage() {
             value={active.data?.total}
             sub="open sessions"
             failed={Boolean(active.error)}
+            signedOut={signedOut}
             loading={active.isLoading}
           />
           <Kpi
@@ -104,6 +122,7 @@ export default function OverviewPage() {
             value={groups.data?.length}
             sub="defined on this enforcer"
             failed={Boolean(groups.error)}
+            signedOut={signedOut}
             loading={groups.isLoading}
           />
         </div>
@@ -245,18 +264,22 @@ function Kpi({
   sub,
   failed,
   loading,
+  signedOut,
 }: {
   label: string;
   value: number | undefined;
   sub: string;
   failed: boolean;
   loading: boolean;
+  signedOut?: boolean;
 }) {
   return (
     <div className="bg-paper px-4 py-5">
       <span className="label">{label}</span>
       <span className="mt-2 block font-mono text-2xl tabular-nums text-ink">
-        {failed ? (
+        {signedOut ? (
+          <span className="text-base text-ink-faint">locked</span>
+        ) : failed ? (
           <span className="text-base" style={{ color: "var(--alert)" }}>
             unavailable
           </span>
@@ -267,7 +290,7 @@ function Kpi({
         )}
       </span>
       <span className="mt-1 block text-xs text-ink-muted">
-        {failed ? "the enforcer did not answer" : sub}
+        {signedOut ? "sign in to see this" : failed ? "the enforcer did not answer" : sub}
       </span>
     </div>
   );
