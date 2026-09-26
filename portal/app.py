@@ -3,6 +3,7 @@ import subprocess
 import os
 import time
 import uuid
+import secrets
 import requests as _req
 import threading
 import ipaddress
@@ -10,6 +11,10 @@ import logging
 
 _log = logging.getLogger(__name__)
 _state_lock = threading.Lock()
+
+# Server-side nonce store: nonce -> unix timestamp of creation.
+# Nonces expire after 5 minutes and are deleted on successful verify.
+_wallet_nonces: dict[str, int] = {}
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -202,7 +207,7 @@ def check_authed():
         return None
     if request.path in CAPTIVE_PROBE_PATHS:
         return redirect(f"{PORTAL_URL}/", 302)
-    if request.path in ("/", "/login"):
+    if request.path in ("/", "/login", "/wallet-challenge", "/wallet-verify"):
         return None
     return redirect("http://192.168.0.1:8080/", 302)
 
@@ -222,6 +227,80 @@ def login():
         grant_access(ip, tier)
         return redirect(f"{PORTAL_URL}/connected", 302)
     return render_template("login.html", error="Invalid credentials")
+
+
+def _recover_address(msg: str, sig: str) -> str:
+    """Recover Ethereum address from an EIP-191 personal_sign signature."""
+    try:
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        message = encode_defunct(text=msg)
+        return Account.recover_message(message, signature=sig).lower()
+    except Exception:
+        return ""
+
+
+@app.route("/wallet-challenge", methods=["GET"])
+def wallet_challenge():
+    nonce = secrets.token_hex(16)
+    now = int(time.time())
+    _wallet_nonces[nonce] = now
+    # Expire nonces older than 5 minutes
+    expired = [k for k, ts in list(_wallet_nonces.items()) if now - ts > 300]
+    for k in expired:
+        del _wallet_nonces[k]
+    return jsonify({"nonce": nonce, "ts": now})
+
+
+@app.route("/wallet-verify", methods=["POST"])
+def wallet_verify():
+    data = request.get_json(force=True) or {}
+    nonce = data.get("nonce", "")
+    signature = data.get("signature", "")
+    wallet_address = data.get("wallet_address", "").lower()
+
+    if nonce not in _wallet_nonces:
+        return jsonify({"ok": False, "reason": "invalid_nonce"}), 400
+
+    if int(time.time()) - _wallet_nonces[nonce] > 300:
+        del _wallet_nonces[nonce]
+        return jsonify({"ok": False, "reason": "nonce_expired"}), 400
+
+    del _wallet_nonces[nonce]
+
+    # Recover signer address from EIP-191 signature
+    message = f"Sign in to ENSCA\nNonce: {nonce}"
+    recovered = _recover_address(message, signature)
+    if not recovered:
+        return jsonify({"ok": False, "reason": "sig_verify_unavailable"}), 503
+    if recovered != wallet_address:
+        return jsonify({"ok": False, "reason": "signature_invalid"}), 403
+
+    # Look up user by wallet address via proxy admin API
+    try:
+        r = _req.get(
+            f"http://127.0.0.1:8081/admin/users/by-wallet/{wallet_address}",
+            headers={"Authorization": f"Bearer {os.environ.get('ENSCA_PROXY_ADMIN_TOKEN', '')}"},
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return jsonify({"ok": False, "reason": "no_membership"}), 403
+        user = r.json()
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"proxy_error: {str(e)[:80]}"}), 502
+
+    ip = request.remote_addr
+    tier = user.get("group", {}).get("network_tier", "basic")
+    ens_name = user.get("ens_name") or wallet_address
+    grant_access(ip, tier)
+
+    return jsonify({
+        "ok": True,
+        "ens_name": ens_name,
+        "tier": tier,
+        "group_name": user.get("group", {}).get("name", tier),
+        "wallet_address": wallet_address,
+    })
 
 
 @app.route("/connected", methods=["GET"])
