@@ -11,6 +11,7 @@ import { sepolia } from "wagmi/chains";
 import Link from "next/link";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { rememberOrg } from "@/lib/ens/recentOrgs";
 import { WalletButton } from "@/components/WalletButton";
 import { SignalDither } from "@/components/dither/SignalDither";
 
@@ -64,6 +65,10 @@ export function Wizard() {
             orgName={orgName}
             onDone={(addresses) => {
               setOrg(addresses);
+              // Recorded the moment it exists. The ENS indexer will not have it for a while,
+              // and until it does the console's list of organizations cannot show it — which
+              // is how somebody ends up unable to find the thing they just made.
+              if (orgName) rememberOrg(orgName);
               setStep("branch");
             }}
           />
