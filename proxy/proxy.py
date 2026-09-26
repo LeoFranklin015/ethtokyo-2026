@@ -820,7 +820,7 @@ def proxy(slug, subpath):
         return jsonify({"error": "access_denied", "detail": "your group does not have access to this resource"}), 403
 
     # Rate limit check + increment
-    limit_hit = check_and_increment(ip, group_id, resource["id"])
+    limit_hit = check_and_increment(ip, group_id, resource["id"], session["ens_name"])
     if limit_hit:
         record_event(db, session["id"], ip, group_id, resource["id"],
                      request.method, subpath, 429, "rate_limit_exceeded", 0, 0, 0)

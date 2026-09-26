@@ -31,7 +31,7 @@ def _get_adjustment(db, date: str, scope: str, ip: str, group_id: str, resource_
     return max(0, rows["total"])
 
 
-def check_and_increment(ip: str, group_id: str, resource_id: str):
+def check_and_increment(ip: str, group_id: str, resource_id: str, ens_name=None):
     """
     Check rate limits. Returns None if allowed.
     Returns error dict if blocked: {scope, limit, used, resets_at}.
@@ -41,7 +41,7 @@ def check_and_increment(ip: str, group_id: str, resource_id: str):
     date = _today()
 
     limits = db.execute(
-        "SELECT per_device_per_day, group_per_day FROM group_resource_limits "
+        "SELECT per_device_per_day, group_per_day, per_ens_per_day FROM group_resource_limits "
         "WHERE group_id=? AND resource_id=?",
         (group_id, resource_id)
     ).fetchone()
@@ -112,6 +112,37 @@ def check_and_increment(ip: str, group_id: str, resource_id: str):
             "INSERT INTO daily_counters(date,ip,resource_id,count) VALUES(?,?,?,1) "
             "ON CONFLICT(date,ip,resource_id) DO UPDATE SET count=count+1",
             (date, ip, resource_id)
+        )
+        db.commit()
+        return None
+
+    # Per-ENS-user shared bucket check + atomic increment (no device/group limit)
+    per_ens = limits["per_ens_per_day"] if "per_ens_per_day" in limits.keys() else None
+    if ens_name and per_ens is not None:
+        ens_row = db.execute(
+            "INSERT INTO daily_ens_counters(date,ens_name,resource_id,count) VALUES(?,?,?,1) "
+            "ON CONFLICT(date,ens_name,resource_id) DO UPDATE SET count=count+1 "
+            "WHERE count < ? RETURNING count",
+            (date, ens_name, resource_id, per_ens)
+        ).fetchone()
+        if ens_row is None:
+            ens_used = (db.execute(
+                "SELECT COALESCE(count,0) as c FROM daily_ens_counters "
+                "WHERE date=? AND ens_name=? AND resource_id=?",
+                (date, ens_name, resource_id)
+            ).fetchone() or {"c": 0})["c"]
+            db.commit()
+            return {"scope": "ens", "limit": per_ens, "used": ens_used, "resets_at": _resets_at()}
+        # ENS increment succeeded; also track device + group counters
+        db.execute(
+            "INSERT INTO daily_counters(date,ip,resource_id,count) VALUES(?,?,?,1) "
+            "ON CONFLICT(date,ip,resource_id) DO UPDATE SET count=count+1",
+            (date, ip, resource_id)
+        )
+        db.execute(
+            "INSERT INTO daily_group_counters(date,group_id,resource_id,count) VALUES(?,?,?,1) "
+            "ON CONFLICT(date,group_id,resource_id) DO UPDATE SET count=count+1",
+            (date, group_id, resource_id)
         )
         db.commit()
         return None
