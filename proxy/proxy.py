@@ -416,7 +416,7 @@ def list_users():
     except (ValueError, TypeError):
         return jsonify({"error": "invalid_param"}), 400
     total = db.execute(f"SELECT COUNT(*) as c FROM users WHERE {' AND '.join(where)}", params).fetchone()["c"]
-    rows = db.execute(f"SELECT id,username,default_group_id,created_at,disabled FROM users "
+    rows = db.execute(f"SELECT id,username,default_group_id,ens_name,wallet_address,created_at,disabled FROM users "
                       f"WHERE {' AND '.join(where)} LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
     return jsonify({"users": [dict(r) for r in rows], "total": total})
 
@@ -1273,6 +1273,24 @@ def bandwidth_sessions():
         "tier_totals": tier_totals,
         "total_sessions": len(rows),
     })
+
+
+@app.route("/admin/bandwidth/timeseries", methods=["GET"])
+@require_admin
+def bandwidth_timeseries():
+    db = get_db()
+    # 10-minute buckets over the last 6 hours, ordered by bucket
+    rows = db.execute("""
+        SELECT
+            strftime('%H:%M', datetime(ts, 'unixepoch', 'localtime')) AS t,
+            CAST(SUM(resp_bytes) * 8.0 / (10.0 * 60.0 * 1000000.0) AS REAL) AS mbps,
+            COUNT(DISTINCT ip) AS admitted
+        FROM usage_events
+        WHERE ts >= strftime('%s', 'now', '-6 hours')
+        GROUP BY (ts / 600)
+        ORDER BY (ts / 600)
+    """).fetchall()
+    return jsonify({"samples": [dict(r) for r in rows]})
 
 
 @app.route("/admin/bandwidth/test", methods=["POST"])
