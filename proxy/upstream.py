@@ -1,8 +1,27 @@
 import base64
+import os
 import time
 from urllib.parse import parse_qs, urlencode
 import requests
 from db import get_db
+
+
+PROVIDER_URL = os.environ.get("WALLET_PROVIDER_URL", "/wallet/provider.js")
+_CSP_HEADERS = ("content-security-policy", "content-security-policy-report-only", "x-frame-options")
+
+
+def inject_provider(content: bytes, content_type: str, headers: dict) -> tuple:
+    if not content_type or not content_type.lower().startswith("text/html"):
+        return content, headers
+    stripped = {k: v for k, v in headers.items() if k.lower() not in _CSP_HEADERS}
+    tag = f'<script src="{PROVIDER_URL}"></script>'.encode()
+    lower = content.lower()
+    idx = lower.find(b"</head>")
+    if idx != -1:
+        injected = content[:idx] + tag + content[idx:]
+    else:
+        injected = tag + content
+    return injected, stripped
 
 
 # key_placement values and what they do:
@@ -50,7 +69,7 @@ def _inject_auth(resource: dict, headers: dict, params: dict) -> None:
 def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
     """
     Forward request to upstream with auth injection.
-    Returns (content_bytes, status, req_bytes, resp_bytes, duration_ms, upstream_error).
+    Returns (content_bytes, status, req_bytes, resp_bytes, duration_ms, upstream_error, content_type).
     """
     start = time.monotonic()
 
@@ -97,23 +116,23 @@ def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
             size += len(chunk)
             if size > MAX_RESP_BYTES:
                 resp.close()
-                return None, 413, req_bytes, size, 0, "response_too_large"
+                return None, 413, req_bytes, size, 0, "response_too_large", None
             chunks.append(chunk)
         content = b"".join(chunks)
         resp_bytes = len(content)
 
         duration_ms = int((time.monotonic() - start) * 1000)
-        return content, resp.status_code, req_bytes, resp_bytes, duration_ms, None
+        return content, resp.status_code, req_bytes, resp_bytes, duration_ms, None, resp.headers.get("Content-Type")
 
     except requests.exceptions.ConnectionError as e:
         duration_ms = int((time.monotonic() - start) * 1000)
-        return None, 502, req_bytes, 0, duration_ms, f"connection_error: {str(e)[:120]}"
+        return None, 502, req_bytes, 0, duration_ms, f"connection_error: {str(e)[:120]}", None
     except requests.exceptions.Timeout:
         duration_ms = int((time.monotonic() - start) * 1000)
-        return None, 502, req_bytes, 0, duration_ms, "timeout"
+        return None, 502, req_bytes, 0, duration_ms, "timeout", None
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
-        return None, 502, req_bytes, 0, duration_ms, f"unexpected: {str(e)[:120]}"
+        return None, 502, req_bytes, 0, duration_ms, f"unexpected: {str(e)[:120]}", None
 
 
 def record_event(db, session_id, ip, group_id, resource_id,

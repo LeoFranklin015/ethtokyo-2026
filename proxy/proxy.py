@@ -15,7 +15,7 @@ import wallet_allowlist
 from db import get_db, init_db, close_db
 from auth import require_admin, require_authed_ip, require_local, verify_admin_token
 from rate_limit import check_and_increment, get_usage_for_ip
-from upstream import forward, record_event, _build_url, _inject_auth
+from upstream import forward, record_event, _build_url, _inject_auth, inject_provider
 
 app = Flask(__name__)
 PORTAL_INTERNAL = "http://127.0.0.1:8080"
@@ -891,7 +891,7 @@ def proxy(slug, subpath):
         return jsonify({"error": "rate_limit_exceeded", **limit_hit}), 429
 
     # Forward
-    content, status, req_bytes, resp_bytes, duration_ms, upstream_error = forward(
+    content, status, req_bytes, resp_bytes, duration_ms, upstream_error, content_type = forward(
         dict(resource), request.method, subpath, request
     )
 
@@ -902,7 +902,13 @@ def proxy(slug, subpath):
     if content is None:
         return jsonify({"error": "upstream_unreachable", "detail": upstream_error}), status
 
-    return Response(content, status=status)
+    resp_headers = {}
+    if content_type:
+        resp_headers["Content-Type"] = content_type
+    if os.environ.get("WALLET_INJECT") == "1":
+        content, resp_headers = inject_provider(content, content_type or "", resp_headers)
+
+    return Response(content, status=status, headers=resp_headers)
 
 
 # ── usage & analytics ─────────────────────────────────────────────────────────
