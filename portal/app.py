@@ -399,14 +399,70 @@ def _console(method, path, **kwargs):
         return jsonify({"error": f"the console answered {r.status_code}"}), 502
 
 
+SCRAPER_URL = os.environ.get("ENSCA_SCRAPER_URL", "http://127.0.0.1:8090")
+
+
+def _scrape_profile(badge_url: str) -> dict:
+    """Call the local scraper for an ETHGlobal profile. Returns {} on any failure."""
+    if not badge_url:
+        return {}
+    try:
+        r = _req.get(
+            f"{SCRAPER_URL}/scrape",
+            params={"url": badge_url},
+            timeout=15,
+        )
+        if r.ok:
+            return r.json()
+    except Exception as exc:
+        _log.debug("scraper unavailable: %s", exc)
+    return {}
+
+
 @app.route("/api/badge", methods=["GET"])
 def api_badge():
     """Which membership does this badge belong to, and whose wallet holds it?"""
-    params = {"id": request.args.get("id", "")}
+    badge_id = request.args.get("id", "")
     badge_url = request.args.get("url", "")
-    if badge_url:
-        params["url"] = badge_url
-    return _console("GET", "/api/portal/badge", params=params)
+
+    # Call console (ENS resolve) and scraper in parallel via threads.
+    console_result = {}
+    console_status = 200
+    scraper_result = {}
+
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        f_console = pool.submit(
+            _req.get,
+            f"{CONSOLE_URL}/api/portal/badge",
+            headers={
+                "X-Forwarded-For": client_ip(),
+                "X-Portal-Token": CONSOLE_TOKEN,
+            },
+            params={"id": badge_id},
+            timeout=30,
+        )
+        f_scraper = pool.submit(_scrape_profile, badge_url)
+
+        try:
+            cr = f_console.result()
+            console_status = cr.status_code
+            console_result = cr.json()
+        except Exception as exc:
+            _log.warning("console unreachable: %s", exc)
+            return jsonify({"error": "the console could not be reached from this branch"}), 504
+
+        scraper_result = f_scraper.result()
+
+    if not CONSOLE_URL:
+        return jsonify({"error": "this branch has no console configured"}), 503
+
+    # Merge scraper fields into the console response (only on success).
+    if console_status == 200 and scraper_result:
+        console_result["scraperName"] = scraper_result.get("name")
+        console_result["scraperImage"] = scraper_result.get("image")
+
+    return jsonify(console_result), console_status
 
 
 @app.route("/api/challenge", methods=["POST"])
