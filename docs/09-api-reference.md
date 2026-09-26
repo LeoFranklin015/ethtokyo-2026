@@ -600,3 +600,54 @@ Check whether an IP has an active session.
 ```json
 {"active": true, "session_id": "<uuid>"}
 ```
+
+---
+
+## ENS resolution (console)
+
+The enforcer resolves identity from ENS rather than from its own user table. `ENSCA_WEB_URL` points
+the proxy at the console; leave it unset to keep using the local `users` table.
+
+### GET /api/ens/resolve?name=`<ens name>`
+
+Served by the console, not the proxy. Reads the **contracts directly** for this one name — never
+the indexer, and never the whole membership list.
+
+That is deliberate. Searching a list and coming up empty is indistinguishable from "no such
+membership", so an indexer outage or a branch missing from a fallback would answer `404` and be
+read as a deny — silently locking people off the network. Resolving one name against the chain has
+no partial-answer state: it either finds a live membership or the chain says there is none, and a
+failed read throws so the route answers `502` and the caller falls back.
+
+The indexer is used for the console's list views, where a stale or incomplete answer is a cosmetic
+problem rather than an access-control one.
+
+```json
+{
+  "name": "marco.osaka.ethglobal2.eth",
+  "owner": "0xd3b0...14d9",
+  "branch": "osaka.ethglobal2.eth",
+  "role": "mentor",
+  "entitlements": { "wifi.group": "mentor", "wifi.rate": "20mbps", "wifi.ceil": "100mbps" },
+  "source": "chain"
+}
+```
+
+`404 no_membership` means the name holds no live membership — a definite deny. `502` means the
+lookup could not be performed, which is **not** a deny: the caller should fall back.
+
+### GET /internal/ens-lookup/`<name>` — behaviour change
+
+Now asks the console first and maps the published `wifi.group` through the local `groups` table:
+
+| Console says | Proxy returns |
+|---|---|
+| a group this enforcer runs | `200` with that group's id and tier, `source: "ens"` |
+| a group it does not run | `404 unknown_group` — denying beats guessing |
+| `404` (no membership) | `404`, `source: "ens"` |
+| unreachable / `ENSCA_WEB_URL` unset | falls back to the local table, `source: "local"` |
+
+The split is deliberate: **ENS is the authority on which group a person belongs to; the enforcer is
+the authority on what that group means on its network** — tier, VLAN, quota. So an organization can
+change someone's group on-chain without the enforcer being reconfigured, and an enforcer can change
+what a group is worth locally without touching ENS.

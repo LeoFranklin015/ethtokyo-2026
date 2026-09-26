@@ -1,5 +1,13 @@
 import "server-only";
-import { createPublicClient, http, keccak256, toHex, type Address, type Hex } from "viem";
+import {
+  createPublicClient,
+  http,
+  keccak256,
+  namehash,
+  toHex,
+  type Address,
+  type Hex,
+} from "viem";
 import { sepolia } from "viem/chains";
 import { orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
 import { ENS, ENTITLEMENT_KEYS, RPC_URL } from "./config";
@@ -26,6 +34,7 @@ const client = createPublicClient({
 const roleNameCache = new Map<string, { at: number; names: Map<string, string> }>();
 
 const labelHash = (label: string) => BigInt(keccak256(toHex(label)));
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export type RoleInfo = {
   id: Hex;
@@ -339,4 +348,117 @@ async function fromChain(): Promise<EnsMembership[]> {
   );
 
   return rows.filter((row): row is EnsMembership => row !== null);
+}
+
+export type ResolvedIdentity = {
+  name: string;
+  owner: Address;
+  branch: string;
+  role: string;
+  /** Entitlement records as published on the resolver. */
+  entitlements: Record<string, string>;
+  source: MembershipSource;
+};
+
+/**
+ * Resolve one membership name to the policy an enforcer should apply.
+ *
+ * Reads the contracts directly and only for this name — never the indexer, and never the whole
+ * membership list. Two reasons, both of which matter at admission time:
+ *
+ *   1. **A partial answer must never look like a deny.** Searching a list and coming up empty is
+ *      indistinguishable from "no such membership", so an indexer outage or a branch missing from
+ *      the fallback would silently lock people out. Here a failed read throws, the route answers
+ *      502, and the caller falls back instead of denying.
+ *   2. It is O(1) rather than O(memberships), which is what a hot path needs.
+ *
+ * Returns `null` only when the chain positively says there is no live membership.
+ */
+export async function resolveIdentity(name: string): Promise<ResolvedIdentity | null> {
+  const lower = name.trim().toLowerCase().replace(/\.$/, "");
+  const suffix = `.${ENS.organization}`;
+  if (!lower.endsWith(suffix)) return null;
+
+  const parts = lower.slice(0, -suffix.length).split(".");
+  // <label>.<branch>.<org> — anything else is not a membership.
+  if (parts.length !== 2) return null;
+  const [label, branchLabel] = parts;
+
+  // A branch is a name in the org registry that carries a subregistry.
+  const branchRegistry = await client.readContract({
+    address: ENS.orgRegistry as Address,
+    abi: registryAbi,
+    functionName: "getSubregistry",
+    args: [branchLabel],
+  });
+  if (branchRegistry === ZERO_ADDRESS) return null;
+
+  const status = await client.readContract({
+    address: branchRegistry,
+    abi: registryAbi,
+    functionName: "getStatus",
+    args: [labelHash(label)],
+  });
+  if (status !== 2) return null; // not REGISTERED — a definite deny
+
+  const branchNode = namehash(`${branchLabel}${suffix}`);
+  const [owner, registrarRecord] = await Promise.all([
+    client.readContract({
+      address: branchRegistry,
+      abi: registryAbi,
+      functionName: "getOwner",
+      args: [labelHash(label)],
+    }),
+    client.readContract({
+      address: ENS.resolver as Address,
+      abi: resolverAbi,
+      functionName: "text",
+      args: [branchNode, "ensca.registrar"],
+    }),
+  ]);
+
+  const node = namehash(lower);
+  const values = await Promise.all(
+    ENTITLEMENT_KEYS.map((key) =>
+      client.readContract({
+        address: ENS.resolver as Address,
+        abi: resolverAbi,
+        functionName: "text",
+        args: [node, key],
+      }),
+    ),
+  );
+
+  // The readable role name lives in that branch's registrar, which the branch publishes itself.
+  let role = "unknown";
+  if (registrarRecord) {
+    const registrar = registrarRecord as Address;
+    const [resource, names] = await Promise.all([
+      client.readContract({
+        address: branchRegistry,
+        abi: registryAbi,
+        functionName: "getResource",
+        args: [labelHash(label)],
+      }),
+      roleNames(registrar),
+    ]);
+    const roleId = await client.readContract({
+      address: registrar,
+      abi: registrarV2Abi,
+      functionName: "roleOf",
+      args: [resource],
+    });
+    role = names.get(roleId.toLowerCase()) ?? "unknown";
+  }
+
+  return {
+    name: lower,
+    owner,
+    branch: `${branchLabel}${suffix}`,
+    role,
+    entitlements: Object.fromEntries(
+      ENTITLEMENT_KEYS.map((key, i) => [key, values[i]]).filter(([, v]) => v !== ""),
+    ),
+    source: "chain",
+  };
 }

@@ -1186,20 +1186,86 @@ def internal_group_by_tier(tier):
     return jsonify({"group_id": row["id"]})
 
 
+# Where the ENS resolution service lives. Set to the console's origin; leave unset to fall
+# back to the local users table.
+ENSCA_WEB_URL = os.environ.get("ENSCA_WEB_URL", "").rstrip("/")
+ENS_RESOLVE_TIMEOUT = float(os.environ.get("ENS_RESOLVE_TIMEOUT", "4"))
+
+
+def _resolve_via_ens(ens_name):
+    """Ask the console what ENS publishes for this name.
+
+    Returns the entitlement records, or None if the service is unreachable. A name that simply
+    holds no membership resolves to a definite deny, which is different from "could not ask" --
+    the caller must not treat the two the same.
+    """
+    if not ENSCA_WEB_URL:
+        return None
+    try:
+        resp = req_lib.get(
+            ENSCA_WEB_URL + "/api/ens/resolve",
+            params={"name": ens_name},
+            timeout=ENS_RESOLVE_TIMEOUT,
+        )
+    except Exception:
+        return None
+    if resp.status_code == 404:
+        return {"denied": True}
+    if resp.status_code != 200:
+        return None
+    try:
+        return resp.json()
+    except ValueError:
+        return None
+
+
 @app.route("/internal/ens-lookup/<name>")
 @require_local
 def internal_ens_lookup(name):
     ens = (name or "").strip().lower()
     db = get_db()
+
+    # ENS is the authority on which group a name belongs to. The enforcer stays the authority on
+    # what that group means here -- its tier, its VLAN, its quota -- so the group name published
+    # on-chain is mapped through the local groups table rather than trusted wholesale.
+    resolved = _resolve_via_ens(ens)
+    if resolved and resolved.get("denied"):
+        return jsonify({"error": "not_found", "source": "ens"}), 404
+
+    if resolved:
+        group_name = (resolved.get("entitlements") or {}).get("wifi.group")
+        if group_name:
+            grp = db.execute(
+                "SELECT id, network_tier FROM groups WHERE name = ?", (group_name,)
+            ).fetchone()
+            if grp:
+                usr = db.execute(
+                    "SELECT id FROM users WHERE username = ? AND disabled = 0", (ens,)
+                ).fetchone()
+                return jsonify({
+                    "user_id": usr["id"] if usr else None,
+                    "ens_name": ens,
+                    "group_id": grp["id"],
+                    "network_tier": grp["network_tier"],
+                    "role": resolved.get("role"),
+                    "branch": resolved.get("branch"),
+                    "source": "ens",
+                })
+            # ENS named a group this enforcer does not run. Denying is safer than guessing.
+            return jsonify({"error": "unknown_group", "group": group_name,
+                            "source": "ens"}), 404
+
+    # Unreachable resolution service: fall back to the local record so the network keeps working.
     row = db.execute(
         "SELECT u.id AS user_id, u.username AS ens_name, g.id AS group_id, g.network_tier "
         "FROM users u JOIN groups g ON g.id = u.default_group_id "
         "WHERE u.username = ? AND u.disabled = 0", (ens,)
     ).fetchone()
     if not row:
-        return jsonify({"error": "not_found"}), 404
+        return jsonify({"error": "not_found", "source": "local"}), 404
     return jsonify({"user_id": row["user_id"], "ens_name": row["ens_name"],
-                    "group_id": row["group_id"], "network_tier": row["network_tier"]})
+                    "group_id": row["group_id"], "network_tier": row["network_tier"],
+                    "source": "local"})
 
 
 @app.route("/internal/session-created", methods=["POST"])
