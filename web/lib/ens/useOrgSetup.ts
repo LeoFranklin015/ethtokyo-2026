@@ -60,7 +60,7 @@ const POINTING_ROLES = (1n << 20n) | (1n << 24n);
 export function useOrgSetup(label: string | null) {
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
-  const { chainId } = useAccount();
+  const { chainId, address: walletAddress } = useAccount();
   const { sendCallsAsync } = useSendCalls();
   const { sendTransactionAsync } = useSendTransaction();
   const { data: capabilities } = useCapabilities();
@@ -109,7 +109,7 @@ export function useOrgSetup(label: string | null) {
       // Recorded once the name resolves to its own registry, which is the point at which the
       // organization is real to everything else here. The server re-reads the factory before
       // believing it, so a repeat costs nothing.
-      if (pointed) void recordEnsName({ name: `${label}.eth`, kind: "organization" });
+      if (pointed) void recordEnsName({ name: `${label}.eth`, kind: "organization", owner: walletAddress });
     } catch (e) {
       setError(readable(e));
     }

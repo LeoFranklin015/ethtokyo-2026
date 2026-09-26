@@ -1,6 +1,6 @@
 import { Sidebar } from "@/components/console/Sidebar";
 
-export default function ConsoleLayout({ children }: LayoutProps<"/console">) {
+export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-full flex-1 flex-col lg:flex-row">
       {/* Sidebar: a rail on desktop, a stacked header strip on narrow screens */}

@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     "Your ENS subname is the credential for the network. Organizations, perimeters, roles and entitlements, read straight from ENS.",
 };
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const cookies = (await headers()).get("cookie");
 
   return (

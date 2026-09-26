@@ -30,6 +30,26 @@ export type EnsCandidate = {
 };
 
 /**
+ * Organizations this wallet has registered through the console.
+ *
+ * Fallback for when the ENS indexer is down — `namesOwnedBy` fails because it reads the indexer,
+ * so the orgs route calls this instead. Returns org labels only; callers verify each one is still
+ * set up before showing it, the same way the OrgPicker treats localStorage recents.
+ */
+export async function orgCandidatesByOwner(owner: string): Promise<string[]> {
+  if (!mirrorConfigured()) return [];
+  const params = new URLSearchParams({ kind: "organization", owner: owner.toLowerCase() });
+  try {
+    const res = await call("GET", `/admin/ens-names?${params}`);
+    if (res.status !== 200) return [];
+    const names = res.json.names as EnsCandidate[] | undefined;
+    return Array.isArray(names) ? names.map((n) => n.label) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Remember a name the console has just written.
  *
  * Never throws: this runs after a transaction has already landed, and a bookkeeping failure must
@@ -72,10 +92,12 @@ export async function listEnsCandidates(
   org: string,
   kind: EnsNameKind,
   branchLabel?: string,
+  owner?: string,
 ): Promise<EnsCandidate[]> {
   if (!mirrorConfigured()) return [];
   const params = new URLSearchParams({ org, kind });
   if (branchLabel) params.set("branch", branchLabel);
+  if (owner) params.set("owner", owner.toLowerCase());
   try {
     const res = await call("GET", `/admin/ens-names?${params}`);
     if (res.status !== 200) return [];
