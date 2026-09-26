@@ -518,6 +518,30 @@
   });
 
   /* ── The badge ──────────────────────────────────────────────────────── */
+  function showScraperPreview(scraper) {
+    var avatarWrap = $("badge-avatar");
+    if (!avatarWrap) return;
+    if (scraper && (scraper.image || scraper.name)) {
+      avatarWrap.innerHTML = "";
+      if (scraper.image) {
+        var img = document.createElement("img");
+        img.src = scraper.image;
+        img.alt = scraper.name || "";
+        img.style.cssText = "width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid var(--rule,#ddd);display:block;margin:0 auto 0.5rem";
+        avatarWrap.appendChild(img);
+      }
+      if (scraper.name) {
+        var nameEl = document.createElement("p");
+        nameEl.textContent = scraper.name;
+        nameEl.style.cssText = "text-align:center;font-weight:600;margin:0 0 0.5rem";
+        avatarWrap.appendChild(nameEl);
+      }
+      avatarWrap.hidden = false;
+    } else {
+      avatarWrap.hidden = true;
+    }
+  }
+
   function lookUpBadge(id, rawUrl) {
     trouble(null);
     $("open-scanner").disabled = true;
@@ -542,19 +566,20 @@
       var res = badge.status;
       var body = badge.body;
 
+      // Always show scraped profile if we got one — even on error.
+      showScraperPreview(scraper);
+
       if (res === 404) {
         trouble(
-          "Badge " + id + " is not a membership",
-          "Nobody at this organization holds that badge. Check you scanned your own, or ask an " +
-          "organizer to onboard you at the desk."
+          "Badge " + id + " is not a membership" + (scraper.name ? " — " + scraper.name : ""),
+          "Nobody at this organization holds that badge. Ask an organizer to onboard you at the desk."
         );
         return;
       }
       if (res === 502 || res === 504) {
         trouble(
           "That badge could not be checked",
-          "The branch could not reach what it needs to check your badge, so this is not a " +
-          "refusal. Wait a moment and scan again."
+          "The branch could not reach what it needs to check your badge. Wait a moment and scan again."
         );
         return;
       }
