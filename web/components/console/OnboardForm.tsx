@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { Button } from "@/components/ui/Button";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
+import { QrScanner } from "@/components/QrScanner";
 import { useEnsBranches } from "@/lib/hooks/useEns";
 import { useEnsWrites } from "@/lib/ens/useEnsWrites";
 import { useAccount } from "wagmi";
@@ -23,11 +24,10 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   const withRegistrar = (branches ?? []).filter((b) => b.registrar);
 
   const [registrar, setRegistrar] = useState("");
+  // Read off the member's badge rather than typed: the label is their five-character id.
   const [label, setLabel] = useState("");
+  const [scanning, setScanning] = useState(false);
   const [owner, setOwner] = useState("");
-  // The org-wide Member name. It lives in the organization's registry alongside branch names,
-  // so it must not collide with one — hence its own field rather than reusing the label.
-  const [memberLabel, setMemberLabel] = useState("");
   const [group, setGroup] = useState("");
   // Derived rather than synced from an effect: the first group is the default until one is picked.
   const { address } = useAccount();
@@ -98,7 +98,10 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
         label,
         owner: owner.trim() as Address,
         roleId: keccak256(toHex(selectedGroup)) as Hex,
-        memberLabel: memberLabel.trim().toLowerCase() || label,
+        // Their organization-wide Member name is the badge id too. It used to be a second,
+        // typed field, which meant one person could be `a1b2c` at the branch and something else
+        // org-wide — and the portal, which has only the badge to go on, could not find them.
+        memberLabel: label,
       });
       if (!written) throw new Error(writes.error ?? "the transaction did not go through");
 
@@ -152,24 +155,30 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
           </select>
         </label>
 
-        <label className="block">
+        <div className="block">
           <span className="label">Name</span>
-          <span className="mt-2 flex items-center gap-2">
-            <input
-              value={label}
-              onChange={(e) => {
-                setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
-                setFree(null);
-                setCheckFailed(false);
-              }}
-              placeholder="leo"
-              autoComplete="off"
-              className="h-11 min-w-0 flex-1 rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink placeholder:text-ink-faint"
-            />
-            <span className="shrink-0 truncate font-mono text-xs text-ink-muted">
-              .{branch?.name ?? "…"}
+          {label ? (
+            <span className="mt-2 flex items-center gap-2">
+              <span className="flex h-11 min-w-0 flex-1 items-center rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink">
+                <span className="tracking-[0.2em]">{label}</span>
+                <span className="ml-1 truncate text-ink-muted">.{branch?.name ?? "…"}</span>
+              </span>
+              <Button
+                variant="ghost"
+                className="shrink-0"
+                onClick={() => setScanning(true)}
+                disabled={busy}
+              >
+                Rescan
+              </Button>
             </span>
-          </span>
+          ) : (
+            <span className="mt-2 block">
+              <Button variant="outline" onClick={() => setScanning(true)} disabled={busy}>
+                Scan badge
+              </Button>
+            </span>
+          )}
           <span className="mt-1 block min-h-[1rem] font-mono text-[0.6875rem]" role="status">
             {checkFailed ? (
               <span style={{ color: "var(--alert)" }}>
@@ -179,9 +188,17 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
               <span style={{ color: "var(--signal)" }}>available</span>
             ) : free === false ? (
               <span style={{ color: "var(--alert)" }}>already taken in this branch</span>
-            ) : null}
+            ) : label ? null : (
+              <span className="text-ink-muted">their id comes from the badge they were given</span>
+            )}
           </span>
-        </label>
+          {label ? (
+            <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
+              The badge id is also minted as their organization-wide name, so the portal can find
+              them from the same scan.
+            </span>
+          ) : null}
+        </div>
 
         <label className="block">
           <span className="label">Wallet</span>
@@ -195,23 +212,6 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
           />
           <span className="mt-1 block min-h-[1rem] text-xs text-ink-muted">
             {owner && !validAddress ? "That is not a wallet address." : "They will own the name."}
-          </span>
-        </label>
-
-        <label className="block">
-          <span className="label">Member name</span>
-          <input
-            value={memberLabel}
-            onChange={(e) =>
-              setMemberLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())
-            }
-            placeholder="leaves blank to reuse the name above"
-            autoComplete="off"
-            className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink placeholder:text-ink-faint"
-          />
-          <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
-            Their organization-wide name, minted once and reused at every branch. It shares a
-            namespace with branch names, so it cannot be one of those.
           </span>
         </label>
 
@@ -252,6 +252,18 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
         <Button variant="solid" onClick={submit} disabled={!canSubmit}>
           {busy ? "Onboarding…" : "Onboard"}
         </Button>
+        {scanning ? (
+          <QrScanner
+            onScanned={(id) => {
+              setLabel(id);
+              setFree(null);
+              setCheckFailed(false);
+              setScanning(false);
+            }}
+            onClose={() => setScanning(false)}
+          />
+        ) : null}
+
         {!address ? (
           <p className="text-xs text-ink-muted">
             Connect a wallet that may onboard into this group — branch staff, or a member of a
