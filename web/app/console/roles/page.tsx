@@ -1,8 +1,9 @@
+"use client";
+
 import { PageHeader } from "@/components/console/PageHeader";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { ROLES, ORG } from "@/lib/config";
-
-export const metadata = { title: "Roles — ENSCA console" };
+import { GroupForm } from "@/components/console/GroupForm";
 
 // Roles is pure static config — no API needed, no "use client" required
 export default function RolesPage() {
@@ -10,6 +11,9 @@ export default function RolesPage() {
     <>
       <PageHeader eyebrow={ORG.ens} title="Roles" />
       <div className="px-5 py-6 lg:px-8 space-y-6">
+        <div className="max-w-[560px]">
+          <GroupForm />
+        </div>
         <Panel as="section">
           <PanelHeader>Entitlements</PanelHeader>
           <div className="overflow-x-auto">

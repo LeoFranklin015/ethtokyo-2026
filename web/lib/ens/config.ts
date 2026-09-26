@@ -33,6 +33,11 @@ export const ENS = {
 
   universalResolver: "0x5d25C1D6aCBb71B7a28AA7899618a3412a8303e3",
 
+  /** ENSv2 Sepolia beta: where a `.eth` name is bought. */
+  ethRegistrar: "0xAbe76F6C8DFcEd81AA5A2bB8034202A7136b94ca",
+  ethRegistry: "0x657eA849311d3D5823348ddEd7C2AaAFb3EDE09E",
+  paymentToken: "0x16f95D91DBa7dA3Aca778Ec053dF0FF6C6A8aA8e",
+
   /** Floor for log queries — the block the V2 registrar was deployed in. */
   fromBlock: 11782000n,
 } as const;
