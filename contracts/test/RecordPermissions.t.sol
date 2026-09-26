@@ -228,6 +228,34 @@ contract RecordPermissionsTest is Test {
         assertEq(registrar.editableKeysOf(HACKER).length, 0);
     }
 
+    /// A burned name must not hand its profile to whoever registers the label next.
+    function test_revocation_clears_what_the_member_wrote() public {
+        vm.prank(mentor);
+        resolver.setText(_node("mentor1"), "avatar", "ipfs://mine");
+        assertEq(resolver.text(_node("mentor1"), "avatar"), "ipfs://mine");
+
+        // NB: read the getter first — an external call would consume the prank.
+        uint256 resource = registrar.membershipOf(mentor);
+        vm.prank(organizer);
+        registrar.revoke(resource);
+
+        assertEq(resolver.text(_node("mentor1"), "avatar"), "", "self-written record cleared");
+        assertEq(resolver.text(_node("mentor1"), "wifi.rate"), "", "entitlement cleared");
+    }
+
+    /// A membership that can re-point its own name is a membership outside the branch's control.
+    function test_a_role_cannot_hand_out_dangerous_registry_roles() public {
+        uint256 forbidden = registrar.FORBIDDEN_REGISTRY_ROLES();
+        vm.prank(organizer);
+        vm.expectRevert(
+            abi.encodeWithSelector(BranchRegistrarV2.ForbiddenRegistryRoles.selector, forbidden)
+        );
+        registrar.defineRole(
+            "escapee", forbidden, false, true, new string[](0),
+            new BranchRegistrarV2.Entitlement[](0)
+        );
+    }
+
     ////////////////////////////////////////////////////////////////////////
     // Staff writes
     ////////////////////////////////////////////////////////////////////////

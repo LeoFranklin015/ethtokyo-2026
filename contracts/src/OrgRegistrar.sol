@@ -69,6 +69,12 @@ contract OrgRegistrar is EnhancedAccessControl {
             revert LabelUnavailable(label);
         }
 
+        // Claim the slot before minting. `register` mints an ERC1155, which calls back into
+        // `account`; a contract re-entering through another branch's registrar would otherwise
+        // still see `memberOf[account] == 0` and mint a second Member name for the same wallet,
+        // breaking the one-name-ever invariant this contract exists to hold.
+        memberOf[account] = type(uint256).max;
+
         // The Member name carries no registry roles and no subregistry: it is an identity anchor,
         // not a namespace. Branches are the names that get subregistries.
         uint256 tokenId =

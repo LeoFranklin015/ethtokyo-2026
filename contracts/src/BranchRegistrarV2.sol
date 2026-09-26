@@ -144,6 +144,7 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     error InvalidLabel(string label);
     error InvalidOwner();
     error MembershipStillLive(address account);
+    error ForbiddenRegistryRoles(uint256 bitmap);
 
     modifier nonReentrant() {
         if (_entered == 1) revert Reentrancy();
@@ -192,6 +193,13 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     // The catalogue — data an organization edits, not code it deploys
     ////////////////////////////////////////////////////////////////////////
 
+    /// @notice Registry roles a membership may never carry.
+    /// @dev Memberships are soulbound and may not re-point their own name: transferring one
+    ///      would move authority to a wallet the branch never admitted, and re-pointing the
+    ///      subregistry or resolver would take the name outside the branch's control.
+    uint256 public constant FORBIDDEN_REGISTRY_ROLES = RegistryRolesLib.ROLE_CAN_TRANSFER_ADMIN
+        | RegistryRolesLib.ROLE_SET_SUBREGISTRY_ADMIN | RegistryRolesLib.ROLE_SET_RESOLVER_ADMIN;
+
     /// @param editableKeys Text keys this role's holders may write on their own name.
     function defineRole(
         string calldata name,
@@ -202,6 +210,8 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         Entitlement[] calldata grants
     ) external {
         if (!hasRootRoles(ROLE_ROLE_EDIT, msg.sender)) revert NotARoleEditor(msg.sender);
+
+        if (registryBitmap & FORBIDDEN_REGISTRY_ROLES != 0) revert ForbiddenRegistryRoles(registryBitmap);
 
         bytes32 id = roleId(name);
         roleSpec[id] = RoleSpec(registryBitmap, canOnboard, openToOnboarders, true);
@@ -330,6 +340,13 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         Entitlement[] storage grants = _entitlements[role];
         for (uint256 i; i < grants.length; ++i) {
             RESOLVER.setText(node, grants[i].key, "");
+        }
+        // Clear what the member wrote themselves as well. The resolver keeps text keyed by
+        // namehash even after the registry forgets the name, so leaving these would hand a
+        // stale profile to whoever registers the label next.
+        string[] storage keys = _editableKeys[role];
+        for (uint256 i; i < keys.length; ++i) {
+            RESOLVER.setText(node, keys[i], "");
         }
         // Take the resolver-side rights back too, or a revoked member keeps writing their own
         // records at a name the registry no longer says is theirs.
