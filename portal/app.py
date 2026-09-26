@@ -43,7 +43,12 @@ CONSOLE_URL = os.environ.get("ENSCA_CONSOLE_URL", "").strip().rstrip("/")
 # nothing is admitted.
 CONSOLE_TOKEN = os.environ.get("ENSCA_CONSOLE_TOKEN", "").strip()
 # Shown on the captive page so a guest can tell which network they are joining.
-SSID = os.environ.get("ENSCA_SSID", "the perimeter network")
+SSID = os.environ.get("ENSCA_SSID", "the branch network")
+# ENS org and branch — used for display and for routing sign-in to the right console path.
+# ENSCA_ORG_ENS: the organisation's .eth name, e.g. ethereumglobal.eth
+# ENSCA_BRANCH_LABEL: the branch label under that org, e.g. lisbon
+ORG_ENS = os.environ.get("ENSCA_ORG_ENS", "").strip()
+BRANCH_LABEL = os.environ.get("ENSCA_BRANCH_LABEL", "").strip()
 PORTAL_URL = f"http://{GATEWAY_IP}:8080"
 # DNS server used for per-IP bypass rules.
 # Override with ENSCA_DNS_SERVER env var (default: 8.8.8.8).
@@ -51,6 +56,9 @@ DNS_SERVER = os.environ.get("ENSCA_DNS_SERVER", "8.8.8.8")
 # AP-facing interface (client side) — used by the reaper's neighbor scan.
 # Override with ENSCA_AP_IFACE env var (default: enp10s0u1 per VM).
 AP_IFACE = os.environ.get("ENSCA_AP_IFACE", "enp10s0u1")
+# Shared secret that lets the remote console call /internal/admit and /internal/status.
+# Must equal BRANCH_PORTAL_TOKEN in the console's .env.local. Unset = remote calls refused.
+ADMIT_SECRET = os.environ.get("ENSCA_ADMIT_SECRET", "").strip()
 
 # iptables fwmark per tier — used for tc classification and cross-tier DROP
 TIER_MARK = {"basic": "10", "staff": "20", "vip": "30", "partner": "10", "hacker": "30"}
@@ -74,12 +82,18 @@ def client_ip() -> str:
     return request.remote_addr
 
 
+def _maybe_sudo(cmd: list) -> list:
+    if cmd and cmd[0] == "iptables" and os.geteuid() != 0:
+        return ["sudo"] + cmd
+    return cmd
+
+
 def _run(cmd: list) -> None:
-    subprocess.run(cmd, check=True, capture_output=True)
+    subprocess.run(_maybe_sudo(cmd), check=True, capture_output=True)
 
 
 def _run_ok(cmd: list) -> None:
-    result = subprocess.run(cmd, check=False, capture_output=True)
+    result = subprocess.run(_maybe_sudo(cmd), check=False, capture_output=True)
     if result.returncode != 0:
         _log.warning("iptables failed (rc=%d): %s", result.returncode, result.stderr.decode(errors="replace"))
 
@@ -240,6 +254,9 @@ def check_authed():
     if request.path.startswith("/internal/"):
         if request.remote_addr in ("127.0.0.1", "::1"):
             return None
+        # Allow the remote console through when it presents the shared admit secret.
+        if ADMIT_SECRET and request.headers.get("X-Admit-Token") == ADMIT_SECRET:
+            return None
         return make_response("forbidden", 403)
     if ip in AUTHED_IPS:
         if request.path in CAPTIVE_PROBE_PATHS:
@@ -264,6 +281,8 @@ def _login_page(error=None, status=200):
             console_url=CONSOLE_URL,
             allow_name_login=ALLOW_NAME_LOGIN,
             ssid=SSID,
+            org_ens=ORG_ENS,
+            branch_label=BRANCH_LABEL,
         ),
         status,
     )
@@ -320,7 +339,7 @@ def _console(method, path, **kwargs):
     guest would look like 127.0.0.1 and the wrong device would be let onto the network.
     """
     if not CONSOLE_URL:
-        return jsonify({"error": "this perimeter has no console configured"}), 503
+        return jsonify({"error": "this branch has no console configured"}), 503
     try:
         r = _req.request(
             method,
@@ -336,7 +355,7 @@ def _console(method, path, **kwargs):
         # Not a refusal, and the page words it as an outage. A console that cannot be reached
         # must never read as "you are not a member".
         _log.warning("console unreachable: %s", exc)
-        return jsonify({"error": "the console could not be reached from this perimeter"}), 504
+        return jsonify({"error": "the console could not be reached from this branch"}), 504
     try:
         return jsonify(r.json()), r.status_code
     except ValueError:
@@ -359,6 +378,23 @@ def api_challenge():
 def api_verify():
     """The signature. The console checks it, then calls this host back on /internal/admit."""
     return _console("POST", "/api/portal/verify", json=request.get_json(silent=True) or {})
+
+
+@app.route("/api/wc-session", methods=["POST", "GET"])
+def api_wc_session():
+    """Relay WalletConnect session creation and polling to the console.
+
+    POST — console creates a WC pairing, returns wc: URI + sessionId.
+    GET  — poll for signature result by sessionId.
+
+    The WC session lives on the console side because the unadmitted device cannot reach the
+    WalletConnect relay directly. The browser shows the URI (QR + copy), polls here, and the
+    console handles all WC relay traffic.
+    """
+    if request.method == "POST":
+        return _console("POST", "/api/portal/wc-session")
+    return _console("GET", "/api/portal/wc-session",
+                    params={"sessionId": request.args.get("sessionId", "")})
 
 
 @app.route("/connected", methods=["GET"])
@@ -387,9 +423,6 @@ def internal_admit():
     It still resolves the name through `_lookup_ens` rather than taking the caller's word for
     the tier, so the enforcer remains the authority on what a group is worth here.
     """
-    if request.remote_addr not in ("127.0.0.1", "::1"):
-        return make_response("forbidden", 403)
-
     data = request.get_json(silent=True) or {}
     ip = (data.get("ip") or "").strip()
     ens_name = (data.get("ens_name") or "").strip().lower()
@@ -497,12 +530,10 @@ def _reaper_loop():
 
 
 def _bootstrap_captive_redirect() -> None:
-    """Install the baseline captive-portal HTTP trap: any AP-side client HTTP
-    (:80) is REDIRECTed to the portal on :8080. Combined with the dnsmasq
-    wildcard DNS hijack, this makes OS captive-portal probes reach the portal
-    and get a 302, which triggers the connect popup. Authed clients get a
-    per-IP :80 RETURN inserted above this by grant_access, so they browse the
-    real internet normally."""
+    """Install the baseline captive-portal traps.
+
+    HTTP :80 → :8080 (plain, so OS captive probes pop the login window).
+    """
     _run_ok(["iptables", "-t", "nat", "-A", "PREROUTING",
              "-i", AP_IFACE, "-p", "tcp", "--dport", "80",
              "-j", "REDIRECT", "--to-ports", "8080"])
@@ -511,9 +542,9 @@ def _bootstrap_captive_redirect() -> None:
 def _flush_portal_rules():
     """Remove all portal-inserted rules on startup so stale state from a previous run is cleared."""
     # Flush all mangle FORWARD rules (portal marks)
-    subprocess.run(["iptables", "-t", "mangle", "-F", "FORWARD"], check=False, capture_output=True)
+    subprocess.run(_maybe_sudo(["iptables", "-t", "mangle", "-F", "FORWARD"]), check=False, capture_output=True)
     # Flush all nat PREROUTING rules (portal DNS redirects)
-    subprocess.run(["iptables", "-t", "nat", "-F", "PREROUTING"], check=False, capture_output=True)
+    subprocess.run(_maybe_sudo(["iptables", "-t", "nat", "-F", "PREROUTING"]), check=False, capture_output=True)
     # Remove all ACCEPT rules from FORWARD that portal inserted (conservative: flush only if empty)
     # We do NOT flush the entire FORWARD chain as other rules may exist
     # Instead, clear the in-memory state and let stale iptables rules expire on their own
@@ -528,4 +559,5 @@ if __name__ == "__main__":
     _flush_portal_rules()
     _bootstrap_captive_redirect()
     threading.Thread(target=_reaper_loop, daemon=True).start()
+    # HTTP-only on 8080 so OS captive probes always get plain HTTP.
     app.run(host="0.0.0.0", port=8080, debug=False)

@@ -14,6 +14,7 @@ import "server-only";
  */
 
 const PORTAL_URL = process.env.BRANCH_PORTAL_URL;
+const ADMIT_TOKEN = process.env.BRANCH_PORTAL_TOKEN ?? "";
 
 /**
  * Why admission did not happen, when it did not.
@@ -42,7 +43,7 @@ export async function admit(ip: string, ensName: string): Promise<Admission> {
   try {
     const res = await fetch(`${PORTAL_URL}/internal/admit`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...(ADMIT_TOKEN ? { "X-Admit-Token": ADMIT_TOKEN } : {}) },
       body: JSON.stringify({ ip, ens_name: ensName }),
       cache: "no-store",
       signal: AbortSignal.timeout(5_000),
@@ -80,6 +81,7 @@ export async function admissionStatus(
   try {
     const res = await fetch(`${PORTAL_URL}/internal/status?ip=${encodeURIComponent(ip)}`, {
       cache: "no-store",
+      headers: ADMIT_TOKEN ? { "X-Admit-Token": ADMIT_TOKEN } : {},
       signal: AbortSignal.timeout(3_000),
     });
     if (!res.ok) return null;

@@ -8,7 +8,7 @@ import { UserDetailPanel } from "@/components/console/UserDetailPanel";
 import { Button } from "@/components/ui/Button";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { ApiError, api } from "@/lib/api";
-import { useEnforcerGroups } from "@/lib/hooks/useEnforcer";
+import { useEnforcerGroups, useEnforcerUsers, type Group, type User } from "@/lib/hooks/useEnforcer";
 import { useEnsBranches, useEnsMemberships } from "@/lib/hooks/useEns";
 import { useOrg } from "@/lib/hooks/useOrg";
 import { useSessions } from "@/lib/hooks/useSessions";
@@ -75,6 +75,23 @@ export default function PeoplePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, { ok: boolean; text: string }>>({});
   const [onboarding, setOnboarding] = useState(false);
+
+  // Enforcer users panel (paginated, filterable — the raw enforcer view)
+  const [userGroupFilter, setUserGroupFilter] = useState("");
+  const [userDisabledFilter, setUserDisabledFilter] = useState("");
+  const [userOffset, setUserOffset] = useState(0);
+  const [addingUser, setAddingUser] = useState(false);
+  const {
+    users: enforcerUsers,
+    total: enforcerTotal,
+    error: enforcerUsersError,
+    isLoading: enforcerUsersLoading,
+    reload: reloadEnforcerUsers,
+  } = useEnforcerUsers(org, {
+    group_id: userGroupFilter || undefined,
+    disabled: userDisabledFilter || undefined,
+    offset: userOffset,
+  });
 
   // "Answered" is stricter than "no error": SWR reports neither while the first request is in
   // flight, and a row must not be called one-sided before the other side has had its turn.
@@ -397,6 +414,117 @@ export default function PeoplePage() {
             membership admits somebody the chain no longer recognises.
           </p>
         </Panel>
+
+        {/* Enforcer users — the raw enforcer-side view, including users with no ENS name */}
+        <Panel as="section" className="overflow-hidden">
+        <PanelHeader
+          right={
+            <span className="flex flex-wrap items-center gap-2">
+              <select
+                value={userGroupFilter}
+                onChange={(e) => { setUserGroupFilter(e.target.value); setUserOffset(0); }}
+                aria-label="Filter by group"
+                className="h-9 rounded-sharp border border-rule bg-paper px-2 font-mono text-[0.6875rem] text-ink"
+              >
+                <option value="">every group</option>
+                {(groups ?? []).map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              <select
+                value={userDisabledFilter}
+                onChange={(e) => { setUserDisabledFilter(e.target.value); setUserOffset(0); }}
+                aria-label="Filter by status"
+                className="h-9 rounded-sharp border border-rule bg-paper px-2 font-mono text-[0.6875rem] text-ink"
+              >
+                <option value="">any status</option>
+                <option value="0">active only</option>
+                <option value="1">disabled only</option>
+              </select>
+              <Button variant="outline" onClick={() => setAddingUser((a) => !a)} disabled={!groups?.length}>
+                {addingUser ? "Cancel" : "Add a user"}
+              </Button>
+            </span>
+          }
+        >
+          Enforcer users
+        </PanelHeader>
+
+        {addingUser && groups?.length ? (
+          <div className="border-b border-rule px-4 py-4">
+            <CreateUser
+              groups={groups}
+              onDone={() => { setAddingUser(false); void reloadEnforcerUsers(); }}
+            />
+          </div>
+        ) : null}
+
+        {enforcerUsersError instanceof ApiError && enforcerUsersError.isUnauthenticated ? (
+          <p className="px-4 py-8 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+            This wallet has not proved it owns the organization.{" "}
+            <a href="/console/signin" className="underline decoration-rule underline-offset-2">Sign a message to prove it</a>.
+          </p>
+        ) : enforcerUsersError ? (
+          <p className="px-4 py-8 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+            The enforcer did not answer. Nobody is listed rather than listing nobody.
+          </p>
+        ) : enforcerUsersLoading && !enforcerUsers ? (
+          <p className="px-4 py-8 font-mono text-xs text-ink-muted">Reading…</p>
+        ) : (enforcerUsers ?? []).length === 0 ? (
+          <p className="px-4 py-8 text-sm text-ink-muted">
+            {userGroupFilter || userDisabledFilter
+              ? "Nobody matches those filters."
+              : `Nobody from ${org}.eth yet. Members admitted appear here automatically.`}
+          </p>
+        ) : (
+          <ul className="divide-y divide-rule">
+            {(enforcerUsers ?? []).map((u) => (
+              <li key={u.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(u.id)}
+                  className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left hover:bg-ink/5"
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className="size-1.5 shrink-0 rounded-full"
+                        style={{ background: u.disabled ? "var(--ink-faint)" : "var(--signal)" }}
+                      />
+                      <span className="truncate font-mono text-sm text-ink">{u.username}</span>
+                      {u.disabled ? <span className="shrink-0 font-mono text-[0.625rem] text-ink-muted">disabled</span> : null}
+                    </span>
+                    <span className="mt-0.5 block truncate font-mono text-[0.6875rem] text-ink-muted">
+                      {u.ens_name ?? "no ENS name"}
+                      {u.wallet_address ? ` · ${u.wallet_address.slice(0, 6)}…${u.wallet_address.slice(-4)}` : ""}
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono text-[0.6875rem] text-ink-muted">
+                    {enforcerGroupName(groups, u)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {enforcerTotal !== undefined && enforcerTotal > 50 ? (
+          <div className="flex items-center justify-between gap-3 border-t border-rule px-4 py-3">
+            <span className="font-mono text-[0.625rem] text-ink-muted">
+              {userOffset + 1}–{Math.min(userOffset + 50, enforcerTotal)} of {enforcerTotal}
+            </span>
+            <span className="flex gap-2">
+              <Button variant="ghost" onClick={() => setUserOffset((o) => Math.max(0, o - 50))} disabled={userOffset === 0}>
+                Previous
+              </Button>
+              <Button variant="ghost" onClick={() => setUserOffset((o) => o + 50)} disabled={userOffset + 50 >= enforcerTotal}>
+                Next
+              </Button>
+            </span>
+          </div>
+        ) : null}
+        </Panel>
       </div>
 
       {selected ? (
@@ -404,10 +532,11 @@ export default function PeoplePage() {
           id={selected}
           groups={groups ?? []}
           onClose={() => setSelected(null)}
-          onChanged={() => void reloadUsers()}
+          onChanged={() => { void reloadUsers(); void reloadEnforcerUsers(); }}
           onDeleted={() => {
             setSelected(null);
             void reloadUsers();
+            void reloadEnforcerUsers();
           }}
         />
       ) : null}
@@ -602,4 +731,101 @@ function Notice({ children }: { children: React.ReactNode }) {
       {children}
     </p>
   );
+}
+
+function enforcerGroupName(groups: Group[] | undefined, user: User): string {
+  if (!user.default_group_id) return "no group";
+  return groups?.find((g) => g.id === user.default_group_id)?.name ?? "—";
+}
+
+function CreateUser({ groups, onDone }: { groups: Group[]; onDone: () => void }) {
+  const [username, setUsername] = useState("");
+  const [ensName, setEnsName] = useState("");
+  const [wallet, setWallet] = useState("");
+  const [groupId, setGroupId] = useState(groups[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const valid = username.trim().length > 0 && !!groupId;
+
+  async function submit() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await api.post("users", {
+        username: username.trim(),
+        password: generatedPassword(),
+        group_id: groupId,
+        ens_name: ensName.trim() || null,
+        wallet_address: wallet.trim() || null,
+      });
+      onDone();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="max-w-[54ch] text-xs leading-relaxed text-ink-muted">
+        Only needed for somebody who is not joining through ENS. A member who signs in with a name is created automatically.
+      </p>
+      <label className="block">
+        <span className="label">Username</span>
+        <input
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          autoComplete="off"
+          className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink"
+        />
+      </label>
+      <label className="block">
+        <span className="label">ENS name</span>
+        <input
+          value={ensName}
+          onChange={(e) => setEnsName(e.target.value)}
+          placeholder="optional"
+          autoComplete="off"
+          className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink placeholder:text-ink-faint"
+        />
+      </label>
+      <label className="block">
+        <span className="label">Wallet</span>
+        <input
+          value={wallet}
+          onChange={(e) => setWallet(e.target.value)}
+          placeholder="optional"
+          autoComplete="off"
+          spellCheck={false}
+          className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-xs text-ink placeholder:text-ink-faint"
+        />
+      </label>
+      <label className="block">
+        <span className="label">Group</span>
+        <select
+          value={groupId}
+          onChange={(e) => setGroupId(e.target.value)}
+          className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
+        >
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>{g.name} · {g.network_tier}</option>
+          ))}
+        </select>
+      </label>
+      {message ? (
+        <p className="text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">{message}</p>
+      ) : null}
+      <Button variant="solid" onClick={submit} disabled={!valid || busy}>
+        {busy ? "Adding…" : "Add user"}
+      </Button>
+    </div>
+  );
+}
+
+function generatedPassword(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
