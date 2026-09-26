@@ -18,10 +18,11 @@ export type EnforcerGroup = {
   active_session_count: number;
 };
 
-export function useGroups() {
+/** Scoped: only the groups this organization has people in, counted over those people. */
+export function useGroups(org: string | null) {
   const { data, isLoading, error } = useSWR<{ groups: EnforcerGroup[] }>(
-    "groups",
-    () => apiGet("groups"),
+    org ? ["groups", org] : null,
+    () => apiGet("groups", { org: org! }),
     { refreshInterval: 30_000 },
   );
   return { data: data?.groups, isLoading, error };

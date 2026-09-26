@@ -12,15 +12,26 @@ export type ApiUser = {
   disabled: number;
 };
 
-export function useUsers(params?: {
-  group_id?: string;
-  disabled?: "0" | "1";
-  limit?: string;
-}) {
-  const key = ["users", JSON.stringify(params ?? {})];
+/**
+ * The organization's people, as the enforcer has them.
+ *
+ * `org` is required and the fetch is skipped without one. The enforcer keeps no organization
+ * column — one deployment can hold several organizations' members — so it matches on the ENS
+ * name's suffix. Asking unscoped returns the whole deployment, which is how this list came to
+ * show another organization's members under the name of the one you had opened.
+ */
+export function useUsers(
+  org: string | null,
+  params?: {
+    group_id?: string;
+    disabled?: "0" | "1";
+    limit?: string;
+  },
+) {
+  const key = org ? ["users", org, JSON.stringify(params ?? {})] : null;
   return useSWR<{ users: ApiUser[]; total: number }>(
     key,
-    () => apiGet("users", { limit: "200", ...params } as Record<string, string>),
+    () => apiGet("users", { org: org!, limit: "200", ...params } as Record<string, string>),
     { refreshInterval: 30_000 }
   );
 }

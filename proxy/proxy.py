@@ -1,4 +1,5 @@
 import csv
+import re
 import io
 import json
 import time
@@ -220,18 +221,53 @@ def create_group():
     return jsonify(_row(db.execute("SELECT * FROM groups WHERE id=?", (gid,)).fetchone())), 201
 
 
+ORG_LABEL = re.compile(r"^[a-z0-9-]{1,32}$")
+
+
+def _org_filter(qp):
+    """An `org` query parameter, turned into a SQL suffix match on `ens_name`.
+
+    The enforcer has no organization column: it serves one branch, and everything in it is
+    global. But a mirrored person carries their whole name — `alice.tokyo.acme.eth` — so which
+    organization they came from is recoverable from the name itself.
+
+    Returns `(clause, params)`, or `None` when the parameter is present but malformed, so a
+    caller can refuse rather than quietly listing everybody. Without the parameter there is no
+    clause, because a console that has not said which organization it means is asking about the
+    whole deployment.
+    """
+    raw = qp.get("org")
+    if raw is None:
+        return "", []
+    org = raw.strip().lower().removesuffix(".eth")
+    if not ORG_LABEL.match(org):
+        return None
+    return "ens_name LIKE ?", [f"%.{org}.eth"]
+
+
 @app.route("/admin/groups", methods=["GET"])
 @require_admin
 def list_groups():
     db = get_db()
-    rows = db.execute("""
+    org = _org_filter(request.args)
+    if org is None:
+        return jsonify({"error": "invalid_param"}), 400
+    clause, params = org
+
+    # Scoped to an organization, a group is listed only if that organization has somebody in it,
+    # and its counts cover only those people. Group names are global here, so an unscoped count
+    # would tell an operator that their group has members it does not.
+    join = f"AND {clause.replace('ens_name', 'u.ens_name')}" if clause else ""
+    rows = db.execute(f"""
         SELECT g.*, COUNT(DISTINCT u.id) as member_count,
                COUNT(DISTINCT CASE WHEN s.logged_out_at IS NULL AND s.revoked_at IS NULL THEN s.id END) as active_session_count
         FROM groups g
-        LEFT JOIN users u ON u.default_group_id = g.id
-        LEFT JOIN sessions s ON s.group_id = g.id
-        GROUP BY g.id ORDER BY g.name
-    """).fetchall()
+        LEFT JOIN users u ON u.default_group_id = g.id {join}
+        LEFT JOIN sessions s ON s.group_id = g.id AND s.user_id = u.id
+        GROUP BY g.id
+        {"HAVING member_count > 0" if clause else ""}
+        ORDER BY g.name
+    """, params).fetchall()
     return jsonify({"groups": [dict(r) for r in rows]})
 
 
@@ -412,6 +448,11 @@ def list_users():
     where, params = ["1=1"], []
     if qp.get("group_id"):
         where.append("default_group_id=?"); params.append(qp["group_id"])
+    org = _org_filter(qp)
+    if org is None:
+        return jsonify({"error": "invalid_param"}), 400
+    if org[0]:
+        where.append(org[0]); params.extend(org[1])
     disabled_raw = qp.get("disabled")
     if disabled_raw is not None:
         if disabled_raw not in ("0", "1"):
@@ -741,6 +782,13 @@ def list_sessions():
         where.append("s.user_id=?"); params.append(qp["user_id"])
     if qp.get("group_id"):
         where.append("s.group_id=?"); params.append(qp["group_id"])
+    # Attributed through the account rather than the session's own copy of the name: a session
+    # started before the person was mirrored has no name on it, and would silently drop out.
+    org = _org_filter(qp)
+    if org is None:
+        return jsonify({"error": "invalid_param"}), 400
+    if org[0]:
+        where.append(org[0].replace("ens_name", "u.ens_name")); params.extend(org[1])
     try:
         limit = int(qp.get("limit", 50))
         offset = int(qp.get("offset", 0))

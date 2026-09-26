@@ -21,8 +21,8 @@ export default function MembersPage() {
   // sorts first", which is what this used to be while the counts below are enforcer-wide.
   const branchEns = process.env.NEXT_PUBLIC_BRANCH_ENS?.trim() || null;
 
-  const { data: usersData, isLoading, error } = useUsers();
-  const { data: sessionsData, error: sessionsError } = useSessions(true);
+  const { data: usersData, isLoading, error } = useUsers(org);
+  const { data: sessionsData, error: sessionsError } = useSessions(org, true);
 
   const users = usersData?.users ?? [];
   const activeSessions = sessionsData?.sessions ?? [];

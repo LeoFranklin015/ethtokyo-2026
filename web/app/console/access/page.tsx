@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/console/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { ApiError } from "@/lib/api";
+import { NoOrgSelected } from "@/components/console/OrgPicker";
+import { useOrg } from "@/lib/hooks/useOrg";
 import {
   grantAccess,
   revokeAccess,
@@ -23,17 +25,29 @@ import {
  * it lives in a join table, and finding it out means opening every group in turn.
  */
 export default function AccessPage() {
-  const { groups, resources, grants, error, isLoading, reload } = useAccessMatrix();
+  const org = useOrg();
+  const { groups, resources, grants, error, isLoading, reload } = useAccessMatrix(org);
   const [editing, setEditing] = useState<{ group: Group; resource: Resource } | null>(null);
 
   const signedOut = error instanceof ApiError && error.isUnauthenticated;
+
+  if (!org) {
+    return (
+      <>
+        <PageHeader eyebrow="Enforcer" title="Access" />
+        <div className="px-4 py-8 sm:px-6">
+          <NoOrgSelected />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeader
         eyebrow="Enforcer"
         title="Access"
-        meta="Which group may reach which resource"
+        meta={`Which of ${org}.eth's groups may reach which resource`}
       />
 
       <div className="space-y-6 px-4 py-6 sm:px-6">
@@ -76,7 +90,7 @@ export default function AccessPage() {
             <p className="px-4 py-8 text-sm text-ink-muted">
               {(resources ?? []).length === 0
                 ? "No resources yet. Add one under Resources, then grant groups access to it."
-                : "No groups yet. Create one before granting anything."}
+                : `No group on this enforcer has anyone from ${org}.eth in it yet. Admit a member first.`}
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -141,10 +155,10 @@ export default function AccessPage() {
         </Panel>
 
         <p className="max-w-[62ch] text-xs leading-relaxed text-ink-muted">
-          These groups, users and resources belong to one branch enforcer, which has no
-          organization column — everything on this screen is that deployment&rsquo;s, not one
-          organization&rsquo;s. The chain decides which group somebody is in; this decides what
-          that group can reach.
+          Resources belong to one branch enforcer, which has no organization column — they are
+          that deployment&rsquo;s, and every organization it serves shares them. The groups listed
+          are only those {org}.eth has people in, worked out from their names. The chain decides
+          which group somebody is in; this decides what that group can reach.
         </p>
       </div>
 

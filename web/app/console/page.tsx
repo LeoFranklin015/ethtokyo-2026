@@ -24,11 +24,11 @@ import { OrgPicker } from "@/components/console/OrgPicker";
  */
 export default function OverviewPage() {
   const org = useOrg();
-  const groups = useGroups();
-  const active = useSessions(true);
-  const ended = useSessions(false);
+  const groups = useGroups(org);
+  const active = useSessions(org, true);
+  const ended = useSessions(org, false);
   const throughput = useThroughput();
-  const users = useUsers();
+  const users = useUsers(org);
   const { branches } = useEnsBranches(org);
 
   // One enforcer serves one branch, so the branch is configuration. Picking `branches[0]`

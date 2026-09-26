@@ -9,6 +9,12 @@ import { api } from "@/lib/api";
  * One module because these all key off the same admin API and mutate each other: granting a
  * group access to a resource changes what both of them look like, so the revalidation has to
  * live next to the fetch rather than be remembered at every call site.
+ *
+ * Everything that describes people is scoped to an organization. The enforcer has no
+ * organization column — it serves one branch and its rows are global — but a mirrored person
+ * carries their whole name, `alice.tokyo.acme.eth`, so the enforcer can match on the suffix.
+ * Unscoped, a console freshly pointed at one organization listed another one's members with no
+ * hint that it was doing so, which is the worst kind of wrong answer: a confident one.
  */
 
 export type Limits = {
@@ -85,10 +91,11 @@ export function useResource(id: string | null) {
   return { resource: data, error, isLoading, reload: mutate };
 }
 
-export function useEnforcerGroups() {
+/** Only the groups this organization has people in — see the note at the top. */
+export function useEnforcerGroups(org: string | null) {
   const { data, error, isLoading, mutate } = useSWR<{ groups: Group[] }>(
-    "groups",
-    () => api.get("groups"),
+    org ? `groups:${org}` : null,
+    () => api.get("groups", { org: org ?? undefined }),
     { refreshInterval: 30_000 },
   );
   return { groups: data?.groups, error, isLoading, reload: mutate };
@@ -102,12 +109,18 @@ export function useGroupDetail(id: string | null) {
   return { group: data, error, isLoading, reload: mutate };
 }
 
-export function useEnforcerUsers(params?: { group_id?: string; disabled?: string; offset?: number }) {
-  const key = `users:${params?.group_id ?? ""}:${params?.disabled ?? ""}:${params?.offset ?? 0}`;
+export function useEnforcerUsers(
+  org: string | null,
+  params?: { group_id?: string; disabled?: string; offset?: number },
+) {
+  const key = org
+    ? `users:${org}:${params?.group_id ?? ""}:${params?.disabled ?? ""}:${params?.offset ?? 0}`
+    : null;
   const { data, error, isLoading, mutate } = useSWR<{ users: User[]; total: number }>(
     key,
     () =>
       api.get("users", {
+        org: org ?? undefined,
         limit: "50",
         offset: String(params?.offset ?? 0),
         group_id: params?.group_id,
@@ -153,8 +166,8 @@ export function revokeAccess(groupId: string, resourceId: string) {
  * pair (there are usually fewer resources than groups). `per_ens_per_day` is deliberately absent —
  * the enforcer accepts it on write and returns it nowhere, so the matrix cannot show it.
  */
-export function useAccessMatrix() {
-  const groups = useEnforcerGroups();
+export function useAccessMatrix(org: string | null) {
+  const groups = useEnforcerGroups(org);
   const resources = useResources();
 
   const ids = (resources.resources ?? []).map((r) => r.id).sort();

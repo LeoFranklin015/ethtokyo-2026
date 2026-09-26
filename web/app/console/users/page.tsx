@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/console/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { ApiError, api } from "@/lib/api";
+import { NoOrgSelected } from "@/components/console/OrgPicker";
+import { useOrg } from "@/lib/hooks/useOrg";
 import {
   useEnforcerGroups,
   useEnforcerUsers,
@@ -20,16 +22,21 @@ import {
  * What somebody can reach is never stored against them — it comes entirely from their group. The
  * detail panel therefore shows their access as *their group's* access, labelled as such, so that
  * nobody goes looking for a per-person switch that does not exist.
+ *
+ * Scoped to the organization in the URL. One enforcer can hold several organizations' people,
+ * and listing all of them under whichever name the console happens to be showing is how this
+ * page came to display another organization's members as if they were yours.
  */
 export default function UsersPage() {
-  const { groups } = useEnforcerGroups();
+  const org = useOrg();
+  const { groups } = useEnforcerGroups(org);
   const [groupFilter, setGroupFilter] = useState("");
   const [disabledFilter, setDisabledFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const { users, total, error, isLoading, reload } = useEnforcerUsers({
+  const { users, total, error, isLoading, reload } = useEnforcerUsers(org, {
     group_id: groupFilter || undefined,
     disabled: disabledFilter || undefined,
     offset,
@@ -38,12 +45,27 @@ export default function UsersPage() {
   const signedOut = error instanceof ApiError && error.isUnauthenticated;
   const shown = users ?? [];
 
+  if (!org) {
+    return (
+      <>
+        <PageHeader eyebrow="Enforcer" title="Users" />
+        <div className="px-4 py-8 sm:px-6">
+          <NoOrgSelected />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="Enforcer"
         title="Users"
-        meta={total === undefined ? "People on this branch" : `${total} on this branch`}
+        meta={
+          total === undefined
+            ? `People in ${org}.eth on this branch`
+            : `${total} in ${org}.eth on this branch`
+        }
         actions={
           <Button variant="solid" onClick={() => setAdding((a) => !a)} disabled={!groups?.length}>
             {adding ? "Cancel" : "Add a user"}
@@ -120,7 +142,7 @@ export default function UsersPage() {
             <p className="px-4 py-8 text-sm text-ink-muted">
               {groupFilter || disabledFilter
                 ? "Nobody matches those filters."
-                : "Nobody yet. Members who sign in with an ENS name appear here automatically."}
+                : `Nobody from ${org}.eth yet. Members admitted under a branch of this organization appear here automatically.`}
             </p>
           ) : (
             <ul className="divide-y divide-rule">

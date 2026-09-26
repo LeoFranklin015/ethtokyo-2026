@@ -19,10 +19,16 @@ export type ApiSession = {
   bytes_out: number;
 };
 
-export function useSessions(active = true) {
+/** Scoped to one organization, for the same reason `useUsers` is. */
+export function useSessions(org: string | null, active = true) {
   return useSWR<{ sessions: ApiSession[]; total: number }>(
-    ["sessions", active],
-    () => apiGet("sessions", { active: active ? "true" : "false", limit: "200" }),
+    org ? ["sessions", org, active] : null,
+    () =>
+      apiGet("sessions", {
+        org: org!,
+        active: active ? "true" : "false",
+        limit: "200",
+      }),
     { refreshInterval: 10_000 }
   );
 }
