@@ -1,0 +1,19 @@
+{
+  "read": [
+    "eth_chainId", "net_version", "eth_blockNumber", "eth_call",
+    "eth_getBalance", "eth_getCode", "eth_getStorageAt",
+    "eth_getTransactionCount", "eth_getBlockByNumber", "eth_getBlockByHash",
+    "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
+    "eth_estimateGas", "eth_gasPrice", "eth_maxPriorityFeePerGas",
+    "eth_feeHistory", "eth_getProof"
+  ],
+  "signing": [
+    "eth_sendTransaction", "eth_sendRawTransaction", "eth_sign",
+    "personal_sign", "eth_signTransaction",
+    "eth_signTypedData", "eth_signTypedData_v1",
+    "eth_signTypedData_v3", "eth_signTypedData_v4",
+    "wallet_addEthereumChain", "wallet_switchEthereumChain",
+    "wallet_watchAsset", "wallet_requestPermissions",
+    "wallet_grantPermissions", "wallet_sendCalls"
+  ]
+}

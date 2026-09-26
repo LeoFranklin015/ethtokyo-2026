@@ -1,8 +1,69 @@
+import os
 import base64
 import time
 from urllib.parse import parse_qs, urlencode
 import requests
 from db import get_db
+from csp_headers import _CSP_HEADERS
+
+
+PROVIDER_URL = os.environ.get("WALLET_PROVIDER_URL", "/wallet/provider.js")
+
+
+def inject_provider(content: bytes, content_type: str, headers: dict) -> tuple:
+    if not content_type or not content_type.lower().startswith("text/html"):
+        return content, headers
+    stripped = {k: v for k, v in headers.items() if k.lower() not in _CSP_HEADERS}
+    tag = f'<script src="{PROVIDER_URL}"></script>'.encode()
+    lower = content.lower()
+    idx = lower.find(b"</head>")
+    if idx != -1:
+        injected = content[:idx] + tag + content[idx:]
+    else:
+        injected = tag + content
+    return injected, stripped
+
+
+# key_placement values and what they do:
+#   url_path     — key appended to URL: {base}/{api_key}/{subpath}
+#   header       — key injected as custom header (key_header_name)
+#   bearer_token — key injected as Authorization: Bearer {api_key}
+#   basic_auth   — inject as Authorization: Basic base64({api_key_b64_user}:{api_key})
+#                  api_key_b64_user = username (empty = use empty username)
+#   query_param  — key injected as query param (query_param_name)
+#   no_auth      — no key injection (open upstream or handled by client headers)
+
+
+def _build_url(resource: dict, subpath: str) -> str:
+    base = resource["upstream_url"].rstrip("/")
+    path = subpath.lstrip("/")
+    if resource["key_placement"] == "url_path":
+        key = resource.get("api_key") or ""
+        return f"{base}/{key}/{path}" if key else f"{base}/{path}"
+    return f"{base}/{path}" if path else base
+
+
+def _inject_auth(resource: dict, headers: dict, params: dict) -> None:
+    placement = resource["key_placement"]
+    key = resource.get("api_key") or ""
+
+    if placement == "header":
+        name = resource.get("key_header_name") or "X-Api-Key"
+        headers[name] = key
+
+    elif placement == "bearer_token":
+        headers["Authorization"] = f"Bearer {key}"
+
+    elif placement == "basic_auth":
+        user = resource.get("api_key_b64_user") or ""
+        cred = base64.b64encode(f"{user}:{key}".encode()).decode()
+        headers["Authorization"] = f"Basic {cred}"
+
+    elif placement == "query_param":
+        name = resource.get("query_param_name") or "api_key"
+        params[name] = key
+
+    # url_path handled in _build_url; no_auth does nothing
 
 
 # key_placement values and what they do:
@@ -107,13 +168,13 @@ def forward(resource: dict, method: str, subpath: str, incoming_req) -> tuple:
 
     except requests.exceptions.ConnectionError as e:
         duration_ms = int((time.monotonic() - start) * 1000)
-        return None, 502, req_bytes, 0, duration_ms, f"connection_error: {str(e)[:120]}"
+        return None, 502, req_bytes, 0, duration_ms, f"connection_error: {str(e)[:120]}", None
     except requests.exceptions.Timeout:
         duration_ms = int((time.monotonic() - start) * 1000)
-        return None, 502, req_bytes, 0, duration_ms, "timeout"
+        return None, 502, req_bytes, 0, duration_ms, "timeout", None
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
-        return None, 502, req_bytes, 0, duration_ms, f"unexpected: {str(e)[:120]}"
+        return None, 502, req_bytes, 0, duration_ms, f"unexpected: {str(e)[:120]}", None
 
 
 def record_event(db, session_id, ip, group_id, resource_id,

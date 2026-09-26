@@ -3,7 +3,7 @@
 import { useAnimationFrame, useMotionValue, useReducedMotion, useSpring } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BAYER_8, BAYER_SIZE } from "./bayer";
-import { FIELDS, RESTING_PHASE, type Motif } from "./fields";
+import { FIELDS, FITTED, RESTING_PHASE, type Motif } from "./fields";
 
 type Props = {
   motif?: Motif;
@@ -19,6 +19,12 @@ type Props = {
   /** Announced to assistive tech; the canvas itself is decorative. */
   label?: string;
 };
+
+/** Clamped so an exotic ratio cannot multiply the canvas past what it buys. */
+function readDpr() {
+  if (typeof window === "undefined") return 1;
+  return Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+}
 
 /**
  * Renders a signal field as a 1-bit ordered dither on canvas.
@@ -45,10 +51,21 @@ export function SignalDither({
   const visible = useRef(true);
 
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [dpr, setDpr] = useState(readDpr);
   const reduceMotion = useReducedMotion();
 
   const boostTarget = useMotionValue(0);
   const boost = useSpring(boostTarget, { stiffness: 90, damping: 20 });
+
+  // The ratio changes under browser zoom and when the window is dragged to
+  // another screen; a query matching the current one is the only event we get
+  // for it, so it has to be rebuilt each time the ratio moves.
+  useEffect(() => {
+    const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    const read = () => setDpr(readDpr());
+    query.addEventListener("change", read);
+    return () => query.removeEventListener("change", read);
+  }, [dpr]);
 
   // Track the box, and stop painting entirely while scrolled out of view.
   useEffect(() => {
@@ -110,15 +127,24 @@ export function SignalDither({
       data.fill(0);
 
       const field = FIELDS[motif];
-      const aspect = lowW / lowH;
       const [r, g, b] = inkRef.current;
       const alpha = Math.round(Math.min(1, Math.max(0, intensity)) * 255);
 
+      // A fitted motif is sampled over the largest centred square of the box,
+      // so it keeps its aspect ratio and is never cropped; the rest of the box
+      // falls outside the unit square, where every field returns 0. Sampling at
+      // pixel centres keeps the mark from drifting half a cell off axis.
+      const fit = FITTED[motif];
+      const spanX = fit ? Math.min(lowW, lowH) : lowW;
+      const spanY = fit ? Math.min(lowW, lowH) : lowH;
+      const originX = (lowW - spanX) / 2;
+      const originY = (lowH - spanY) / 2;
+
       for (let y = 0; y < lowH; y++) {
-        const ny = y / lowH;
+        const ny = (y + 0.5 - originY) / spanY;
         const bayerRow = (y % BAYER_SIZE) * BAYER_SIZE;
         for (let x = 0; x < lowW; x++) {
-          if (field(x / lowW, ny, t, aspect) > BAYER_8[bayerRow + (x % BAYER_SIZE)]) {
+          if (field((x + 0.5 - originX) / spanX, ny, t) > BAYER_8[bayerRow + (x % BAYER_SIZE)]) {
             const i = (y * lowW + x) * 4;
             data[i] = r;
             data[i + 1] = g;
@@ -130,15 +156,20 @@ export function SignalDither({
 
       bufferCtx.putImageData(image, 0, 0);
 
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+      // The backing store is in device pixels so the upscale lands on the
+      // physical grid: on a HiDPI screen a 1:1 canvas would be resampled by the
+      // browser and the hard cell edges would go soft.
+      const deviceW = Math.round(width * dpr);
+      const deviceH = Math.round(height * dpr);
+      if (canvas.width !== deviceW || canvas.height !== deviceH) {
+        canvas.width = deviceW;
+        canvas.height = deviceH;
       }
-      ctx.clearRect(0, 0, width, height);
+      ctx.clearRect(0, 0, deviceW, deviceH);
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(buffer, 0, 0, lowW, lowH, 0, 0, lowW * cell, lowH * cell);
+      ctx.drawImage(buffer, 0, 0, lowW, lowH, 0, 0, lowW * cell * dpr, lowH * cell * dpr);
     },
-    [cell, intensity, motif, size],
+    [cell, dpr, intensity, motif, size],
   );
 
   useAnimationFrame((_, delta) => {
