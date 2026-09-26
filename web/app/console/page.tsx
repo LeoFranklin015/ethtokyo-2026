@@ -10,8 +10,8 @@ import { useGroups } from "@/lib/hooks/useGroups";
 import { useSessions } from "@/lib/hooks/useSessions";
 import { useThroughput } from "@/lib/hooks/useThroughput";
 import { useUsers } from "@/lib/hooks/useUsers";
-import { useEnsBranches } from "@/lib/hooks/useEns";
 import { useOrg } from "@/lib/hooks/useOrg";
+import { usePerimeter } from "@/lib/hooks/usePerimeter";
 import { OrgPicker } from "@/components/console/OrgPicker";
 
 /**
@@ -29,14 +29,12 @@ export default function OverviewPage() {
   const ended = useSessions(org, false);
   const throughput = useThroughput(org);
   const users = useUsers(org);
-  const { branches } = useEnsBranches(org);
 
-  // One enforcer serves one branch, so the branch is configuration. Picking `branches[0]`
-  // instead meant the alphabetically-first branch's name sat above figures that are
-  // enforcer-wide — a real number under a label that did not describe it.
-  const configured = process.env.NEXT_PUBLIC_BRANCH_ENS?.trim();
-  const branchEns = configured || null;
-  const branchCount = branches?.length ?? null;
+  // Which perimeter this page is about is a choice the visitor already made at the gate, and it
+  // is in the URL. It used to come from `NEXT_PUBLIC_BRANCH_ENS`, so an unset build asked every
+  // operator, in the page title, to go and set a deploy-time variable — a note to whoever
+  // deployed the console, printed where the name of the place belongs.
+  const perimeter = usePerimeter();
 
   // The five-minute window has to advance on its own, so the clock is state, not a render read.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -75,14 +73,8 @@ export default function OverviewPage() {
     <>
       <PageHeader
         eyebrow={`${org}.eth`}
-        title={branchEns ?? `${org}.eth`}
-        meta={
-          branchEns
-            ? "Live from ENS and the perimeter enforcer"
-            : branchCount !== null
-              ? `Set NEXT_PUBLIC_BRANCH_ENS to name this perimeter — ${branchCount} exist in ENS`
-              : undefined
-        }
+        title={perimeter ? `${perimeter}.${org}.eth` : `${org}.eth`}
+        meta="Live from ENS and the perimeter enforcer"
         actions={<Freshness down={Boolean(enforcerDown)} loading={loading} />}
       />
 

@@ -202,12 +202,7 @@ function Rail({ current }: { current: number }) {
   );
 }
 
-/**
- * Neither "connected" nor "not connected".
- *
- * Deliberately has no step marks: while the wallet or the session cookie is still being read the
- * console does not know which step you are on, and lighting one would be an invention.
- */
+
 function Settling() {
   return (
     // The same frame as every other gate, minus the step marks. Rendering a bare line of text on
@@ -225,36 +220,46 @@ function Settling() {
   );
 }
 
+/**
+ * Gate one has no button.
+ *
+ * It used to carry a `Connect wallet` pill in the middle of the page while the site header
+ * carried an identical one in the corner — the same control twice on a screen with one thing to
+ * do, which reads as two different things to do. The header's is the one that persists through
+ * every later step, so it is the one that stays, and this screen points at it instead of
+ * competing with it.
+ */
 function ConnectGate() {
   return (
     <section>
       <h1 className="text-2xl tracking-[-0.02em] text-ink sm:text-[1.75rem]">Connect a wallet</h1>
-      <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
+      <p className="mt-3 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
         The console answers for one organization at a time, and which one it may answer for
         depends on the wallet holding the name. Until there is a wallet there is no organization
         to show, so there is nothing here yet.
       </p>
-      <div className="mt-6">
+
+      {/* The action belongs on the screen whose only purpose is that action. There are two
+          wallet controls here — this one and the header's — but they are not the same thing:
+          this is the step you are on, solid; the header's is chrome, outlined, and persists
+          through every later step. Pointing at the header instead of offering the button made
+          people hunt for the one thing the page exists to do. */}
+      <div className="mt-8">
         <WalletButton />
       </div>
-      <p className="mt-6 max-w-[56ch] text-xs leading-relaxed text-ink-muted">
-        Connecting reads only. Nothing is signed and nothing is spent.{" "}
-        <Link
-          href="/create"
-          className="underline decoration-rule underline-offset-2 hover:text-ink"
-        >
-          Create an organization
-        </Link>{" "}
-        if you do not have one yet.
+
+      <p className="mt-6 max-w-[54ch] text-xs leading-relaxed text-ink-muted">
+        Connecting reads only — nothing is signed and nothing is spent. No organization yet?{" "}
+        <Link href="/create" className="underline decoration-rule underline-offset-2 hover:text-ink">
+          Create one
+        </Link>
+        .
       </p>
     </section>
   );
 }
 
-////////////////////////////////////////////////////////////////////////
-// Gate 2a — the organization
-////////////////////////////////////////////////////////////////////////
-
+/** Points at the header's wallet control, which is where the only action on this screen lives. */
 function ChooseOrganization() {
   const { organizations, error, isLoading } = useOwnedOrgs();
 
