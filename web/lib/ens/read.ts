@@ -10,7 +10,7 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { branchFactoryAbi, orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
-import { ENTITLEMENT_KEYS, RPC_BATCH_SIZE, RPC_URL } from "./config";
+import { ENTITLEMENT_KEYS, MEMBERSHIP_TEXT_KEYS, RPC_BATCH_SIZE, RPC_URL } from "./config";
 import { getIndexedBranches, getIndexedMemberships } from "./indexer";
 import { orgForName, type Organization } from "./org";
 
@@ -250,6 +250,8 @@ export type ResolvedIdentity = {
   owner: Address;
   branch: string;
   role: string;
+  /** The member's own name from the `name` record, or null where none was written. */
+  displayName: string | null;
   /** Entitlement records as published on the resolver. */
   entitlements: Record<string, string>;
   source: MembershipSource;
@@ -315,7 +317,7 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
 
   const node = namehash(lower);
   const values = await Promise.all(
-    ENTITLEMENT_KEYS.map((key) =>
+    MEMBERSHIP_TEXT_KEYS.map((key) =>
       client.readContract({
         address: org.resolver,
         abi: resolverAbi,
@@ -347,13 +349,18 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
     role = names.get(roleId.toLowerCase()) ?? "unknown";
   }
 
+  const text = Object.fromEntries(MEMBERSHIP_TEXT_KEYS.map((key, i) => [key, values[i]]));
+
   return {
     name: lower,
     owner,
     branch: `${branchLabel}${suffix}`,
     role,
+    // Empty is absent: the resolver answers "" for a record nobody wrote, and a caller must be
+    // able to tell that from a record deliberately set, so it is dropped rather than carried.
+    displayName: text.name || null,
     entitlements: Object.fromEntries(
-      ENTITLEMENT_KEYS.map((key, i) => [key, values[i]]).filter(([, v]) => v !== ""),
+      ENTITLEMENT_KEYS.map((key) => [key, text[key]]).filter(([, v]) => v !== ""),
     ),
     source: "chain",
   };

@@ -1,29 +1,135 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ENSCA — Connected</title>
+  <!-- Inline and self-hosted, like the login page: see the note there. -->
   <style>
-    body { font-family: sans-serif; display: flex; justify-content: center;
-           align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
-    .card { background: white; padding: 2rem; border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 320px; text-align: center; }
-    h2 { color: #0070f3; }
-    p { color: #555; font-size: 0.9rem; }
-    form { margin-top: 1.5rem; }
-    button { padding: 0.5rem 1.5rem; background: #eee; border: none;
-             border-radius: 4px; cursor: pointer; }
+    :root {
+      --paper:       #dce1ec;
+      --paper-raise: #e5e9f1;
+      --ink:         #343b63;
+      --ink-80:      rgba(52, 59, 99, 0.86);
+      --ink-muted:   rgba(52, 59, 99, 0.77);
+      --rule:        rgba(52, 59, 99, 0.22);
+      --rule-soft:   rgba(52, 59, 99, 0.11);
+      --signal:      #343b63;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding:
+        calc(2rem + env(safe-area-inset-top, 0px)) 1rem
+        calc(2rem + env(safe-area-inset-bottom, 0px));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      background-color: var(--paper);
+      background-image:
+        linear-gradient(to right, var(--rule-soft) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--rule-soft) 1px, transparent 1px);
+      background-size: 28px 28px;
+      font-family: var(--sans);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wordmark {
+      font-family: var(--mono);
+      font-size: 0.875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+    }
+    .panel {
+      width: 100%;
+      max-width: 420px;
+      padding: 1.25rem 1rem;
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      background: var(--paper-raise);
+    }
+    .label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0;
+      font-family: var(--mono);
+      font-size: 0.6875rem;
+      line-height: 1;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+    .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--signal); }
+    h1 { margin: 0.75rem 0 0; font-size: 1.125rem; line-height: 1.4; letter-spacing: -0.01em; font-weight: 500; }
+    p.sub { margin: 0.5rem 0 0; font-size: 0.875rem; line-height: 1.6; color: var(--ink-muted); }
+    dl {
+      margin: 1.25rem 0 0;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+    }
+    dl div {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+    }
+    dl div + div { border-top: 1px solid var(--rule); }
+    dt { flex-shrink: 0; font-family: var(--mono); font-size: 0.6875rem; line-height: 1; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-muted); }
+    dd {
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: right;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--ink-80);
+    }
+    button {
+      width: 100%;
+      min-height: 44px;
+      margin-top: 1.25rem;
+      padding: 0 1.25rem;
+      border: 1px solid rgba(52, 59, 99, 0.35);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h2>You're connected</h2>
-    {% if ens_name %}<p>Signed in as <strong>{{ ens_name }}</strong></p>{% endif %}
-    <p>Tier: <strong>{{ tier }}</strong></p>
-    <p>Access granted for {{ ip }}</p>
+  <p class="wordmark">ENSCA</p>
+
+  <main class="panel">
+    <p class="label"><span class="dot" aria-hidden="true"></span>Admitted</p>
+    <h1>You are online</h1>
+    <p class="sub">
+      The branch opened the network for this device. Close this page and carry on browsing.
+    </p>
+
+    <dl>
+      {% if ens_name %}
+        <div><dt>Membership</dt><dd>{{ ens_name }}</dd></div>
+      {% endif %}
+      <div><dt>Tier</dt><dd>{{ tier }}</dd></div>
+      <div><dt>Device</dt><dd>{{ ip }}</dd></div>
+    </dl>
+
     <form method="POST" action="/logout">
       <button type="submit">Disconnect</button>
     </form>
-  </div>
+  </main>
 </body>
 </html>

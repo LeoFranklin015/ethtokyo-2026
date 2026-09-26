@@ -11,7 +11,7 @@ def _known(name):
     return m.get((name or "").strip().lower())
 
 
-def test_relogin_different_ens_rebuilds_isolation(monkeypatch):
+def test_relogin_different_ens_rebuilds_isolation(monkeypatch, name_login):
     """Same device re-logs in under a DIFFERENT ENS name. grant_access
     early-returns when the IP is already authed, so a stale ENS_NAMES entry
     would leave the old name's cross-DROP rules in place — an isolation
@@ -41,7 +41,7 @@ def test_relogin_different_ens_rebuilds_isolation(monkeypatch):
     assert portalmod.ENS_NAMES[ip] == "alice.eth"
 
 
-def test_relogin_same_ens_is_noop(monkeypatch):
+def test_relogin_same_ens_is_noop(monkeypatch, name_login):
     """Re-login under the SAME ENS from the same IP must NOT churn rules —
     no revoke, isolation already correct."""
     monkeypatch.setattr(portalmod, "_lookup_ens", _known)

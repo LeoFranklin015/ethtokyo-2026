@@ -34,15 +34,20 @@ export const ENS = {
 } as const;
 
 /** The entitlement keys the console renders. A group may publish any key it likes. */
+export const ENTITLEMENT_KEYS = ["role", "wifi.group", "wifi.rate", "wifi.ceil"] as const;
+
 /**
- * The text records read for every membership.
+ * The member's own name, as ENSIP-5 spells it.
  *
- * `name` is not an entitlement — it is the member's own name, written per member rather than
- * per group — but it is read from the same resolver on the same node, and keeping one list means
- * the portal, the indexer and `resolveIdentity` cannot drift on which records exist. A member
- * whose name was never written simply has no entry; nothing downstream requires it.
+ * Deliberately not in `ENTITLEMENT_KEYS`. Entitlements are written per group and are what an
+ * enforcer acts on; this is written per person and is only ever displayed. Folding it into the
+ * same bag would make it show up in every console list of "resolver entitlements" as though the
+ * branch had granted somebody a name.
  */
-export const ENTITLEMENT_KEYS = ["name", "role", "wifi.group", "wifi.rate", "wifi.ceil"] as const;
+export const NAME_KEY = "name";
+
+/** Every text record read for a membership, in one pass. */
+export const MEMBERSHIP_TEXT_KEYS = [NAME_KEY, ...ENTITLEMENT_KEYS] as const;
 
 export function explorer(address: string): string {
   return `https://sepolia.etherscan.io/address/${address}`;

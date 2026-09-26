@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { QrScanner } from "@/components/QrScanner";
@@ -62,6 +62,11 @@ export function PortalFlow() {
   // An admission that happened before this page was opened reads differently from one this
   // flow just performed, and a captive portal is reopened constantly.
   const [alreadyOnline, setAlreadyOnline] = useState(false);
+  // A wallet prompt cannot be withdrawn from this side, so leaving the signing screen only
+  // abandons the attempt. Bumping this marks everything already in flight as stale, otherwise a
+  // signature approved a minute after the guest gave up would drag them back onto a finished
+  // screen — or announce them online under a badge they had already replaced.
+  const attempt = useRef(0);
   // Read through the store hook rather than at render: the server has no window, and a
   // hydration mismatch here would flash a dead connect button at the one person who cannot use
   // it. `null` on the server means "not known yet", which renders as the ordinary path.
@@ -96,6 +101,11 @@ export function PortalFlow() {
       cancelled = true;
     };
   }, []);
+
+  // An injected connector is registered whether or not this webview has a wallet behind it, and
+  // offering "Connect Injected" in a captive window that has none is the dead button this page
+  // must not render. WalletConnect works without one, so it stays.
+  const usable = connectors.filter((c) => c.type !== "injected" || injectedWallet !== false);
 
   const walletMatches =
     Boolean(badge) && isConnected && address?.toLowerCase() === badge?.wallet;
@@ -146,6 +156,8 @@ export function PortalFlow() {
 
   async function signIn() {
     if (!badge || !address) return;
+    const mine = ++attempt.current;
+    const live = () => attempt.current === mine;
     setBusy("sign");
     setTrouble(null);
     setStep("sign");
@@ -159,6 +171,7 @@ export function PortalFlow() {
         if (!res.ok) throw new Error(String(res.status));
         ({ nonce, message } = (await res.json()) as { nonce: string; message: string });
       } catch {
+        if (!live()) return;
         setStep("wallet");
         setTrouble({
           title: "The portal did not answer",
@@ -171,6 +184,7 @@ export function PortalFlow() {
       try {
         signature = await signMessageAsync({ message });
       } catch (error) {
+        if (!live()) return;
         setStep("wallet");
         const name = error instanceof Error ? error.name : "";
         setTrouble(
@@ -208,6 +222,7 @@ export function PortalFlow() {
         role?: string;
       };
 
+      if (!live()) return;
       if (!result.ok) {
         setStep("wallet");
         setTrouble(refusal(res.status, result.reason));
@@ -232,16 +247,21 @@ export function PortalFlow() {
       setAlreadyOnline(false);
       setStep("online");
     } finally {
-      setBusy("");
+      if (live()) setBusy("");
     }
   }
 
-  function startOver() {
-    setBadge(null);
+  /** Abandon whatever is in flight and go back to a named screen. */
+  function abandon(to: Step) {
+    attempt.current += 1;
+    setBusy("");
     setTrouble(null);
-    setGrant([]);
-    setAlreadyOnline(false);
-    setStep("badge");
+    if (to === "badge") {
+      setBadge(null);
+      setGrant([]);
+      setAlreadyOnline(false);
+    }
+    setStep(to);
   }
 
   const current = STEPS.findIndex((s) => s.key === step);
@@ -267,22 +287,24 @@ export function PortalFlow() {
           />
         </div>
 
-        <ol className="flex items-center gap-1.5 border-b border-rule px-4 py-2">
+        <ol
+          aria-label="Progress"
+          className="flex items-center gap-1.5 border-b border-rule px-4 py-2 font-mono text-[0.625rem] uppercase tracking-[0.12em]"
+        >
           {STEPS.map((s, i) => (
             <li
               key={s.key}
               aria-current={i === current ? "step" : undefined}
-              className="flex items-center gap-1.5 font-mono text-[0.625rem] uppercase tracking-[0.12em]"
-              style={{
-                color: i < current ? "var(--ink-muted)" : i === current ? "var(--ink)" : undefined,
-              }}
+              className={`flex items-center gap-1.5 ${
+                i === current ? "text-ink" : i < current ? "text-ink-muted" : "text-ink-faint"
+              }`}
             >
               {i > 0 ? (
                 <span aria-hidden className="text-ink-faint">
                   ·
                 </span>
               ) : null}
-              <span className={i > current ? "text-ink-faint" : undefined}>{s.label}</span>
+              {s.label}
             </li>
           ))}
         </ol>
@@ -330,7 +352,7 @@ export function PortalFlow() {
                   </dl>
 
                   {!isConnected ? (
-                    injectedWallet === false && connectors.length <= 1 ? (
+                    usable.length === 0 ? (
                       <p className="mt-4 text-sm leading-relaxed text-ink-muted">
                         There is no wallet in this browser. Captive-portal windows cannot reach
                         one. Open <span className="font-mono text-xs text-ink">this page</span> in
@@ -344,7 +366,7 @@ export function PortalFlow() {
                           refused, so there is nothing to lose by trying.
                         </p>
                         <div className="mt-5 flex flex-col gap-2">
-                          {connectors.map((connector) => (
+                          {usable.map((connector) => (
                             <Button
                               key={connector.uid}
                               variant="solid"
@@ -381,7 +403,7 @@ export function PortalFlow() {
                         <Button variant="solid" className="w-full" onClick={() => disconnect()}>
                           Disconnect
                         </Button>
-                        <Button variant="outline" className="w-full" onClick={startOver}>
+                        <Button variant="outline" className="w-full" onClick={() => abandon("badge")}>
                           Scan another badge
                         </Button>
                       </div>
@@ -405,7 +427,7 @@ export function PortalFlow() {
                         >
                           Sign and get online
                         </Button>
-                        <Button variant="ghost" className="w-full" onClick={startOver}>
+                        <Button variant="ghost" className="w-full" onClick={() => abandon("badge")}>
                           Scan another badge
                         </Button>
                       </div>
@@ -424,7 +446,7 @@ export function PortalFlow() {
                     <span className="font-mono text-xs text-ink">{badge?.name}</span> and moves no
                     funds.
                   </p>
-                  <Button variant="outline" className="mt-6 w-full" onClick={() => setStep("wallet")}>
+                  <Button variant="outline" className="mt-6 w-full" onClick={() => abandon("wallet")}>
                     Cancel
                   </Button>
                 </>
@@ -455,7 +477,7 @@ export function PortalFlow() {
                       ))}
                     </dl>
                   ) : null}
-                  <Button variant="ghost" className="mt-5 w-full" onClick={startOver}>
+                  <Button variant="ghost" className="mt-5 w-full" onClick={() => abandon("badge")}>
                     Sign in as someone else
                   </Button>
                 </>

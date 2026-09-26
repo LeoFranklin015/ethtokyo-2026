@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
       name: identity.name,
       // The member's own name, as the resolver publishes it. Absent for anyone onboarded before
       // it was written, so the page shows the badge id when it is missing rather than a blank.
-      displayName: identity.entitlements.name ?? null,
+      displayName: identity.displayName,
       wallet: identity.owner.toLowerCase(),
       branch: identity.branch,
       role: identity.role,

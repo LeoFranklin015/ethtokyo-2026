@@ -36,9 +36,12 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [free, setFree] = useState<boolean | null>(null);
   const [checkFailed, setCheckFailed] = useState(false);
+  // Separate from `free`, because it is a different registry answering a different question.
+  const [nameBlocked, setNameBlocked] = useState(false);
 
   const branch = withRegistrar.find((b) => b.registrar === registrar) ?? withRegistrar[0];
   const target = branch?.registrar ?? "";
+  const validAddress = /^0x[0-9a-fA-F]{40}$/.test(owner.trim());
 
   const { data: groupData } = useSWR<{ groups: RoleInfo[] }>(
     target ? `groups:${target}` : null,
@@ -71,6 +74,16 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
         const body = await res.json();
         setCheckFailed(false);
         setFree(body.valid ? body.available : false);
+
+        // The same id is minted as their organization-wide Member name, in a registry that also
+        // holds every branch name. An id equal to a branch label reverts the whole transaction
+        // after signing, so it has to be caught here rather than discovered in the wallet.
+        if (!org || !validAddress) return;
+        const claim = await fetch(
+          `/api/ens/member-name?org=${encodeURIComponent(org)}&id=${encodeURIComponent(value)}` +
+            `&wallet=${owner.trim()}`,
+        );
+        setNameBlocked(claim.ok ? Boolean((await claim.json()).blocked) : false);
       } catch {
         setFree(null);
         setCheckFailed(true);
@@ -80,11 +93,10 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
     // `branch` itself is a fresh object on every SWR revalidation; depending on it re-fired
     // this check every 60s on an untouched form. The registry address is what actually matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [label, branch?.registry]);
+  }, [label, branch?.registry, org, owner, validAddress]);
 
-  const validAddress = /^0x[0-9a-fA-F]{40}$/.test(owner.trim());
   const canSubmit = Boolean(
-    target && label && validAddress && selectedGroup && free && address && !busy,
+    target && label && validAddress && selectedGroup && free && !nameBlocked && address && !busy,
   );
 
   async function submit() {
@@ -188,6 +200,10 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
               <span style={{ color: "var(--signal)" }}>available</span>
             ) : free === false ? (
               <span style={{ color: "var(--alert)" }}>already taken in this branch</span>
+            ) : nameBlocked ? (
+              <span style={{ color: "var(--alert)" }}>
+                already an organization name — this badge cannot be minted
+              </span>
             ) : label ? null : (
               <span className="text-ink-muted">their id comes from the badge they were given</span>
             )}

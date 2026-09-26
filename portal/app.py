@@ -24,6 +24,20 @@ _GROUP_CACHE: dict[str, str] = {}
 GATEWAY_IP = os.environ.get("ENSCA_GATEWAY_IP", "192.168.0.1")
 # Off by default: see `login()`. Set ENSCA_ALLOW_NAME_LOGIN=1 only for a branch with no console.
 ALLOW_NAME_LOGIN = os.environ.get("ENSCA_ALLOW_NAME_LOGIN", "") == "1"
+# Where the console is reachable from an *unadmitted* device on this network, e.g.
+# http://192.168.0.1:3000. The captive page cannot sign anyone in itself — that needs a wallet
+# and a chain client — so it hands the guest to the console's /portal. No default: guessing an
+# address produces a button that leads nowhere, and the page says so instead.
+#
+# It must be reachable *before* admission, which constrains where the console may run.
+# `grant_access` is what inserts `FORWARD -s <ip> -j ACCEPT`, so until then nothing this device
+# sends is forwarded anywhere: a console on another host is unreachable unless a walled-garden
+# rule is added for it. On this gateway it is INPUT rather than FORWARD and simply works — which
+# is why the example above is the gateway. Port 80 is not an option either way, because
+# `_bootstrap_captive_redirect` hijacks it back to this portal.
+CONSOLE_URL = os.environ.get("ENSCA_CONSOLE_URL", "").strip().rstrip("/")
+# Shown on the captive page so a guest can tell which network they are joining.
+SSID = os.environ.get("ENSCA_SSID", "the branch network")
 PORTAL_URL = f"http://{GATEWAY_IP}:8080"
 # DNS server used for per-IP bypass rules.
 # Override with ENSCA_DNS_SERVER env var (default: 8.8.8.8).
@@ -232,9 +246,23 @@ def check_authed():
     return redirect("http://192.168.0.1:8080/", 302)
 
 
+def _login_page(error=None, status=200):
+    """The captive page, with the knobs it needs to be honest about what is available."""
+    return make_response(
+        render_template(
+            "login.html",
+            error=error,
+            console_url=CONSOLE_URL,
+            allow_name_login=ALLOW_NAME_LOGIN,
+            ssid=SSID,
+        ),
+        status,
+    )
+
+
 @app.route("/", methods=["GET"])
 def index():
-    return render_template("login.html", error=None)
+    return _login_page()
 
 
 @app.route("/login", methods=["POST"])
@@ -246,16 +274,15 @@ def login():
     # Kept behind a flag rather than deleted, because a branch with no console reachable still
     # needs a way in — but it is off unless an operator deliberately turns it on.
     if not ALLOW_NAME_LOGIN:
-        return render_template(
-            "login.html",
-            error="Sign in with your wallet — a name alone is not proof of membership.",
-        ), 403
+        return _login_page(
+            "Sign in with your wallet — a name alone is not proof of membership.", 403
+        )
 
     ens_name = request.form.get("ens_name", "").strip().lower()
     ip = client_ip()
     ident = _lookup_ens(ens_name)
     if not ident:
-        return render_template("login.html", error="ENS name not recognized")
+        return _login_page("ENS name not recognized")
     # Re-login from the same device under a DIFFERENT ENS: grant_access
     # early-returns for an already-authed IP, so revoke first to tear down the
     # old identity's cross-user isolation and let grant rebuild it cleanly.

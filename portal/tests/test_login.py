@@ -1,7 +1,7 @@
 import app as portalmod
 
 
-def test_unknown_name_rejected(monkeypatch):
+def test_unknown_name_rejected(monkeypatch, name_login):
     monkeypatch.setattr(portalmod, "_lookup_ens", lambda name: None)
     granted = []
     monkeypatch.setattr(portalmod, "grant_access", lambda ip, tier, **k: granted.append((ip, tier)))
@@ -12,7 +12,7 @@ def test_unknown_name_rejected(monkeypatch):
     assert b"not recognized" in r.data.lower() or b"not recognised" in r.data.lower()
 
 
-def test_known_name_grants_resolved_tier(monkeypatch):
+def test_known_name_grants_resolved_tier(monkeypatch, name_login):
     monkeypatch.setattr(portalmod, "_lookup_ens",
                         lambda name: {"group_id": "g", "network_tier": "hacker",
                                       "user_id": "u", "ens_name": "bob.doco.eth"})
