@@ -462,3 +462,41 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
     source: "chain",
   };
 }
+
+
+/**
+ * Which membership does this wallet hold, anywhere in the organization?
+ *
+ * The portal needs this because a person arriving at the captive page has a wallet, not a name.
+ * Asking them to type their own ENS name would be both worse UX and weaker: a typed name proves
+ * nothing, which is exactly how the current portal ends up treating a public name as a password.
+ *
+ * Reads contracts directly, never the indexer — this is on the admission path, and an indexer
+ * that is merely lagging must not read as "not a member".
+ */
+export async function resolveByWallet(wallet: Address): Promise<ResolvedIdentity | null> {
+  const branches = await getIndexedBranches();
+
+  for (const branch of branches) {
+    if (!branch.registrar) continue;
+    const resource = await client.readContract({
+      address: branch.registrar as Address,
+      abi: registrarV2Abi,
+      functionName: "membershipOf",
+      args: [wallet],
+    });
+    if (resource === 0n) continue;
+
+    const label = await client.readContract({
+      address: branch.registrar as Address,
+      abi: registrarV2Abi,
+      functionName: "labelOf",
+      args: [resource],
+    });
+    if (!label) continue;
+
+    // Round-trip through the name so the answer is exactly what an enforcer would resolve.
+    return await resolveIdentity(`${label}.${branch.name}`);
+  }
+  return null;
+}

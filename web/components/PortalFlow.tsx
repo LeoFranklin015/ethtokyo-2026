@@ -39,7 +39,6 @@ type GrantInfo = [string, string][];
 
 // Portal runs at the same origin as the captive page (port 8080).
 // In SSR there is no window; fall back to empty string — fetch calls only run client-side.
-const PORTAL_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
 
 export function PortalFlow() {
   const [state, setState] = useState<State>("idle");
@@ -68,7 +67,7 @@ export function PortalFlow() {
       if (!address) throw new Error("No account selected.");
 
       // Fetch a one-time challenge nonce from the portal
-      const challengeRes = await fetch(`${PORTAL_ORIGIN}/wallet-challenge`);
+      const challengeRes = await fetch("/api/portal/challenge", { method: "POST" });
       if (!challengeRes.ok) throw new Error("Portal unreachable.");
       const { nonce } = await challengeRes.json() as { nonce: string };
 
@@ -92,7 +91,7 @@ export function PortalFlow() {
       }
 
       // Submit nonce + signature to portal for server-side verification
-      const verifyRes = await fetch(`${PORTAL_ORIGIN}/wallet-verify`, {
+      const verifyRes = await fetch("/api/portal/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ nonce, signature, wallet_address: address }),
