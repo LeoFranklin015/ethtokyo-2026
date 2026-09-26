@@ -1,5 +1,6 @@
 from flask import Flask, request, redirect, render_template, make_response, jsonify
 import subprocess
+import shutil
 import os
 import time
 import uuid
@@ -10,6 +11,19 @@ import logging
 
 _log = logging.getLogger(__name__)
 _state_lock = threading.Lock()
+
+# Firewall enforcement (iptables) is Linux-only. On a host without iptables
+# (e.g. a macOS dev box), the firewall shell-outs are skipped so the portal
+# still boots and the login -> session-notify -> proxy flow runs for local
+# testing. Override with ENSCA_FIREWALL=0/1 to force off/on.
+_fw_env = os.environ.get("ENSCA_FIREWALL")
+if _fw_env is not None:
+    FIREWALL_ENABLED = _fw_env == "1"
+else:
+    FIREWALL_ENABLED = shutil.which("iptables") is not None
+if not FIREWALL_ENABLED:
+    _log.warning("iptables unavailable — portal running in NO-FIREWALL mode "
+                 "(session logic only, no VLAN enforcement)")
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -53,10 +67,14 @@ def client_ip() -> str:
 
 
 def _run(cmd: list) -> None:
+    if not FIREWALL_ENABLED:
+        return
     subprocess.run(cmd, check=True, capture_output=True)
 
 
 def _run_ok(cmd: list) -> None:
+    if not FIREWALL_ENABLED:
+        return
     result = subprocess.run(cmd, check=False, capture_output=True)
     if result.returncode != 0:
         _log.warning("iptables failed (rc=%d): %s", result.returncode, result.stderr.decode(errors="replace"))
@@ -83,7 +101,7 @@ def _lookup_ens(name):
     if not ens:
         return None
     try:
-        r = _req.get(f"{PROXY_INTERNAL}/internal/ens-lookup/{ens}", timeout=3)
+        r = _req.get(f"{PROXY_INTERNAL}/internal/ens-lookup/{ens}", timeout=8)
         if r.ok:
             return r.json()
     except Exception:
@@ -303,6 +321,8 @@ def _stale_ips(last_seen, authed, now, ttl=20):
 
 
 def _neigh_ips(dev=None):
+    if not FIREWALL_ENABLED:
+        return set()
     dev = dev or AP_IFACE
     out = subprocess.run(["ip", "neigh", "show", "dev", dev],
                          capture_output=True, text=True).stdout
@@ -348,10 +368,11 @@ def _bootstrap_captive_redirect() -> None:
 
 def _flush_portal_rules():
     """Remove all portal-inserted rules on startup so stale state from a previous run is cleared."""
-    # Flush all mangle FORWARD rules (portal marks)
-    subprocess.run(["iptables", "-t", "mangle", "-F", "FORWARD"], check=False, capture_output=True)
-    # Flush all nat PREROUTING rules (portal DNS redirects)
-    subprocess.run(["iptables", "-t", "nat", "-F", "PREROUTING"], check=False, capture_output=True)
+    if FIREWALL_ENABLED:
+        # Flush all mangle FORWARD rules (portal marks)
+        subprocess.run(["iptables", "-t", "mangle", "-F", "FORWARD"], check=False, capture_output=True)
+        # Flush all nat PREROUTING rules (portal DNS redirects)
+        subprocess.run(["iptables", "-t", "nat", "-F", "PREROUTING"], check=False, capture_output=True)
     # Remove all ACCEPT rules from FORWARD that portal inserted (conservative: flush only if empty)
     # We do NOT flush the entire FORWARD chain as other rules may exist
     # Instead, clear the in-memory state and let stale iptables rules expire on their own

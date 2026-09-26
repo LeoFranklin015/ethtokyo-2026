@@ -1,6 +1,15 @@
 import os, time, uuid
 
-GROUPS = [("hacker", "hacker"), ("partner", "partner")]  # (name, network_tier)
+# (group name = on-chain wifi.group value, network_tier = portal-known tier).
+# Portal tiers (portal/app.py TIER_MARK): basic, staff, vip, partner, hacker.
+# Every on-chain wifi.group must have a row here or /internal/ens-lookup returns unknown_group.
+GROUPS = [
+    ("hacker", "hacker"),
+    ("partner", "partner"),
+    ("staff", "staff"),
+    ("vip", "vip"),
+    ("basic", "basic"),
+]
 USERS = [
     ("bob.doco.eth", "hacker"), ("alice.eth", "hacker"),
     ("world.eth", "partner"), ("soy.eth", "partner"), ("uniswap.eth", "partner"),
@@ -8,8 +17,10 @@ USERS = [
 
 
 def _get_or_create_group(db, name, tier):
-    row = db.execute("SELECT id FROM groups WHERE network_tier=?", (tier,)).fetchone()
+    row = db.execute("SELECT id, network_tier FROM groups WHERE name=?", (name,)).fetchone()
     if row:
+        if row[1] != tier:
+            db.execute("UPDATE groups SET network_tier=? WHERE id=?", (tier, row[0]))
         return row[0]
     gid = str(uuid.uuid4())
     db.execute("INSERT INTO groups(id,name,network_tier,notes,created_at) VALUES(?,?,?,?,?)",

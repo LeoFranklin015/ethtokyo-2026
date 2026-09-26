@@ -120,6 +120,19 @@
     removeListener: removeListener,
   };
 
+  // Legacy injected path. RainbowKit (app.ens.domains) keys its "Browser
+  // Wallet" entry off window.ethereum and filters unknown-rdns EIP-6963
+  // providers out of its curated modal, so the EIP-6963 announce below is
+  // invisible there. Publish on window.ethereum too — but only when empty, so
+  // a real injected wallet is never shadowed.
+  if (!window.ethereum) {
+    try {
+      window.ethereum = provider;
+    } catch (e) {
+      /* frozen window.ethereum: leave it */
+    }
+  }
+
   // --- EIP-6963 announce. uuid is the hardcoded literal (NEVER randomUUID) so
   // dedupe holds across re-announces. ---
   var info = {
@@ -150,4 +163,18 @@
   // script loaded still discovers the wallet.
   window.addEventListener("eip6963:requestProvider", announce);
   announce();
+
+  // Late-subscribe race: SPA connect kits (Reown AppKit, wagmi) mount their
+  // EIP-6963 store AFTER this script runs and may never dispatch
+  // requestProvider, so a single load-time announce is missed and the wallet
+  // never appears in their list. Re-announce a few times after load so a
+  // late-subscribing store still catches one. The uuid is a stable literal,
+  // so every re-announce dedupes — dapps that already discovered us are
+  // unaffected. Also re-announce once the document finishes loading.
+  [0, 250, 600, 1200, 2500].forEach(function (ms) {
+    setTimeout(announce, ms);
+  });
+  if (document.readyState !== "complete") {
+    window.addEventListener("load", announce);
+  }
 })();

@@ -107,3 +107,31 @@ def test_ignores_forwarded_header_spoof(monkeypatch):
         headers={"X-Forwarded-For": "10.0.0.5", "X-Real-IP": "10.0.0.5"},
     )
     assert r.status_code == 404
+
+
+def test_loopback_hop_resolves_device_via_vlan_header(monkeypatch):
+    # The real deployment: mitm reaches the backend over loopback and forwards
+    # the device IP as X-VLAN-Client-IP. remote_addr is 127.0.0.1, so lookup by
+    # remote_addr alone finds nothing; the handler must trust the header here.
+    proxy, c, conn = _client(monkeypatch)
+    _add_session(conn, "192.168.0.17", "neo.eth", "0xDEVICE")
+    r = c.get(
+        "/api/wallet/account",
+        environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+        headers={"X-VLAN-Client-IP": "192.168.0.17"},
+    )
+    assert r.status_code == 200
+    assert r.get_json()["address"] == "0xDEVICE"
+
+
+def test_non_loopback_peer_ignores_vlan_header_spoof(monkeypatch):
+    # A VLAN client on .99 forging X-VLAN-Client-IP claiming .5 is ignored:
+    # only its packet source IP counts, so it gets its own (absent) session.
+    proxy, c, conn = _client(monkeypatch)
+    _add_session(conn, "10.0.0.5", "philo.tokyo.ethglobal2.eth", "0xOWNER")
+    r = c.get(
+        "/api/wallet/account",
+        environ_overrides={"REMOTE_ADDR": "10.0.0.99"},
+        headers={"X-VLAN-Client-IP": "10.0.0.5"},
+    )
+    assert r.status_code == 404

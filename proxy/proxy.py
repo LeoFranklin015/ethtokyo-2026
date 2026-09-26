@@ -5,6 +5,7 @@ import time
 import uuid
 import os
 import base64
+import threading
 import bcrypt
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -87,6 +88,20 @@ def _local_or_admin_ok() -> bool:
         return True
     auth = request.headers.get("Authorization", "")
     return auth.startswith("Bearer ") and bool(verify_admin_token(auth[7:]))
+
+
+def _wallet_client_ip() -> str:
+    """Resolve the VLAN device IP for wallet session lookup.
+
+    The mitm addon reaches the wallet backend over loopback and forwards the
+    real device IP as X-VLAN-Client-IP. Trust that header ONLY when the peer
+    is loopback; a non-loopback VLAN client must never spoof its identity, so
+    its packet source IP is the only value that counts.
+    """
+    peer = request.remote_addr
+    if peer in ("127.0.0.1", "::1"):
+        return request.headers.get("X-VLAN-Client-IP") or peer
+    return peer
 
 
 def _resource_dict(r, include_key=False) -> dict:
@@ -823,7 +838,7 @@ def wallet_rpc():
 
 @app.route("/api/wallet/account")
 def wallet_account():
-    ip = request.remote_addr  # the real VLAN source IP; never a forwarded header
+    ip = _wallet_client_ip()
     db = get_db()
     session = db.execute(
         "SELECT * FROM sessions WHERE ip=? AND logged_out_at IS NULL AND revoked_at IS NULL "
@@ -874,6 +889,36 @@ def wallet_asset(asset):
     if asset not in _WALLET_ASSET_ALLOW:
         abort(404)
     return send_from_directory(_WALLET_ASSET_DIR, asset)
+
+
+# Same-origin fallback for the /__wallet__/ prefix. The mitm addon normally
+# intercepts this prefix on the dapp's own origin and answers it over
+# loopback. But mitmproxy's lazy connection strategy occasionally passes a
+# reused-connection HTTP/2 flow straight through, and the device's
+# /__wallet__/ fetch then lands here at the proxy directly. Answer it with
+# the very same wallet handlers so the read-only backend is reachable
+# whether the flow was intercepted or bypassed. The map mirrors
+# mitm/wallet_mitm.WalletInjector._PATH_MAP; a direct device hit is a
+# non-loopback peer, so _wallet_client_ip() ignores any forwarded header and
+# uses the real device IP — the bypass path cannot be used to spoof identity.
+@app.route("/__wallet__/provider.l2.js")
+def wallet_prefix_provider():
+    return wallet_asset("provider.l2.js")
+
+
+@app.route("/__wallet__/read-methods.json")
+def wallet_prefix_read_methods():
+    return wallet_asset("read-methods.json")
+
+
+@app.route("/__wallet__/account")
+def wallet_prefix_account():
+    return wallet_account()
+
+
+@app.route("/__wallet__/rpc", methods=["POST"])
+def wallet_prefix_rpc():
+    return wallet_rpc()
 
 
 @app.route("/proxy/<slug>", defaults={"subpath": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"], strict_slashes=False)
@@ -1278,6 +1323,14 @@ def internal_group_by_tier(tier):
 # back to the local users table.
 ENSCA_WEB_URL = os.environ.get("ENSCA_WEB_URL", "").rstrip("/")
 ENS_RESOLVE_TIMEOUT = float(os.environ.get("ENS_RESOLVE_TIMEOUT", "4"))
+# Short-TTL positive cache for ENS resolves. The live ENS indexer is slow
+# (3-4s) and rate-limits under repeated calls, intermittently 404-ing a name
+# that in fact holds a membership. Caching successful resolves keeps a login
+# fast and stops a transient upstream 404 from bouncing a valid identity.
+# Negative results are NOT cached, so a name gaining membership resolves at once.
+ENS_RESOLVE_TTL = float(os.environ.get("ENS_RESOLVE_TTL", "120"))
+_ens_resolve_cache: dict = {}
+_ens_resolve_lock = threading.Lock()
 
 
 def _resolve_via_ens(ens_name):
@@ -1289,6 +1342,11 @@ def _resolve_via_ens(ens_name):
     """
     if not ENSCA_WEB_URL:
         return None
+    now = time.time()
+    with _ens_resolve_lock:
+        hit = _ens_resolve_cache.get(ens_name)
+        if hit and hit[0] > now:
+            return hit[1]
     try:
         resp = req_lib.get(
             ENSCA_WEB_URL + "/api/ens/resolve",
@@ -1302,9 +1360,12 @@ def _resolve_via_ens(ens_name):
     if resp.status_code != 200:
         return None
     try:
-        return resp.json()
+        data = resp.json()
     except ValueError:
         return None
+    with _ens_resolve_lock:
+        _ens_resolve_cache[ens_name] = (now + ENS_RESOLVE_TTL, data)
+    return data
 
 
 @app.route("/internal/ens-lookup/<name>")

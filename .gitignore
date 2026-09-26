@@ -22,3 +22,9 @@ contracts/lib/
 
 # Generated at mitm launch by mitm/gen_provider.py (machine-specific base URL)
 web/public/wallet/provider.l2.js
+
+# Local-only dev scaffolding (machine-specific paths, throwaway session data)
+proxy/ensca.local.db
+proxy/ensca.local.db-shm
+proxy/ensca.local.db-wal
+proxy/_local_session.py
