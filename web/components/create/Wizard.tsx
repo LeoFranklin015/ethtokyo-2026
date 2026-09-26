@@ -70,6 +70,7 @@ export function Wizard() {
 
         {step === "branch" ? (
           <BranchStep
+            org={orgName}
             factory={(org?.branchFactory ?? null) as `0x${string}` | null}
             onDone={(label, reg) => {
               setBranchLabel(label);
@@ -515,10 +516,13 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
 ////////////////////////////////////////////////////////////////////////
 
 function BranchStep({
+  org,
   factory,
   onDone,
   onSkip,
 }: {
+  /** The organization's `.eth` name — the availability check is scoped to it. */
+  org: string | null;
   factory: `0x${string}` | null;
   onDone: (label: string, registrar: string | null) => void;
   onSkip: () => void;
@@ -529,24 +533,38 @@ function BranchStep({
   const [free, setFree] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkFailed, setCheckFailed] = useState(false);
+
+  const orgLabel = org?.replace(/\.eth$/, "") ?? "";
 
   useEffect(() => {
     const value = label.trim().toLowerCase();
-    if (!value) return;
+    if (!value || !orgLabel) return;
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/ens/branch?label=${value}`);
+        // Scoped to the organization. Without `org` this route answers 400, which read here as
+        // "could not check" and left the button disabled for good — the label was never once
+        // reported free, so the form could not be submitted at all.
+        const res = await fetch(
+          `/api/ens/branch?label=${encodeURIComponent(value)}&org=${encodeURIComponent(orgLabel)}`,
+        );
         // A 502 is the chain not answering, not a label being taken. Rendering it as "exists"
         // would stop an operator opening a branch for the length of an RPC blip.
-        if (!res.ok) return setFree(null);
+        if (!res.ok) {
+          setFree(null);
+          setCheckFailed(true);
+          return;
+        }
         const body = await res.json();
+        setCheckFailed(false);
         setFree(body.valid ? body.available : false);
       } catch {
         setFree(null);
+        setCheckFailed(true);
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [label]);
+  }, [label, orgLabel]);
 
   async function create() {
     setBusy(true);
@@ -585,6 +603,7 @@ function BranchStep({
             onChange={(e) => {
               setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
               setFree(null);
+              setCheckFailed(false);
             }}
             placeholder="tokyo"
             aria-label="Branch name"
@@ -602,6 +621,10 @@ function BranchStep({
             <p className="font-mono text-xs" style={{ color: "var(--alert)" }}>
               that branch already exists
             </p>
+          ) : checkFailed ? (
+            <p className="font-mono text-xs text-ink-muted">
+              could not check — the chain did not answer. You can still try; the registry decides.
+            </p>
           ) : null}
         </div>
 
@@ -618,7 +641,11 @@ function BranchStep({
         ) : null}
 
         <div className="mt-6 flex flex-wrap gap-2">
-          <Button variant="solid" onClick={create} disabled={!free || busy}>
+          <Button
+            variant="solid"
+            onClick={create}
+            disabled={busy || !label.trim() || free === false || !factory}
+          >
             {busy ? "Opening…" : "Open branch"}
           </Button>
           <Button variant="ghost" onClick={onSkip}>
