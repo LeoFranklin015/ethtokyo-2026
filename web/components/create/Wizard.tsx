@@ -422,7 +422,7 @@ function BranchStep({
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "failed");
-      onDone(body.label, null);
+      onDone(body.label, body.registrar ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");
     } finally {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { commitOrg, registerOrg, signerAddress, signerConfigured } from "@/lib/ens/write";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /** Who the console signs as, and whether it can sign at all. */
 export async function GET() {

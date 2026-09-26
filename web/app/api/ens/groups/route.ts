@@ -4,7 +4,7 @@ import { getRoles } from "@/lib/ens/read";
 import type { Address } from "viem";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /** The groups a branch defines. `?registrar=0x…` selects the branch. */
 export async function GET(req: NextRequest) {

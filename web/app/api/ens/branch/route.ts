@@ -3,7 +3,7 @@ import { branchLabelAvailable, createBranch, signerConfigured } from "@/lib/ens/
 import type { Address } from "viem";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 180;
+export const maxDuration = 300;
 
 /** `?label=tokyo` → is that branch label free under the organization? */
 export async function GET(req: NextRequest) {

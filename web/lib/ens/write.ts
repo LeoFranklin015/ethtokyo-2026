@@ -1,5 +1,6 @@
 import "server-only";
 import {
+  parseEventLogs,
   createPublicClient,
   createWalletClient,
   http,
@@ -67,9 +68,16 @@ export function signerAddress(): Address | null {
   }
 }
 
-async function send(hash: Hex) {
-  const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
+async function sendForReceipt(hash: Hex) {
+  // 90s, deliberately under the routes' 300s maxDuration. A receipt wait that can outlive its
+  // own function budget reports a landed transaction as a failure.
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 });
   if (receipt.status !== "success") throw new Error(`transaction reverted: ${hash}`);
+  return receipt;
+}
+
+async function send(hash: Hex) {
+  await sendForReceipt(hash);
   return hash;
 }
 
@@ -366,9 +374,16 @@ export type BranchInput = {
  * places, publishes the registrar for discovery, hands the branch to its owner and revokes itself.
  * Doing it atomically is what stops a half-built branch existing at all.
  */
-export async function createBranch(input: BranchInput): Promise<{ txHash: Hex; label: string }> {
+export async function createBranch(input: BranchInput): Promise<{
+  txHash: Hex;
+  label: string;
+  node: Hex;
+  registry: Address;
+  registrar: Address;
+  owner: Address;
+}> {
   const { account, client } = wallet();
-  const txHash = await send(
+  const receipt = await sendForReceipt(
     await client.writeContract({
       address: ENS.branchFactory as Address,
       abi: branchFactoryAbi,
@@ -376,7 +391,25 @@ export async function createBranch(input: BranchInput): Promise<{ txHash: Hex; l
       args: [input.label, BigInt(input.expiry), input.owner ?? account.address],
     }),
   );
-  return { txHash, label: input.label };
+
+  // The factory tells us what it built. Reading it from the receipt is the difference between
+  // the console knowing the new branch immediately and waiting for an indexer that has not
+  // seen the block yet — which is what made step 3 of the create flow show "no branches".
+  const [created] = parseEventLogs({
+    abi: branchFactoryAbi,
+    eventName: "BranchCreated",
+    logs: receipt.logs,
+  });
+  if (!created) throw new Error("branch created but BranchCreated was not emitted");
+
+  return {
+    txHash: receipt.transactionHash,
+    label: created.args.label,
+    node: created.args.node,
+    registry: created.args.registry,
+    registrar: created.args.registrar,
+    owner: created.args.owner,
+  };
 }
 
 /** Is this branch label free under the organization? */

@@ -23,8 +23,24 @@
       "registry": "0x17Ec4F680a8e97A7FFF1dE89fB5d004018E14187",
       "registrar": "0xDB4De9b4fa494f79a5261736BdcB744F52E872C0",
       "node": "0xcb93dc254db4ff713d8261ba97870b6ceac90fe3dc7f2885799a1ec724788897"
+    },
+    "live-20260926": {
+      "registry": "0xb634ac9767190a7dbcf279b782d09e29a6b2939f",
+      "registrar": "0x4c8f7ce5b0c43f739315ccd14f1d608198095462",
+      "node": "0xa9891e9208e4b62ba06d261cfed7b07237d04ff50342220140fbdfb861df51ea"
+    },
+    "live-20260926b": {
+      "registry": "0xce6ea083791addf3578310070eadaf385ab30a01",
+      "registrar": "0x1936c5839836e17e12d087bb131c2c27bbf844e7",
+      "node": "0x22056ff5818dbf492ee493173abdbce0bdfbe7652b78417a90e5b29e8b9ff90b"
+    },
+    "kyoto": {
+      "registry": "0x953F736943b037Ce92C04700b17a689f1eB9D099",
+      "registrar": "0xc3cd571e284410d36a96fb8a4ca989e4fa7eb3d4",
+      "node": "0x4dbc7e84a49538e21249c3bab1105795012c8d2e8f90cad348064243108b8f89"
     }
   },
-  "branchFactory": "0x9ab4aFB832b7669eA427df486287D75bb936b67f",
-  "orgNode": "0x291def960cdeed286467d6beeaad1ab15faeb706a2dcd0126a3a6a22ef3e3aef"
+  "branchFactory": "0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5",
+  "orgNode": "0x291def960cdeed286467d6beeaad1ab15faeb706a2dcd0126a3a6a22ef3e3aef",
+  "previousBranchFactory": "0x9ab4aFB832b7669eA427df486287D75bb936b67f (pre per-key resolver roles)"
 }

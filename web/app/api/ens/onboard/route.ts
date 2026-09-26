@@ -3,7 +3,7 @@ import { onboardMember, signerConfigured } from "@/lib/ens/write";
 import type { Address } from "viem";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /** Mint a membership and assign its group, in one transaction. */
 export async function POST(req: NextRequest) {
