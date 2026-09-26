@@ -23,10 +23,12 @@ _GROUP_CACHE: dict[str, str] = {}
 # Override with ENSCA_GATEWAY_IP env var (default: 192.168.0.1 per dnsmasq.conf).
 GATEWAY_IP = os.environ.get("ENSCA_GATEWAY_IP", "192.168.0.1")
 PORTAL_URL = f"http://{GATEWAY_IP}:8080"
-
 # DNS server used for per-IP bypass rules.
 # Override with ENSCA_DNS_SERVER env var (default: 8.8.8.8).
 DNS_SERVER = os.environ.get("ENSCA_DNS_SERVER", "8.8.8.8")
+# AP-facing interface (client side) — used by the reaper's neighbor scan.
+# Override with ENSCA_AP_IFACE env var (default: enp10s0u1 per VM).
+AP_IFACE = os.environ.get("ENSCA_AP_IFACE", "enp10s0u1")
 
 # iptables fwmark per tier — used for tc classification and cross-tier DROP
 TIER_MARK = {"basic": "10", "staff": "20", "vip": "30", "partner": "10", "hacker": "30"}
@@ -251,6 +253,49 @@ def internal_revoke_ip():
     return make_response("ok", 200)
 
 
+def _stale_ips(last_seen, authed, now, ttl=20):
+    stale = set()
+    for ip in list(authed):
+        seen = last_seen.get(ip)
+        if seen is None:
+            continue  # grace: recorded on first sighting, not revoked before first miss
+        if now - seen > ttl:
+            stale.add(ip)
+    return stale
+
+
+def _neigh_ips(dev=None):
+    dev = dev or AP_IFACE
+    out = subprocess.run(["ip", "neigh", "show", "dev", dev],
+                         capture_output=True, text=True).stdout
+    live = set()
+    for line in out.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        ip = parts[0]
+        if "REACHABLE" in line or "STALE" in line or "DELAY" in line or "PROBE" in line:
+            live.add(ip)
+    return live
+
+
+def _reaper_loop():
+    last_seen = {}
+    while True:
+        now = time.time()
+        live = _neigh_ips()
+        for ip in live:
+            last_seen[ip] = now
+        with _state_lock:
+            authed = set(AUTHED_IPS.keys())
+        for ip in authed:  # first sighting seeds last_seen so grace applies
+            last_seen.setdefault(ip, now)
+        for ip in _stale_ips(last_seen, authed, now):
+            revoke_access(ip)
+            last_seen.pop(ip, None)
+        time.sleep(10)
+
+
 def _flush_portal_rules():
     """Remove all portal-inserted rules on startup so stale state from a previous run is cleared."""
     import subprocess
@@ -270,4 +315,5 @@ def _flush_portal_rules():
 
 if __name__ == "__main__":
     _flush_portal_rules()
+    threading.Thread(target=_reaper_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8080, debug=False)
