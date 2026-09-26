@@ -171,7 +171,7 @@ def revoke_access(ip: str) -> None:
                  "-d", ip, "-j", "MARK", "--set-mark", mark])
         _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
                  "-s", ip, "-p", "udp", "--dport", "53",
-                 "-j", "DNAT", "--to-destination", "8.8.8.8:53"])
+                 "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
         _apply_ens_isolation(ip, action="D")
         sid = SESSION_IDS.pop(ip, None)
         ENS_NAMES.pop(ip, None)
@@ -305,7 +305,6 @@ def _reaper_loop():
 
 def _flush_portal_rules():
     """Remove all portal-inserted rules on startup so stale state from a previous run is cleared."""
-    import subprocess
     # Flush all mangle FORWARD rules (portal marks)
     subprocess.run(["iptables", "-t", "mangle", "-F", "FORWARD"], check=False, capture_output=True)
     # Flush all nat PREROUTING rules (portal DNS redirects)
