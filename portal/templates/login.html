@@ -143,6 +143,9 @@
   </style>
 </head>
 <body>
+  {% if org_logo %}
+    <img src="{{ org_logo }}" alt="Event logo" style="width:64px;height:64px;border-radius:50%;object-fit:cover;display:block;margin:0 auto" onerror="this.hidden=true">
+  {% endif %}
   <p class="wordmark">ENSCA</p>
 
   <main class="panel">

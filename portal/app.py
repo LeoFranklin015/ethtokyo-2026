@@ -61,6 +61,25 @@ AP_IFACE = os.environ.get("ENSCA_AP_IFACE", "enp10s0u1")
 # Must equal BRANCH_PORTAL_TOKEN in the console's .env.local. Unset = remote calls refused.
 ADMIT_SECRET = os.environ.get("ENSCA_ADMIT_SECRET", "").strip()
 
+# ENS name whose avatar is shown as the event logo in the captive portal header.
+# Override with ENSCA_EVENT_ENS env var. Resolved once at startup; None if unavailable.
+_EVENT_ENS = os.environ.get("ENSCA_EVENT_ENS", "ethglobal1.eth").strip()
+
+def _resolve_ens_avatar(ens_name: str) -> str | None:
+    """Fetch the ENS avatar URL via the ENS metadata service. Returns None on failure."""
+    try:
+        r = _req.get(
+            f"https://metadata.ens.domains/mainnet/avatar/{ens_name}",
+            timeout=5, allow_redirects=True,
+        )
+        if r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"):
+            return f"https://metadata.ens.domains/mainnet/avatar/{ens_name}"
+    except Exception:
+        pass
+    return None
+
+ORG_LOGO_URL: str | None = _resolve_ens_avatar(_EVENT_ENS) if _EVENT_ENS else None
+
 # iptables fwmark per tier — used for tc classification and cross-tier DROP
 TIER_MARK = {"basic": "10", "staff": "20", "vip": "30", "partner": "10", "hacker": "30"}
 # tc classid per fwmark — matches htb class 1:<classid> on enp10s0u1
@@ -319,6 +338,7 @@ def _login_page(error=None, status=200):
             ssid=SSID,
             org_ens=ORG_ENS,
             branch_label=BRANCH_LABEL,
+            org_logo=ORG_LOGO_URL,
         ),
         status,
     )
