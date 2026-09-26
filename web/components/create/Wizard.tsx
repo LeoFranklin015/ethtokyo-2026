@@ -10,7 +10,6 @@ import type { Address } from "viem";
 import { sepolia } from "wagmi/chains";
 import Link from "next/link";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { Panel } from "@/components/ui/Panel";
 import { rememberOrg } from "@/lib/ens/recentOrgs";
 import { WalletButton } from "@/components/WalletButton";
 import { SignalDither } from "@/components/dither/SignalDither";
@@ -45,10 +44,16 @@ export function Wizard() {
   const index = STEPS.findIndex((s) => s.id === step);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[14rem_minmax(0,38rem)] lg:gap-14">
-      <Rail steps={STEPS} current={index} />
+    <div className="relative overflow-hidden rounded-sharp border border-rule bg-paper-raise">
+      {/* The signal is the ground the whole flow sits on, not a picture beside it. As a column
+          of its own it read as a fourth unrelated thing on the page; underneath everything it is
+          what binds the rail, the step and the heading into one surface. */}
+      <Plate step={step} progress={(index + 1) / STEPS.length} />
 
-      <div className="min-w-0">
+      <div className="relative grid gap-8 px-5 py-8 sm:px-8 lg:grid-cols-[12rem_minmax(0,36rem)] lg:gap-14 lg:px-12 lg:py-12">
+        <Rail steps={STEPS} current={index} />
+
+        <div className="min-w-0">
         {step === "connect" ? <ConnectStep onDone={() => setStep("name")} /> : null}
 
         {step === "name" ? (
@@ -96,8 +101,49 @@ export function Wizard() {
           />
         ) : null}
 
-        {step === "done" ? <DoneStep org={orgName} branch={branchLabel} /> : null}
+          {step === "done" ? <DoneStep org={orgName} branch={branchLabel} /> : null}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The signal, filling in as the organization gets built.
+ *
+ * This flow had none of the product's own imagery — six panels on grid paper, while the landing
+ * runs the same dither at full strength. A page that quietly opts out of its system's strongest
+ * move is the reason it read as a form rather than as part of the product.
+ *
+ * The motif is not decoration here: it tracks what exists. It opens as a flat waveform, becomes
+ * a ripple once a name is being chosen, sweeps as a radar while contracts deploy, and resolves
+ * into the wifi mark once there is a perimeter to admit people to. Intensity rises with
+ * progress, so the plate is faint at the start and fully lit at the end.
+ */
+function Plate({ step, progress }: { step: StepId; progress: number }) {
+  const motif =
+    step === "connect" || step === "name"
+      ? "waveform"
+      : step === "setup"
+        ? "radar"
+        : step === "groups"
+          ? "ripple"
+          : "wifi";
+
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 right-0 hidden w-[58%] lg:block"
+    >
+      <SignalDither
+        motif={motif}
+        cell={3}
+        period={motif === "radar" ? 3.6 : 5}
+        // Low enough to stay a ground rather than compete with the text sitting on it, and
+        // rising as the organization fills in.
+        intensity={0.16 + progress * 0.26}
+        className="absolute inset-0"
+      />
     </div>
   );
 }
@@ -116,7 +162,7 @@ function Rail({ steps, current }: { steps: typeof STEPS; current: number }) {
     // `min-w-0` so the horizontal step list can actually scroll on a phone. Without it the grid
     // track sizes to the list's full width — six 8.5rem items — and every panel below inherits
     // that width and runs off the screen.
-    <div className="min-w-0 lg:sticky lg:top-10 lg:self-start">
+    <div className="min-w-0 lg:sticky lg:top-12 lg:self-start">
       <p className="label mb-4 hidden lg:block">
         Step {current + 1} of {steps.length}
       </p>
@@ -215,8 +261,8 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
   const wrongChain = isConnected && chainId !== sepolia.id;
 
   return (
-    <Panel as="section">
-      <div className="px-5 py-6">
+    <section>
+      <div>
         <h2 className="text-lg tracking-[-0.01em] text-ink">Connect a wallet</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           This wallet owns the organization. It holds the .eth name, root of every perimeter
@@ -275,7 +321,7 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
           </p>
         ) : null}
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -295,8 +341,8 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
   const roots = (owned.names ?? []).filter((n) => n.isTopLevel);
 
   return (
-    <Panel as="section">
-      <div className="px-5 py-6">
+    <section>
+      <div>
         <h2 className="text-lg tracking-[-0.01em] text-ink">Choose the organization name</h2>
         <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
           This name is the trust root. Every perimeter is registered beneath it and every membership
@@ -434,7 +480,7 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
           )}
         </div>
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -457,8 +503,8 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
   const ready = setup.state.step === "deployed" && setup.state.pointed;
 
   return (
-    <Panel as="section">
-      <div className="px-5 py-6">
+    <section>
+      <div>
         <h2 className="text-lg tracking-[-0.01em] text-ink">
           Set <span className="font-mono">{orgName}</span> up as an organization
         </h2>
@@ -545,7 +591,7 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
           </Button>
         </div>
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -628,8 +674,8 @@ function BranchStep({
   }
 
   return (
-    <Panel as="section">
-      <div className="px-5 py-6">
+    <section>
+      <div>
         <h2 className="text-lg tracking-[-0.01em] text-ink">Open the first perimeter</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           A perimeter is a location — an event, an office, a site. It gets a registry of its own,
@@ -692,7 +738,7 @@ function BranchStep({
           </Button>
         </div>
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -907,8 +953,8 @@ function GroupsStep({
       }`;
 
   return (
-    <Panel as="section">
-      <div className="px-5 py-6">
+    <section>
+      <div>
         <h2 className="text-lg tracking-[-0.01em] text-ink">Define the groups</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           A group is a category of people — it mints no name. Onboarding assigns one, and its
@@ -1217,7 +1263,7 @@ function GroupsStep({
           </p>
         ) : null}
       </div>
-    </Panel>
+    </section>
   );
 }
 
@@ -1245,11 +1291,11 @@ function Status({ outcome }: { outcome: Outcome | undefined }) {
 
 function DoneStep({ org, branch }: { org: string | null; branch: string | null }) {
   return (
-    <Panel as="section" className="overflow-hidden">
+    <section className="overflow-hidden">
       <div className="relative h-28 border-b border-rule">
         <SignalDither motif="ripple" cell={3} period={3.4} intensity={0.6} className="absolute inset-0" />
       </div>
-      <div className="px-5 py-6">
+      <div>
         <h2 className="text-lg tracking-[-0.01em] text-ink">The organization is open</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           {branch
@@ -1270,6 +1316,6 @@ function DoneStep({ org, branch }: { org: string | null; branch: string | null }
           </p>
         ) : null}
       </div>
-    </Panel>
+    </section>
   );
 }
