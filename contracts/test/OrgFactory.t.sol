@@ -205,6 +205,70 @@ contract OrgFactoryTest is Test {
     }
 
     ////////////////////////////////////////////////////////////////////////
+    // Pointing the name, in the same transaction
+    ////////////////////////////////////////////////////////////////////////
+
+    /// Delegating two roles lets the factory finish the job, so the whole setup is one batched
+    /// wallet confirmation rather than three sequential ones — and cannot be abandoned halfway.
+    function test_points_the_name_when_the_owner_delegates_it() public {
+        _own("acme", alice);
+
+        uint256 resource = ethRegistry.getResource(uint256(keccak256("acme")));
+        uint256 needed =
+            RegistryRolesLib.ROLE_SET_SUBREGISTRY | RegistryRolesLib.ROLE_SET_RESOLVER;
+        vm.prank(alice);
+        ethRegistry.grantRoles(resource, needed, address(factory));
+
+        OrgFactory.Organization memory org = _create("acme", ACME_DNS, alice);
+
+        assertEq(
+            address(ethRegistry.getSubregistry("acme")),
+            org.registry,
+            "the name points at its own registry"
+        );
+        assertEq(ethRegistry.getResolver("acme"), org.resolver, "and its own resolver");
+    }
+
+    /// The delegation is the owner's to remove, and the console batches it into the same
+    /// transaction — so the factory is never trusted to give itself anything back.
+    function test_the_owner_takes_the_delegation_back_in_the_same_batch() public {
+        _own("acme", alice);
+        uint256 resource = ethRegistry.getResource(uint256(keccak256("acme")));
+        uint256 needed =
+            RegistryRolesLib.ROLE_SET_SUBREGISTRY | RegistryRolesLib.ROLE_SET_RESOLVER;
+
+        // What the console sends as one batched call: grant, create, revoke.
+        vm.startPrank(alice);
+        ethRegistry.grantRoles(resource, needed, address(factory));
+        factory.createOrganization("acme", ACME_DNS);
+        ethRegistry.revokeRoles(resource, needed, address(factory));
+        vm.stopPrank();
+
+        assertEq(
+            address(ethRegistry.getSubregistry("acme")),
+            factory.organizationFor("acme").registry,
+            "the name is pointed"
+        );
+        assertFalse(
+            ethRegistry.hasRoles(resource, needed, address(factory)),
+            "and the factory keeps no say over it"
+        );
+    }
+
+    /// Without the delegation it still works — the owner points the name themselves afterwards.
+    function test_works_without_the_delegation_too() public {
+        _own("acme", alice);
+        OrgFactory.Organization memory org = _create("acme", ACME_DNS, alice);
+
+        assertTrue(org.registry != address(0), "the organization is still built");
+        assertEq(
+            address(ethRegistry.getSubregistry("acme")),
+            address(0),
+            "just not pointed at yet"
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////
     // Guards
     ////////////////////////////////////////////////////////////////////////
 

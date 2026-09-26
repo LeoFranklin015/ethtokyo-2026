@@ -18,6 +18,16 @@ import {
 } from "./OrgDeployers.sol";
 import {OrgRegistrar} from "./OrgRegistrar.sol";
 
+interface IEthRegistry {
+    function setSubregistry(uint256 tokenId, address registry) external;
+    function setResolver(uint256 tokenId, address resolver) external;
+    function getResource(uint256 anyId) external view returns (uint256);
+    function hasRoles(uint256 resource, uint256 roleBitmap, address account)
+        external
+        view
+        returns (bool);
+}
+
 interface IResolverAdmin {
     function grantRootRoles(uint256 roleBitmap, address account) external returns (bool);
     function revokeRootRoles(uint256 roleBitmap, address account) external returns (bool);
@@ -186,12 +196,39 @@ contract OrgFactory {
             factory.requiredResolverRoles(), org.branchFactory
         );
 
+        // Point the name at what we just built, if the caller let us.
+        //
+        // They cannot do this themselves until the registry exists, so doing it here is the
+        // difference between one wallet confirmation and three — and between a half-finished
+        // organization and a working one when somebody closes the tab after the first. It only
+        // happens when the owner has granted these two roles (batched alongside this call by
+        // the console), and the grant is handed straight back below.
+        _pointName(org, anyId);
         _handOver(org, msg.sender);
 
         organizations[labelHash] = org;
         emit OrganizationCreated(
             label, node, msg.sender, org.registry, org.resolver, org.orgRegistrar, org.branchFactory
         );
+    }
+
+    /// @dev Point `<label>.eth` at the organization, when the owner has delegated that.
+    ///
+    ///      Silent when they have not: the two-step flow still works, and a caller who does not
+    ///      want to delegate anything should not be forced to.
+    ///
+    ///      This deliberately does **not** revoke the delegation itself. Doing so would need the
+    ///      admin half of those roles, i.e. asking the owner for strictly more privilege than
+    ///      the job requires. Instead the console puts the owner's own `revokeRoles` in the same
+    ///      batched call, so the grant and its removal land in one atomic transaction and the
+    ///      factory is never trusted with the power to re-grant itself anything.
+    function _pointName(Organization memory org, uint256 anyId) internal {
+        uint256 resource = ETH_REGISTRY.getResource(anyId);
+        uint256 needed = RegistryRolesLib.ROLE_SET_SUBREGISTRY | RegistryRolesLib.ROLE_SET_RESOLVER;
+        if (!IEthRegistry(address(ETH_REGISTRY)).hasRoles(resource, needed, address(this))) return;
+
+        IEthRegistry(address(ETH_REGISTRY)).setSubregistry(anyId, org.registry);
+        IEthRegistry(address(ETH_REGISTRY)).setResolver(anyId, org.resolver);
     }
 
     /// @dev Give the caller everything and keep nothing. Separated out so `createOrganization`

@@ -48,8 +48,8 @@
   "branchFactory": "0x4C96E37b679427d362BDE6dFdF123A10f80caA0B",
   "orgNode": "0x291def960cdeed286467d6beeaad1ab15faeb706a2dcd0126a3a6a22ef3e3aef",
   "previousBranchFactory": "0x56fFA42E57b864eff61C0A5454BEAB140dFe6ec5 (pre teardown hardening)",
-  "orgFactory": "0xecAAD0D9Afd9C7991f09ad43527B2076fa501132",
-  "resolverImplementation": "0xc855C6b22777eDA42378fe170BCc3bB4818d0DD2",
+  "orgFactory": "0xBCFb2BB689BCD4D5E74D183f43572d95B5FFf681",
+  "resolverImplementation": "0xF26E49F6a7F36f0F23436cD2e6C8A7bd85036bC5",
   "note.orgFactory": "Shared and unprivileged: anyone who owns a .eth name can stand up their own organization with it.",
   "organizations": {
     "sairann.eth": {
@@ -58,6 +58,11 @@
       "orgRegistrar": "0x6a2eb52962B8d03e656F1EBa48Fe597224C395C2",
       "branchFactory": "0x440EFDa797b12017B3f4a389ff9AB725497b4f8c",
       "node": "0x9244695c5b56142fa2b1a2331612f4f501e62c932b8746dd49ab1fa65031610c"
+    },
+    "ensca-demo-org.eth": {
+      "registry": "0x388032BEb66051d33BFE7a9cbaD9341d8d321836",
+      "resolver": "0x586c3fE43E4273cb5456DC46BbA33b1c37481FF7",
+      "note": "created and pointed in one createOrganization call, with the pointing roles delegated and returned"
     }
   }
 }

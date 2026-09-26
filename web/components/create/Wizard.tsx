@@ -424,11 +424,19 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
           console keeps no key and no role over any of them.
         </p>
 
+        <p className="mt-2 font-mono text-[0.6875rem] text-ink-muted">
+          {setup.batchable
+            ? "your wallet can batch these — one confirmation"
+            : "your wallet signs these one at a time"}
+        </p>
+
         <ol className="mt-5 space-y-4">
           <li className="rounded-sharp border border-rule px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-sm text-ink">1 · Deploy the organization&rsquo;s contracts</span>
-              {setup.state.step === "deployed" ? (
+              <span className="text-sm text-ink">
+                1 · Deploy the contracts and point {orgName} at them
+              </span>
+              {ready ? (
                 <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
                   done
                 </span>
@@ -459,28 +467,22 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
             ) : null}
           </li>
 
-          <li className="rounded-sharp border border-rule px-4 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-sm text-ink">2 · Point {orgName} at them</span>
-              {ready ? (
-                <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
-                  done
-                </span>
-              ) : (
-                <Button
-                  variant="solid"
-                  onClick={setup.point}
-                  disabled={setup.busy || setup.state.step !== "deployed"}
-                >
+          {/* Only shown when the first step did not manage the pointing — an interrupted
+              sequential run, or a wallet that refused the delegation. */}
+          {setup.state.step === "deployed" && !setup.state.pointed ? (
+            <li className="rounded-sharp border border-rule px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="text-sm text-ink">2 · Point {orgName} at them</span>
+                <Button variant="solid" onClick={setup.point} disabled={setup.busy}>
                   {setup.busy ? "Pointing…" : "Point the name"}
                 </Button>
-              )}
-            </div>
-            <p className="mt-2 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
-              Only the name&rsquo;s owner may do this, which is why it is its own transaction
-              rather than something the factory could slip in.
-            </p>
-          </li>
+              </div>
+              <p className="mt-2 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+                The contracts exist but the name does not resolve to them yet. Only the
+                name&rsquo;s owner can change that, so it is a transaction from this wallet.
+              </p>
+            </li>
+          ) : null}
         </ol>
 
         {setup.error ? (

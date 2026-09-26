@@ -1,8 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { usePublicClient, useWriteContract } from "wagmi";
-import { keccak256, toHex, type Address, type Hex } from "viem";
+import {
+  useAccount,
+  useCapabilities,
+  usePublicClient,
+  useSendCalls,
+  useSendTransaction,
+  useWaitForCallsStatus,
+  useWriteContract,
+} from "wagmi";
+import { encodeFunctionData, keccak256, toHex, type Address, type Hex } from "viem";
 import { ethRegistryWriteAbi, orgFactoryAbi, registryAbi } from "@/lib/ens/abis";
 import { ENS } from "@/lib/ens/config";
 
@@ -15,12 +23,19 @@ import { ENS } from "@/lib/ens/config";
  * an operator ran by hand. So the console had exactly one organization, and picking a different
  * name changed a label on screen while branches still landed under the original.
  *
- * Two transactions, both from the owner's wallet, and both necessary:
+ * Three calls, and ideally one confirmation.
  *
- *   1. `createOrganization` deploys the four contracts and hands root of all of them over.
- *   2. `setSubregistry` points the `.eth` name at the new registry. The factory cannot do this —
- *      only the name's owner may — which is exactly why it is a separate step rather than a
- *      hidden one.
+ *   1. grant the factory permission to point the name (the owner's own call)
+ *   2. `createOrganization` — deploys the four contracts, points the name, hands root over
+ *   3. revoke that permission again
+ *
+ * Where the wallet supports EIP-5792 `wallet_sendCalls`, those go as one atomic batch: one
+ * prompt, one confirmation, and no way to end up with an organization that exists but is not
+ * pointed at because somebody closed the tab between two transactions. That half-finished state
+ * is what made this step feel flaky.
+ *
+ * Where it does not, the same three run sequentially and the result is identical — slower, and
+ * interruptible, which is why the UI can always resume from whatever actually landed.
  */
 
 export type OrgAddresses = {
@@ -38,12 +53,29 @@ export type SetupState =
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
+/** `ROLE_SET_SUBREGISTRY | ROLE_SET_RESOLVER` — exactly what pointing a name needs, nothing more. */
+const POINTING_ROLES = (1n << 20n) | (1n << 24n);
+
 export function useOrgSetup(label: string | null) {
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
+  const { chainId } = useAccount();
+  const { sendCallsAsync } = useSendCalls();
+  const { sendTransactionAsync } = useSendTransaction();
+  const { data: capabilities } = useCapabilities();
   const [state, setState] = useState<SetupState>({ step: "unknown" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [batchId, setBatchId] = useState<string | undefined>();
+
+  // Does this wallet execute a batch atomically? EIP-7702 accounts and smart accounts do; a
+  // plain EOA in an older wallet does not, and gets the sequential path instead.
+  const atomic = chainId ? capabilities?.[chainId]?.atomic?.status : undefined;
+  const batchable = atomic === "supported" || atomic === "ready";
+
+  // When batched, the calls land together — so the UI learns the outcome from the batch, not
+  // from three separate receipts.
+  const { data: batchStatus } = useWaitForCallsStatus({ id: batchId });
 
   /** What, if anything, already exists for this name. */
   const refresh = useCallback(async () => {
@@ -91,28 +123,81 @@ export function useOrgSetup(label: string | null) {
     };
   }, [refresh]);
 
-  /** Step 1: deploy the organization's own contracts. */
+  /**
+   * Deploy the organization and point the name at it.
+   *
+   * One batched call where the wallet allows it, three transactions where it does not.
+   */
   const create = useCallback(async () => {
     if (!label || !publicClient) return;
     setBusy(true);
     setError(null);
     try {
-      const hash = await writeContractAsync({
-        address: ENS.orgFactory as Address,
-        abi: orgFactoryAbi,
-        functionName: "createOrganization",
-        args: [label, dnsEncode(`${label}.eth`)],
-      });
-      await publicClient.waitForTransactionReceipt({ hash });
-      await refresh();
+      const tokenId = BigInt(keccak256(toHex(label)));
+      const resource = (await publicClient.readContract({
+        address: ENS.ethRegistry as Address,
+        abi: registryAbi,
+        functionName: "getResource",
+        args: [tokenId],
+      })) as bigint;
+
+      const grant = {
+        to: ENS.ethRegistry as Address,
+        data: encodeFunctionData({
+          abi: ethRegistryWriteAbi,
+          functionName: "grantRoles",
+          args: [resource, POINTING_ROLES, ENS.orgFactory as Address],
+        }),
+      };
+      const create_ = {
+        to: ENS.orgFactory as Address,
+        data: encodeFunctionData({
+          abi: orgFactoryAbi,
+          functionName: "createOrganization",
+          args: [label, dnsEncode(`${label}.eth`)],
+        }),
+      };
+      const revoke = {
+        to: ENS.ethRegistry as Address,
+        data: encodeFunctionData({
+          abi: ethRegistryWriteAbi,
+          functionName: "revokeRoles",
+          args: [resource, POINTING_ROLES, ENS.orgFactory as Address],
+        }),
+      };
+
+      if (batchable) {
+        const result = await sendCallsAsync({ calls: [grant, create_, revoke] });
+        setBatchId(typeof result === "string" ? result : result.id);
+      } else {
+        // The same three, one at a time. Each is awaited before the next, so a failure stops
+        // the sequence rather than leaving the grant outstanding.
+        for (const call of [grant, create_, revoke]) {
+          const hash = await sendTransactionAsync({ to: call.to, data: call.data });
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
+        await refresh();
+      }
     } catch (e) {
       setError(readable(e));
     } finally {
       setBusy(false);
     }
-  }, [label, publicClient, refresh, writeContractAsync]);
+  }, [batchable, label, publicClient, refresh, sendCallsAsync, sendTransactionAsync]);
 
-  /** Step 2: point the name at it. Only the name's owner can do this. */
+  useEffect(() => {
+    if (batchStatus?.status !== "success") return;
+    // Deferred so the re-read lands in its own render pass rather than cascading out of this one.
+    let live = true;
+    void Promise.resolve().then(() => {
+      if (live) void refresh();
+    });
+    return () => {
+      live = false;
+    };
+  }, [batchStatus?.status, refresh]);
+
+  /** The fallback when the factory was not delegated: point the name yourself, afterwards. */
   const point = useCallback(async () => {
     if (!label || !publicClient || state.step !== "deployed") return;
     setBusy(true);
@@ -142,7 +227,7 @@ export function useOrgSetup(label: string | null) {
     }
   }, [label, publicClient, refresh, state, writeContractAsync]);
 
-  return { state, busy, error, create, point, refresh };
+  return { state, busy, error, batchable, create, point, refresh };
 }
 
 /** `acme.eth` → `\x04acme\x03eth\x00`, which is what the factory hashes to derive the node. */

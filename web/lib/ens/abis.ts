@@ -154,6 +154,8 @@ export const orgFactoryAbi = [
 ] as const;
 
 export const ethRegistryWriteAbi = [
+  { type: "function", name: "grantRoles", stateMutability: "nonpayable", inputs: [{ name: "resource", type: "uint256" }, { name: "roleBitmap", type: "uint256" }, { name: "account", type: "address" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "revokeRoles", stateMutability: "nonpayable", inputs: [{ name: "resource", type: "uint256" }, { name: "roleBitmap", type: "uint256" }, { name: "account", type: "address" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "setSubregistry", stateMutability: "nonpayable", inputs: [{ name: "tokenId", type: "uint256" }, { name: "registry", type: "address" }], outputs: [] },
   { type: "function", name: "setResolver", stateMutability: "nonpayable", inputs: [{ name: "tokenId", type: "uint256" }, { name: "resolver", type: "address" }], outputs: [] },
 ] as const;

@@ -20,7 +20,7 @@ export const ENS = {
 
   /// Shared and unprivileged: anyone who owns a `.eth` name turns it into an organization with
   /// this. It keeps nothing, so one instance serves everybody.
-  orgFactory: "0xecAAD0D9Afd9C7991f09ad43527B2076fa501132",
+  orgFactory: "0xBCFb2BB689BCD4D5E74D183f43572d95B5FFf681",
   resolver: "0x9D8f1376aED12F6F7Ba041285Cce833AcED13092",
 
   /**
