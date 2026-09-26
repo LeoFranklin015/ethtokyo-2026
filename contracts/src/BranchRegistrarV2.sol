@@ -6,6 +6,7 @@ import {IPermissionedRegistry} from "@ens-v2/registry/interfaces/IPermissionedRe
 import {IRegistry} from "@ens-v2/registry/interfaces/IRegistry.sol";
 import {OrgRegistrar} from "./OrgRegistrar.sol";
 import {RegistryRolesLib} from "@ens-v2/registry/libraries/RegistryRolesLib.sol";
+import {NameCoder} from "@ens/contracts/utils/NameCoder.sol";
 
 interface IBranchResolver {
     function setText(bytes32 node, string calldata key, string calldata value) external;
@@ -121,6 +122,10 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     mapping(uint256 membershipResource => address member) public memberOf;
     mapping(address account => uint256 membershipResource) public membershipOf;
     mapping(uint256 membershipResource => string label) public labelOf;
+    /// @dev The keys actually delegated to this membership at onboarding. The role's list can
+    ///      change afterwards, and teardown must revoke what was granted — not what the
+    ///      catalogue happens to say today, or a dropped key stays live on a recycled label.
+    mapping(uint256 membershipResource => string[]) internal _grantedKeys;
 
     uint256 private _entered;
 
@@ -145,6 +150,7 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     error InvalidOwner();
     error MembershipStillLive(address account);
     error ForbiddenRegistryRoles(uint256 bitmap);
+    error NameNodeMismatch();
 
     modifier nonReentrant() {
         if (_entered == 1) revert Reentrancy();
@@ -166,6 +172,9 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         RESOLVER = resolver;
         BRANCH_EXPIRY = branchExpiry;
         ORG = org;
+        // If these two ever disagreed, `authorizeTextRoles` would delegate rights under a
+        // namespace this contract never writes to — silently, and on a shared resolver.
+        if (NameCoder.namehash(branchDnsName, 0) != branchNode) revert NameNodeMismatch();
         BRANCH_NODE = branchNode;
         BRANCH_DNS_NAME = branchDnsName;
         _grantRoles(
@@ -197,8 +206,14 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     /// @dev Memberships are soulbound and may not re-point their own name: transferring one
     ///      would move authority to a wallet the branch never admitted, and re-pointing the
     ///      subregistry or resolver would take the name outside the branch's control.
+    /// @dev Blocking only the `_ADMIN` halves would stop a member *delegating* these onward
+    ///      while leaving them free to use them: `setSubregistry` and `setResolver` check the
+    ///      plain bit, and `unregister` would let a member self-destruct their name and strand
+    ///      this contract's bookkeeping.
     uint256 public constant FORBIDDEN_REGISTRY_ROLES = RegistryRolesLib.ROLE_CAN_TRANSFER_ADMIN
-        | RegistryRolesLib.ROLE_SET_SUBREGISTRY_ADMIN | RegistryRolesLib.ROLE_SET_RESOLVER_ADMIN;
+        | RegistryRolesLib.ROLE_SET_SUBREGISTRY | RegistryRolesLib.ROLE_SET_SUBREGISTRY_ADMIN
+        | RegistryRolesLib.ROLE_SET_RESOLVER | RegistryRolesLib.ROLE_SET_RESOLVER_ADMIN
+        | RegistryRolesLib.ROLE_UNREGISTER | RegistryRolesLib.ROLE_REGISTRAR;
 
     /// @param editableKeys Text keys this role's holders may write on their own name.
     function defineRole(
@@ -317,7 +332,7 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         // Hand the member their own record rights, in the resolver's own terms: `ROLE_SET_TEXT`
         // on `resource(theirNode, partHash(key))`. They then call `setText` directly and the
         // resolver checks both dimensions — this contract never writes on their behalf again.
-        _delegateKeys(label, role, owner, true);
+        _delegateKeys(resource, label, _editableKeys[role], owner, true);
 
         emit Onboarded(resource, label, owner, role);
     }
@@ -333,33 +348,11 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         address member = memberOf[resource];
         if (member == address(0)) revert NotOnboarded(member);
 
-        string memory label = labelOf[resource];
-        bytes32 node = membershipNode(label);
-        bytes32 role = roleOf[resource];
-
-        Entitlement[] storage grants = _entitlements[role];
-        for (uint256 i; i < grants.length; ++i) {
-            RESOLVER.setText(node, grants[i].key, "");
-        }
-        // Clear what the member wrote themselves as well. The resolver keeps text keyed by
-        // namehash even after the registry forgets the name, so leaving these would hand a
-        // stale profile to whoever registers the label next.
-        string[] storage keys = _editableKeys[role];
-        for (uint256 i; i < keys.length; ++i) {
-            RESOLVER.setText(node, keys[i], "");
-        }
-        // Take the resolver-side rights back too, or a revoked member keeps writing their own
-        // records at a name the registry no longer says is theirs.
-        _delegateKeys(label, role, member, false);
+        _tearDown(resource, member);
 
         if (REGISTRY.getStatus(resource) != IPermissionedRegistry.Status.AVAILABLE) {
             REGISTRY.unregister(resource);
         }
-
-        delete roleOf[resource];
-        delete memberOf[resource];
-        delete labelOf[resource];
-        delete membershipOf[member];
         emit Revoked(resource, member);
     }
 
@@ -378,10 +371,10 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
                 && REGISTRY.getOwner(resource) == account
         ) revert MembershipStillLive(account);
 
-        delete roleOf[resource];
-        delete memberOf[resource];
-        delete labelOf[resource];
-        delete membershipOf[account];
+        // The same teardown `revoke` runs. Skipping it here was the whole bug: namehash does
+        // not include the registry's version id, so a stale grant on a freed label is a grant
+        // on whoever is registered under that label next.
+        _tearDown(resource, account);
         emit MembershipReleased(account, resource);
     }
 
@@ -403,17 +396,55 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
         for (uint256 i; i < withdraw.length; ++i) {
             RESOLVER.authorizeTextRoles(dnsName, withdraw[i], member, false);
         }
-        _delegateKeys(label, roleOf[resource], member, true);
+        delete _grantedKeys[resource];
+        _delegateKeys(resource, label, _editableKeys[roleOf[resource]], member, true);
         emit MemberKeysSynced(resource, member);
     }
 
-    /// @dev Grant or revoke a role's self-editable keys to `account`, on their own name only.
-    function _delegateKeys(string memory label, bytes32 role, address account, bool grant) internal {
-        string[] storage keys = _editableKeys[role];
+    /// @dev Everything that must happen when a membership ends, by any route: published
+    ///      entitlements cleared, the member's own records cleared, every delegated key handed
+    ///      back, and the bookkeeping dropped. Any path that ends a membership without this
+    ///      leaves live write permissions pointing at a name somebody else will get.
+    function _tearDown(uint256 resource, address member) internal {
+        string memory label = labelOf[resource];
+        bytes32 node = membershipNode(label);
+
+        Entitlement[] storage grants = _entitlements[roleOf[resource]];
+        for (uint256 i; i < grants.length; ++i) {
+            RESOLVER.setText(node, grants[i].key, "");
+        }
+
+        string[] storage granted = _grantedKeys[resource];
+        for (uint256 i; i < granted.length; ++i) {
+            RESOLVER.setText(node, granted[i], "");
+        }
+        _delegateKeys(resource, label, granted, member, false);
+
+        delete _grantedKeys[resource];
+        delete roleOf[resource];
+        delete memberOf[resource];
+        delete labelOf[resource];
+        delete membershipOf[member];
+    }
+
+    /// @dev Grant or revoke a set of keys to `account`, on their own name only.
+    function _delegateKeys(
+        uint256 resource,
+        string memory label,
+        string[] storage keys,
+        address account,
+        bool grant
+    ) internal {
         if (keys.length == 0) return;
+        // An empty label makes `namehash` return 0, which the resolver reads as "every name".
+        // Unreachable today — every caller has a validated label — but the failure mode is a
+        // member with write access to one key on every name this resolver serves.
+        if (bytes(label).length == 0) revert InvalidLabel(label);
+
         bytes memory dnsName = membershipDnsName(label);
         for (uint256 i; i < keys.length; ++i) {
             RESOLVER.authorizeTextRoles(dnsName, keys[i], account, grant);
+            if (grant) _grantedKeys[resource].push(keys[i]);
         }
     }
 
@@ -462,6 +493,7 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     function setRecord(uint256 anyId, string calldata key, string calldata value) external {
         if (!hasRootRoles(ROLE_EDIT_RECORD, msg.sender)) revert CannotEditKey(msg.sender, key);
         uint256 resource = _resolveResource(anyId);
+        if (memberOf[resource] == address(0)) revert NotOnboarded(memberOf[resource]);
         RESOLVER.setText(membershipNode(labelOf[resource]), key, value);
         emit RecordSet(resource, key, value);
     }

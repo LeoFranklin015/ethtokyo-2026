@@ -243,6 +243,44 @@ contract RecordPermissionsTest is Test {
         assertEq(resolver.text(_node("mentor1"), "wifi.rate"), "", "entitlement cleared");
     }
 
+    /// Blocking only the `_ADMIN` halves would stop a member delegating these onward while
+    /// leaving them free to use them. Each of these alone takes the name out of branch control.
+    function test_a_role_cannot_hand_out_any_escape_hatch() public {
+        uint256[4] memory escapes = [
+            RegistryRolesLib.ROLE_SET_RESOLVER,
+            RegistryRolesLib.ROLE_SET_SUBREGISTRY,
+            RegistryRolesLib.ROLE_UNREGISTER,
+            RegistryRolesLib.ROLE_REGISTRAR
+        ];
+        for (uint256 i; i < escapes.length; ++i) {
+            vm.prank(organizer);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    BranchRegistrarV2.ForbiddenRegistryRoles.selector, escapes[i]
+                )
+            );
+            registrar.defineRole(
+                "escapee", escapes[i], false, true, new string[](0),
+                new BranchRegistrarV2.Entitlement[](0)
+            );
+        }
+    }
+
+    /// A branch whose stored name and stored node disagree would delegate rights under a
+    /// namespace it never writes to — on a resolver shared with every other branch.
+    function test_a_branch_cannot_be_deployed_with_a_name_that_is_not_its_node() public {
+        vm.expectRevert(BranchRegistrarV2.NameNodeMismatch.selector);
+        new BranchRegistrarV2(
+            IPermissionedRegistry(address(registry)),
+            IBranchResolver(address(resolver)),
+            expiry,
+            organizer,
+            org,
+            keccak256("not.the.same.name"),
+            BRANCH_DNS_NAME
+        );
+    }
+
     /// A membership that can re-point its own name is a membership outside the branch's control.
     function test_a_role_cannot_hand_out_dangerous_registry_roles() public {
         uint256 forbidden = registrar.FORBIDDEN_REGISTRY_ROLES();
@@ -253,6 +291,55 @@ contract RecordPermissionsTest is Test {
         registrar.defineRole(
             "escapee", forbidden, false, true, new string[](0),
             new BranchRegistrarV2.Entitlement[](0)
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////
+    // Ending a membership by the other route
+    ////////////////////////////////////////////////////////////////////////
+
+    /// `releaseMembership` is permissionless by design — it only acts when the registry already
+    /// disagrees. That makes it all the more important that it tears down as thoroughly as
+    /// `revoke`: namehash carries no version id, so a grant left on a freed label is a grant on
+    /// whoever is registered under that label next.
+    function test_release_takes_back_the_resolver_rights() public {
+        uint256 resource = registrar.membershipOf(mentor);
+        assertTrue(resolver.mayWrite(_node("mentor1"), "avatar", mentor), "held before");
+
+        // Make the registry disagree, the way a direct root `unregister` would.
+        registry.unregister(resource);
+
+        // Anyone may call it — the precondition, not a role, is the guard.
+        vm.prank(outsider);
+        registrar.releaseMembership(mentor);
+
+        assertEq(registrar.membershipOf(mentor), 0, "pointer cleared");
+        assertFalse(
+            resolver.mayWrite(_node("mentor1"), "avatar", mentor),
+            "and the delegated write is gone"
+        );
+        assertEq(resolver.text(_node("mentor1"), "wifi.rate"), "", "entitlements cleared");
+    }
+
+    /// The nastier version: the key was dropped from the role *after* the member was onboarded,
+    /// so the role's current list no longer mentions it. Teardown must still revoke it.
+    function test_a_key_dropped_from_the_role_is_still_revoked_from_its_holder() public {
+        assertTrue(resolver.mayWrite(_node("mentor1"), "ssh.pubkey", mentor));
+
+        string[] memory fewer = new string[](1);
+        fewer[0] = "avatar";
+        vm.prank(organizer);
+        registrar.defineRole(
+            "mentor", 0, false, true, fewer, new BranchRegistrarV2.Entitlement[](0)
+        );
+
+        uint256 resource = registrar.membershipOf(mentor);
+        vm.prank(organizer);
+        registrar.revoke(resource);
+
+        assertFalse(
+            resolver.mayWrite(_node("mentor1"), "ssh.pubkey", mentor),
+            "revoked from what they were granted, not from what the role now lists"
         );
     }
 
