@@ -70,7 +70,14 @@ export function WalletButton({ compact = false }: { compact?: boolean }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="inline-flex items-center gap-2 rounded-sharp border border-rule bg-paper px-3 py-1.5 font-mono text-xs text-ink hover:bg-ink/5"
+        // A pill, like every other action in the product. It was a square-cornered chip, which
+        // read as a status readout rather than something you press — and it is the control that
+        // opens the wallet menu, so it has to look pressable.
+        //
+        // Not uppercased, unlike the button labels around it: this is an address, and EIP-55
+        // encodes a checksum in its capitalisation. Rendering `0XE082…` is both wrong-looking
+        // and destroys the one property that makes a mistyped address detectable.
+        className="inline-flex h-11 items-center gap-2 rounded-full border border-ink/35 bg-paper px-4 font-mono text-xs tracking-[0.08em] text-ink transition-colors hover:border-ink hover:bg-ink/5"
       >
         <span
           aria-hidden
