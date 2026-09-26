@@ -3,6 +3,7 @@ import { createPublicClient, http, keccak256, toHex, type Address, type Hex } fr
 import { sepolia } from "viem/chains";
 import { orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
 import { ENS, ENTITLEMENT_KEYS, RPC_URL } from "./config";
+import { getIndexedMemberships } from "./indexer";
 
 /**
  * Reads the ENSCA contracts directly. Server-side only, so viem never reaches the client bundle.
@@ -12,7 +13,17 @@ import { ENS, ENTITLEMENT_KEYS, RPC_URL } from "./config";
  * sessions and bytes — the two answer different questions and neither substitutes for the other.
  */
 
-const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL) });
+// `batch` collapses the concurrent reads below into single JSON-RPC batch requests, and
+// `multicall` aggregates eth_call through Multicall3 — the per-membership reads dominate latency
+// otherwise, since each one is its own round trip to a public node.
+const client = createPublicClient({
+  chain: sepolia,
+  transport: http(RPC_URL, { batch: { wait: 8 } }),
+  batch: { multicall: { wait: 8 } },
+});
+
+/** Role names change only when an organization edits its catalogue. */
+let roleNameCache: { at: number; names: Map<string, string> } | null = null;
 
 const labelHash = (label: string) => BigInt(keccak256(toHex(label)));
 
@@ -26,6 +37,8 @@ export type RoleInfo = {
   entitlements: { key: string; value: string }[];
 };
 
+export type MembershipSource = "indexer" | "chain";
+
 export type EnsMembership = {
   label: string;
   name: string;
@@ -36,6 +49,12 @@ export type EnsMembership = {
   /** The Member name that survives this membership, if the wallet has one. */
   memberName: string | null;
   entitlements: Record<string, string>;
+};
+
+export type MembershipsResult = {
+  memberships: EnsMembership[];
+  /** Which path produced the rows, so the console can say so rather than imply freshness. */
+  source: MembershipSource;
 };
 
 export type EnsBranch = {
@@ -57,6 +76,8 @@ export type EnsBranch = {
  * heard of shows up here the moment it is defined.
  */
 async function roleNames(): Promise<Map<string, string>> {
+  if (roleNameCache && Date.now() - roleNameCache.at < 60_000) return roleNameCache.names;
+
   const logs = await client.getContractEvents({
     address: ENS.branchRegistrar as Address,
     abi: registrarV2Abi,
@@ -70,6 +91,7 @@ async function roleNames(): Promise<Map<string, string>> {
     const { roleId, name } = log.args as { roleId?: Hex; name?: string };
     if (roleId && name) names.set(roleId.toLowerCase(), name);
   }
+  roleNameCache = { at: Date.now(), names };
   return names;
 }
 
@@ -138,7 +160,68 @@ export async function getBranch(): Promise<EnsBranch> {
  * drops out. This is what an indexer would do; ENS's own Sepolia v2 instance is down, and reading
  * logs keeps the console honest about on-chain state regardless.
  */
-export async function getMemberships(): Promise<EnsMembership[]> {
+export async function getMemberships(): Promise<MembershipsResult> {
+  try {
+    return { memberships: await fromIndexer(), source: "indexer" };
+  } catch {
+    // The indexer is a cache, never the authority. If it is unreachable or lagging behind a
+    // deploy, fall through to reading the contracts directly rather than showing nothing.
+    return { memberships: await fromChain(), source: "chain" };
+  }
+}
+
+/**
+ * One GraphQL round trip for names, owners and entitlements; contract reads only for the parts
+ * that live in our own contracts and no ENS indexer can know.
+ */
+async function fromIndexer(): Promise<EnsMembership[]> {
+  const [indexed, names] = await Promise.all([getIndexedMemberships(), roleNames()]);
+
+  return Promise.all(
+    indexed.map(async ({ label, name, owner, entitlements }) => {
+      const resource = await client.readContract({
+        address: ENS.branchRegistry as Address,
+        abi: registryAbi,
+        functionName: "getResource",
+        args: [labelHash(label)],
+      });
+
+      const [roleId, ownRoles, memberLabel] = await Promise.all([
+        client.readContract({
+          address: ENS.branchRegistrar as Address,
+          abi: registrarV2Abi,
+          functionName: "roleOf",
+          args: [resource],
+        }),
+        client.readContract({
+          address: ENS.branchRegistry as Address,
+          abi: registryAbi,
+          functionName: "roles",
+          args: [resource, owner as Address],
+        }),
+        client.readContract({
+          address: ENS.orgRegistrar as Address,
+          abi: orgRegistrarAbi,
+          functionName: "labelOf",
+          args: [owner as Address],
+        }),
+      ]);
+
+      return {
+        label,
+        name,
+        owner: owner as Address,
+        // A role id is keccak256(name); only our RoleDefined event carries the readable name.
+        role: names.get(roleId.toLowerCase()) ?? "unknown",
+        ownRoles: ownRoles.toString(),
+        memberName: memberLabel ? `${memberLabel}.${ENS.organization}` : null,
+        entitlements,
+      } satisfies EnsMembership;
+    }),
+  );
+}
+
+async function fromChain(): Promise<EnsMembership[]> {
   const [logs, names] = await Promise.all([
     client.getContractEvents({
       address: ENS.branchRegistrar as Address,
