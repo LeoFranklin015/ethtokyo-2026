@@ -160,7 +160,7 @@ const STEPS = [
 function HowSlide() {
   return (
     <div>
-      <Kicker n={4}>How it works</Kicker>
+      <Kicker n={5}>How it works</Kicker>
       <Heading>Mint a name. Walk in. Connect.</Heading>
       <ol className="mt-10 grid gap-3 md:grid-cols-5">
         {STEPS.map(([title, body], i) => (
@@ -207,7 +207,7 @@ const RECORDS = [
 function EnsSlide() {
   return (
     <div>
-      <Kicker n={5}>The role of ENS</Kicker>
+      <Kicker n={6}>The role of ENS</Kicker>
       <Heading>ENS isn&rsquo;t a feature here. It is the access-control plane.</Heading>
 
       <div className="mt-8 grid gap-4 lg:grid-cols-[1.05fr_1fr]">
@@ -275,7 +275,7 @@ const ROADMAP = [
 function ProofSlide() {
   return (
     <div>
-      <Kicker n={6}>It runs</Kicker>
+      <Kicker n={7}>It runs</Kicker>
       <Heading>Live on a Fedora VM, a TP-Link AX80 and ENSv2 on Sepolia.</Heading>
 
       <div className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_1fr]">
@@ -389,10 +389,120 @@ function SolutionSlide() {
   );
 }
 
+/**
+ * The tree, and what a leaf actually gets.
+ *
+ * Every other way of drawing this — a list, three boxes, an architecture diagram — loses the one
+ * property that matters: access is *positional*. A membership is a leaf, its perimeter is the
+ * branch above it, and the organization is the root; nothing is granted sideways. Drawn as a
+ * tree that is self-evident, and the grants can sit on the same row as the name they belong to
+ * rather than in a legend somewhere else.
+ *
+ * The figures are the entitlement text records on those names, not illustrations of them.
+ */
+const ORG_TREE: {
+  depth: number;
+  name: string;
+  role?: string;
+  wifi?: string;
+  api?: string;
+  shell?: boolean;
+  note?: string;
+  last?: boolean;
+}[] = [
+  { depth: 0, name: "ethglobal.eth", note: "organization · owns the registry" },
+  { depth: 1, name: "tokyo.ethglobal.eth", note: "perimeter · expires with the event" },
+  { depth: 2, name: "ana.tokyo.ethglobal.eth", role: "organizer", wifi: "50 Mbit", api: "unlimited", shell: true },
+  { depth: 2, name: "leo.tokyo.ethglobal.eth", role: "mentor", wifi: "20 Mbit", api: "2,000 / day", shell: false },
+  { depth: 2, name: "sam.tokyo.ethglobal.eth", role: "hacker", wifi: "5 Mbit", api: "500 / day", shell: false },
+  { depth: 2, name: "kit.tokyo.ethglobal.eth", role: "volunteer", wifi: "10 Mbit", api: "none", shell: false, last: true },
+  { depth: 1, name: "mumbai.ethglobal.eth", note: "perimeter · November, not open yet", last: true },
+];
+
+function TreeSlide() {
+  return (
+    <div>
+      <Kicker n={4}>The tree</Kicker>
+      <Heading>Where a name sits is what it may do.</Heading>
+
+      <Plate className="mt-8 overflow-x-auto p-5">
+        <div className="min-w-[44rem]">
+          <div className="grid grid-cols-[1fr_5.5rem_5.5rem_6rem_3.25rem] gap-x-4 border-b border-rule pb-2">
+            <span className="label">Name</span>
+            <span className="label">Role</span>
+            <span className="label">WiFi</span>
+            <span className="label">API</span>
+            <span className="label">Shell</span>
+          </div>
+
+          <ul className="divide-y divide-rule-soft">
+            {ORG_TREE.map((row) => (
+              <li
+                key={row.name}
+                className="grid grid-cols-[1fr_5.5rem_5.5rem_6rem_3.25rem] items-baseline gap-x-4 py-2"
+              >
+                <span className="flex min-w-0 items-baseline font-mono text-sm">
+                  <span aria-hidden className="whitespace-pre text-ink-faint">
+                    {branchGlyph(row.depth, row.last)}
+                  </span>
+                  <span className={`truncate ${row.role ? "text-ink" : "font-medium text-ink"}`}>
+                    {row.name}
+                  </span>
+                </span>
+
+                {row.role ? (
+                  <>
+                    <span className="font-mono text-xs text-ink">{row.role}</span>
+                    <span className="font-mono text-xs tabular-nums text-ink-muted">{row.wifi}</span>
+                    <span className="font-mono text-xs tabular-nums text-ink-muted">{row.api}</span>
+                    <span className="font-mono text-xs text-ink-muted">{row.shell ? "yes" : "—"}</span>
+                  </>
+                ) : (
+                  <span className="col-span-4 text-xs text-ink-muted">{row.note}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </Plate>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        {[
+          [
+            "The leaf carries the policy",
+            "wifi.rate, wifi.ceil and the API quota are text records on that membership name. Reading the name is reading the rule.",
+          ],
+          [
+            "Nothing is granted sideways",
+            "A hacker cannot reach a mentor's bandwidth by asking for it — the class is derived from where the name sits, in the kernel.",
+          ],
+          [
+            "The branch expires",
+            "tokyo lapses when the event ends and every membership under it goes with it. Mumbai opens as its own perimeter.",
+          ],
+        ].map(([t, d]) => (
+          <div key={t} className="border-t border-ink pt-3">
+            <p className="font-mono text-sm font-medium">{t}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{d}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** `tree(1)`'s own notation, because that is what a reader of monospace already knows. */
+function branchGlyph(depth: number, last?: boolean) {
+  if (depth === 0) return "";
+  const elbow = last ? "└─ " : "├─ ";
+  return depth === 1 ? elbow : `│  ${elbow}`;
+}
+
 const SLIDES = [
   { title: "Radius", render: TitleSlide },
   { title: "The problem", render: ProblemSlide },
   { title: "The solution", render: SolutionSlide },
+  { title: "The tree", render: TreeSlide },
   { title: "How it works", render: HowSlide },
   { title: "The role of ENS", render: EnsSlide },
   { title: "It runs", render: ProofSlide },
