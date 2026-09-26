@@ -11,12 +11,24 @@ async function ensGet<T>(path: string): Promise<T> {
 
 /** Memberships read from the branch registry, with their resolver entitlements. */
 export function useEnsMemberships() {
-  const { data, error, isLoading } = useSWR<{ memberships: EnsMembership[]; total: number }>(
+  const { data, error, isLoading } = useSWR<{
+    memberships: EnsMembership[];
+    total: number;
+    source: "indexer" | "chain";
+    indexedBlock: number | null;
+  }>(
     "ens-memberships",
     () => ensGet("memberships"),
     { refreshInterval: 30_000 },
   );
-  return { memberships: data?.memberships, total: data?.total, error, isLoading };
+  return {
+    memberships: data?.memberships,
+    total: data?.total,
+    source: data?.source,
+    indexedBlock: data?.indexedBlock,
+    error,
+    isLoading,
+  };
 }
 
 /** The branch itself, plus the organization's on-chain role catalogue. */

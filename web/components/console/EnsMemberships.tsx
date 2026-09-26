@@ -18,20 +18,36 @@ function short(address: string) {
  * of truth, and conflating them would hide which is which.
  */
 export function EnsMemberships() {
-  const { memberships, error, isLoading } = useEnsMemberships();
+  const { memberships, source, indexedBlock, error, isLoading } = useEnsMemberships();
 
   return (
     <Panel as="section" className="overflow-hidden">
       <PanelHeader
         right={
-          <a
-            href={explorer(ENS.branchRegistrar)}
-            target="_blank"
-            rel="noreferrer"
-            className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
-          >
-            {ENS.branch}
-          </a>
+          <span className="flex items-center gap-3">
+            {source ? (
+              <span
+                className="font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-ink-muted"
+                title={
+                  source === "indexer"
+                    ? "Names, owners and records from the ENS indexer; roles and bitmaps read from the contracts."
+                    : "The indexer was unreachable, so everything was read straight from the contracts."
+                }
+              >
+                {source === "indexer"
+                  ? `ens indexer · block ${indexedBlock ?? "?"}`
+                  : "direct contract reads"}
+              </span>
+            ) : null}
+            <a
+              href={explorer(ENS.branchRegistrar)}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+            >
+              {ENS.branch}
+            </a>
+          </span>
         }
       >
         On-chain memberships
@@ -95,7 +111,15 @@ export function EnsMemberships() {
                     {m.memberName ?? <span className="text-ink-muted">—</span>}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-rule px-2 py-0.5 font-mono text-[0.6875rem] uppercase tracking-[0.1em] text-ink-80">
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full border border-rule px-2 py-0.5 font-mono text-[0.6875rem] uppercase tracking-[0.1em]"
+                      style={{ color: m.role === "unknown" ? "var(--ink-muted)" : "var(--ink-80)" }}
+                      title={
+                        m.role === "unknown"
+                          ? "Minted by an earlier registrar, so the current role catalogue does not describe it."
+                          : undefined
+                      }
+                    >
                       {m.role}
                     </span>
                   </td>
@@ -128,10 +152,10 @@ export function EnsMemberships() {
       )}
 
       <p className="border-t border-rule px-4 py-3 text-xs leading-relaxed text-ink-muted">
-        Rows come from the registrar&rsquo;s <code className="font-mono">Onboarded</code> logs,
-        re-checked against the registry so revoked names drop out. Entitlements are resolver text
-        records at the membership&rsquo;s full ENS namehash — the same read an enforcer performs at
-        admission.
+        Names, owners and entitlement records come from the ENS indexer in one query; role names
+        and the registry bitmap come from the contracts, because a role id is{" "}
+        <code className="font-mono">keccak256(name)</code> and no ENS indexer knows our registrar.
+        If the indexer is unreachable the same rows are read straight from the chain.
       </p>
     </Panel>
   );
