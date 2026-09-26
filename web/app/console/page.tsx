@@ -1,52 +1,75 @@
+"use client";
+
 import { PageHeader } from "@/components/console/PageHeader";
 import { ThroughputChart } from "@/components/console/ThroughputChart";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { Meter } from "@/components/ui/Meter";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
-import { BRANCHES, GROUPS, MEMBERSHIPS, THROUGHPUT } from "@/lib/data";
-
-export const metadata = { title: "Overview — ENSCA console" };
-
-const branch = BRANCHES[0];
-const totalUsed = GROUPS.reduce((sum, g) => sum + g.used, 0);
-const totalPool = GROUPS.reduce((sum, g) => sum + g.pool, 0);
-const devices = GROUPS.reduce((sum, g) => sum + g.devices, 0);
-const peak = Math.max(...THROUGHPUT.map((s) => s.mbps));
-
-const KPIS = [
-  { label: "Memberships", value: branch.members.toLocaleString(), sub: "onboarded here" },
-  { label: "Admitted", value: branch.online.toLocaleString(), sub: `${devices} devices` },
-  { label: "Throughput", value: totalUsed.toLocaleString(), unit: "Mbps", sub: `peak ${peak}` },
-  { label: "Denials", value: "3", sub: "last hour" },
-];
-
-const ENFORCEMENT = [
-  ["Resource", "wifi"],
-  ["Enforcer", "fedora-vm · enp10s0u1"],
-  ["Identity", "DHCP lease → Membership"],
-  ["Resolution", "Membership → Member → deny"],
-  ["Revocation", "applied on next check"],
-  ["Record cache", "12s old · ttl 60s"],
-];
-
-const recent = MEMBERSHIPS.filter((m) => m.online).slice(0, 5);
+import { useGroups } from "@/lib/hooks/useGroups";
+import { useSessions } from "@/lib/hooks/useSessions";
+import { useThroughput } from "@/lib/hooks/useThroughput";
+import { useUsers } from "@/lib/hooks/useUsers";
+import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
+import { ENFORCEMENT } from "@/lib/config";
 
 export default function OverviewPage() {
+  const { data: groupsData, isLoading: groupsLoading } = useGroups();
+  const { data: sessionsData } = useSessions(true);
+  const { data: throughputData } = useThroughput();
+  const { data: usersData } = useUsers();
+  const { data: status } = useProxyStatus();
+
+  const branchLabel = process.env.NEXT_PUBLIC_BRANCH_LABEL ?? "branch";
+  const branchEns = `${branchLabel}.${process.env.NEXT_PUBLIC_ORG_ENS ?? ""}`;
+  const branchVenue = process.env.NEXT_PUBLIC_BRANCH_VENUE ?? "";
+  const branchWindow = process.env.NEXT_PUBLIC_BRANCH_WINDOW ?? "";
+
+  const groups = groupsData ?? [];
+  const sessions = sessionsData?.sessions ?? [];
+  const samples = throughputData?.samples ?? [];
+  const totalUsers = usersData?.total ?? 0;
+  const activeSessions = sessionsData?.total ?? status?.active_sessions ?? 0;
+  const totalDevices = groups.reduce((s, g) => s + g.devices, 0);
+  const totalUsed = groups.reduce((s, g) => s + g.used, 0);
+  const totalPool = groups.reduce((s, g) => s + g.pool, 0);
+  const peak = samples.length ? Math.max(...samples.map(s => s.mbps)) : 0;
+
+  const now = Math.floor(Date.now() / 1000);
+  const joined5m = sessions.filter(s => s.logged_in_at >= now - 300).length;
+  const { data: recentLeft } = useSessions(false);
+  const left5m = (recentLeft?.sessions ?? []).filter(
+    s => s.logged_out_at && s.logged_out_at >= now - 300
+  ).length;
+
+  const KPIS = [
+    { label: "Memberships", value: totalUsers.toLocaleString(), sub: "onboarded here" },
+    { label: "Admitted",    value: activeSessions.toLocaleString(), sub: `${totalDevices} devices` },
+    { label: "Throughput",  value: totalUsed.toLocaleString(), unit: "Mbps", sub: `peak ${peak.toFixed(0)}` },
+    { label: "Denials",     value: "—", sub: "last hour" },
+  ];
+
+  const recent = sessions
+    .sort((a, b) => b.logged_in_at - a.logged_in_at)
+    .slice(0, 5);
+
+  if (groupsLoading) {
+    return <div className="px-5 py-12 text-center font-mono text-xs text-ink-muted">Loading…</div>;
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="Branch overview"
-        title={branch.ens}
-        meta={`${branch.venue} · ${branch.window}`}
+        title={branchEns}
+        meta={`${branchVenue} · ${branchWindow}`}
         actions={
           <span className="inline-flex items-center gap-2 font-mono text-xs text-ink-muted">
             <span aria-hidden className="size-1.5 rounded-full bg-signal" />
-            Live · updated 12s ago
+            Live · polling 10s
           </span>
         }
       />
 
-      {/* Instrument strip — page chrome, not another card */}
       <dl className="grid grid-cols-2 border-b border-rule sm:grid-cols-4">
         {KPIS.map((kpi, i) => (
           <div
@@ -61,9 +84,7 @@ export default function OverviewPage() {
                 <span className="font-mono text-[1.625rem] font-medium leading-none tabular-nums tracking-tight text-ink">
                   {kpi.value}
                 </span>
-                {kpi.unit ? (
-                  <span className="font-mono text-xs text-ink-muted">{kpi.unit}</span>
-                ) : null}
+                {kpi.unit ? <span className="font-mono text-xs text-ink-muted">{kpi.unit}</span> : null}
               </span>
               <span className="mt-1.5 block text-xs text-ink-muted">{kpi.sub}</span>
             </dd>
@@ -72,35 +93,24 @@ export default function OverviewPage() {
       </dl>
 
       <div className="px-5 py-6 lg:px-8">
-        {/* The page's focal point: the only view with a time axis */}
         <Panel as="section">
-          <PanelHeader
-            right={
-              <span className="font-mono text-[0.6875rem] text-ink-muted">
-                last 6h · 10m samples
-              </span>
-            }
-          >
+          <PanelHeader right={<span className="font-mono text-[0.6875rem] text-ink-muted">last 6h · 10m samples</span>}>
             Branch throughput
           </PanelHeader>
           <div className="px-2 pb-2 pt-3 sm:px-4">
-            <ThroughputChart data={THROUGHPUT} cap={totalPool} />
+            <ThroughputChart data={samples} cap={totalPool} />
           </div>
         </Panel>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <Panel as="section">
             <PanelHeader
-              right={
-                <span className="font-mono text-[0.6875rem] text-ink-muted">
-                  {totalUsed.toLocaleString()} / {totalPool.toLocaleString()} Mbps
-                </span>
-              }
+              right={<span className="font-mono text-[0.6875rem] text-ink-muted">{totalUsed} / {totalPool} Mbps</span>}
             >
               Group utilisation
             </PanelHeader>
             <div className="divide-y divide-rule">
-              {GROUPS.map((group) => (
+              {groups.map((group) => (
                 <Meter
                   key={group.name}
                   label={group.name}
@@ -117,25 +127,15 @@ export default function OverviewPage() {
               <PanelHeader>Perimeter</PanelHeader>
               <div className="flex items-stretch divide-x divide-rule">
                 <div className="relative w-[104px] shrink-0">
-                  <SignalDither
-                    motif="radar"
-                    cell={2}
-                    period={4.5}
-                    intensity={0.75}
-                    className="absolute inset-0"
-                    label="Radar sweep indicating live presence detection"
-                  />
+                  <SignalDither motif="radar" cell={2} period={4.5} intensity={0.75} className="absolute inset-0" label="Radar sweep" />
                 </div>
                 <dl className="flex-1 divide-y divide-rule">
                   {[
-                    ["Present", String(branch.online)],
-                    ["Joined 5m", "14"],
-                    ["Left 5m", "9"],
+                    ["Present", String(activeSessions)],
+                    ["Joined 5m", String(joined5m)],
+                    ["Left 5m",   String(left5m)],
                   ].map(([term, value]) => (
-                    <div
-                      key={term}
-                      className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]"
-                    >
+                    <div key={term} className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]">
                       <dt className="label">{term}</dt>
                       <dd className="font-mono text-xs tabular-nums text-ink-80">{value}</dd>
                     </div>
@@ -147,20 +147,18 @@ export default function OverviewPage() {
             <Panel as="section">
               <PanelHeader>Recent admissions</PanelHeader>
               <ul className="divide-y divide-rule">
-                {recent.map((m) => (
-                  <li
-                    key={m.label}
-                    className="flex items-baseline justify-between gap-3 px-4 py-2.5"
-                  >
-                    <span className="truncate font-mono text-xs text-ink">
-                      {m.label}
-                      <span className="text-ink-muted">.{branch.label}</span>
-                    </span>
-                    <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">
-                      {m.onboarded}
-                    </span>
-                  </li>
-                ))}
+                {recent.map((s) => {
+                  const label = s.ens_name?.split(".")[0] ?? s.username;
+                  const time = new Date(s.logged_in_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                  return (
+                    <li key={s.id} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
+                      <span className="truncate font-mono text-xs text-ink">
+                        {label}<span className="text-ink-muted">.{branchLabel}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">{time}</span>
+                    </li>
+                  );
+                })}
               </ul>
             </Panel>
           </div>
@@ -170,10 +168,7 @@ export default function OverviewPage() {
           <PanelHeader>Enforcement</PanelHeader>
           <dl className="grid sm:grid-cols-2 xl:grid-cols-3">
             {ENFORCEMENT.map(([term, detail]) => (
-              <div
-                key={term}
-                className="flex items-baseline justify-between gap-4 border-b border-rule px-4 py-2.5 sm:border-r sm:last:border-r-0"
-              >
+              <div key={term} className="flex items-baseline justify-between gap-4 border-b border-rule px-4 py-2.5 sm:border-r sm:last:border-r-0">
                 <dt className="label">{term}</dt>
                 <dd className="text-right font-mono text-xs text-ink-80">{detail}</dd>
               </div>
