@@ -25,6 +25,8 @@ import {
   type Resource,
 } from "@/lib/hooks/useEnforcer";
 
+type SettingsTarget = { group: RoleInfo; enforcerGroup: Group | null };
+
 /**
  * Groups — the categories people are onboarded into.
  *
@@ -38,7 +40,7 @@ export default function GroupsPage() {
   const withRegistrar = (branches ?? []).filter((b) => b.registrar);
   const [selected, setSelected] = useState<string>("");
   const registrar = selected || withRegistrar[0]?.registrar || "";
-  const [bandwidthGroup, setBandwidthGroup] = useState<Group | null>(null);
+  const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(null);
   const [showCreatePerimeter, setShowCreatePerimeter] = useState(false);
   const { groups: enforcerGroups } = useEnforcerGroups(org);
   const { resources } = useResources();
@@ -142,14 +144,12 @@ export default function GroupsPage() {
                         {g.canOnboard ? <Tag>may onboard</Tag> : null}
                       </div>
                     </div>
-                    {enforcerGroup ? (
-                      <Button
-                        variant="ghost"
-                        onClick={() => setBandwidthGroup(enforcerGroup)}
-                      >
-                        Bandwidth
-                      </Button>
-                    ) : null}
+                    <Button
+                      variant="ghost"
+                      onClick={() => setSettingsTarget({ group: g, enforcerGroup })}
+                    >
+                      Settings
+                    </Button>
                   </div>
                   {g.entitlements.length ? (
                     <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
@@ -173,11 +173,15 @@ export default function GroupsPage() {
         <GroupForm org={org} onDone={() => mutate()} />
       </div>
 
-      {bandwidthGroup ? (
-        <BandwidthModal
-          group={bandwidthGroup}
+      {settingsTarget ? (
+        <GroupSettingsModal
+          group={settingsTarget.group}
+          enforcerGroup={settingsTarget.enforcerGroup}
+          registrar={registrar as Address}
+          org={org}
           resources={resources ?? []}
-          onClose={() => setBandwidthGroup(null)}
+          onClose={() => setSettingsTarget(null)}
+          onSaved={() => { mutate(); setSettingsTarget(null); }}
         />
       ) : null}
 
@@ -332,20 +336,29 @@ function Tag({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Edit bandwidth caps for one group across all resources.
- *
- * Each resource gets three caps: per device per day, whole group per day, per ENS name per day.
- * An empty field means unlimited. Saving sends all three caps to avoid partial-replace surprises.
+ * Group settings modal with two tabs:
+ *   Settings — network speed limits (ENS entitlements wifi.rate / wifi.ceil)
+ *   Access   — daily resource caps per group via the enforcer grant API
  */
-function BandwidthModal({
+function GroupSettingsModal({
   group,
+  enforcerGroup,
+  registrar,
+  org,
   resources,
   onClose,
+  onSaved,
 }: {
-  group: Group;
+  group: RoleInfo;
+  enforcerGroup: Group | null;
+  registrar: Address;
+  org: string;
   resources: Resource[];
   onClose: () => void;
+  onSaved: () => void;
 }) {
+  const [tab, setTab] = useState<"settings" | "access">("settings");
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <button
@@ -357,33 +370,204 @@ function BandwidthModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Bandwidth — ${group.name}`}
+        aria-label={`Group settings — ${group.name}`}
         className="relative w-full max-w-[520px] max-h-[90vh] overflow-y-auto rounded-sharp border border-rule bg-paper p-5"
       >
-        <p className="label">Bandwidth allocation</p>
+        <p className="label">Group settings</p>
         <h2 className="mt-1 font-mono text-sm text-ink">{group.name}</h2>
-        <p className="mt-2 text-xs leading-relaxed text-ink-muted">
-          Daily request caps for this group. Leave a field empty for unlimited. Changes take effect
-          immediately — the proxy reads limits on every request.
-        </p>
 
-        {resources.length === 0 ? (
-          <p className="mt-4 text-sm text-ink-muted">
-            No resources configured yet. Add a resource under{" "}
-            <a href="/console/resources" className="underline decoration-rule underline-offset-2">Resources</a>.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-4">
-            {resources.map((r) => (
-              <ResourceCaps key={r.id} group={group} resource={r} />
-            ))}
-          </div>
-        )}
+        <div className="mt-4 flex gap-1 border-b border-rule">
+          {(["settings", "access"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={[
+                "px-3 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.1em] border-b-2 -mb-px transition-colors",
+                tab === t
+                  ? "border-ink text-ink"
+                  : "border-transparent text-ink-muted hover:text-ink",
+              ].join(" ")}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4">
+          {tab === "settings" ? (
+            <NetworkSpeedTab
+              group={group}
+              registrar={registrar}
+              org={org}
+              onSaved={onSaved}
+            />
+          ) : (
+            <AccessTab enforcerGroup={enforcerGroup} resources={resources} />
+          )}
+        </div>
 
         <div className="mt-5">
           <Button variant="ghost" onClick={onClose}>Close</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Network speed limits written as ENS entitlements on the group's role.
+ * wifi.rate = download (Mbps), wifi.ceil = upload ceiling (Mbps).
+ */
+function NetworkSpeedTab({
+  group,
+  registrar,
+  org,
+  onSaved,
+}: {
+  group: RoleInfo;
+  registrar: Address;
+  org: string;
+  onSaved: () => void;
+}) {
+  const writes = useEnsWrites();
+  const [download, setDownload] = useState(
+    group.entitlements.find((e) => e.key === "wifi.rate")?.value ?? "",
+  );
+  const [upload, setUpload] = useState(
+    group.entitlements.find((e) => e.key === "wifi.ceil")?.value ?? "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const valid = [download, upload].every(
+    (v) => v.trim() === "" || /^\d+(\.\d+)?$/.test(v.trim()),
+  );
+
+  async function save() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const existing = group.entitlements.filter(
+        (e) => e.key !== "wifi.rate" && e.key !== "wifi.ceil",
+      );
+      const updated = [...existing];
+      if (download.trim()) updated.push({ key: "wifi.rate", value: download.trim() });
+      if (upload.trim()) updated.push({ key: "wifi.ceil", value: upload.trim() });
+
+      const result = await writes.defineGroup({
+        registrar,
+        name: group.name,
+        canOnboard: group.canOnboard,
+        openToOnboarders: group.openToOnboarders,
+        editableKeys: [],
+        entitlements: updated,
+      });
+      if (!result) throw new Error(writes.error ?? "transaction did not go through");
+
+      // Re-mirror so the enforcer picks up updated entitlements.
+      await fetch("/api/ens/mirror", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "group", org, registrar, name: group.name }),
+      });
+
+      setMessage({ ok: true, text: "Speed limits saved." });
+      onSaved();
+    } catch (e) {
+      setMessage({ ok: false, text: e instanceof Error ? e.message : "failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs leading-relaxed text-ink-muted">
+        Speed limits published as ENS entitlements on this group. Leave empty for unlimited.
+        Changes require a wallet signature and take effect on the next admission.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SpeedField label="Download (Mbps)" value={download} onChange={setDownload} />
+        <SpeedField label="Upload (Mbps)" value={upload} onChange={setUpload} />
+      </div>
+      {message ? (
+        <p
+          className="text-xs"
+          style={{ color: message.ok ? "var(--signal)" : "var(--alert)" }}
+          role="status"
+        >
+          {message.text}
+        </p>
+      ) : null}
+      <Button variant="outline" onClick={() => { void save(); }} disabled={!valid || busy}>
+        {busy ? "Signing…" : "Save speed limits"}
+      </Button>
+    </div>
+  );
+}
+
+function SpeedField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="block text-[0.6875rem] text-ink-muted">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
+        inputMode="decimal"
+        placeholder="unlimited"
+        className="mt-1 h-9 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs tabular-nums text-ink placeholder:text-ink-faint"
+      />
+    </label>
+  );
+}
+
+/**
+ * Access tab — daily request caps per resource via the enforcer grant API.
+ */
+function AccessTab({
+  enforcerGroup,
+  resources,
+}: {
+  enforcerGroup: Group | null;
+  resources: Resource[];
+}) {
+  if (!enforcerGroup) {
+    return (
+      <p className="text-sm text-ink-muted">
+        This group has not been mirrored to the enforcer yet. Onboard a member first, or save
+        speed limits — both actions sync the group.
+      </p>
+    );
+  }
+  if (resources.length === 0) {
+    return (
+      <p className="text-sm text-ink-muted">
+        No resources configured. Add one under{" "}
+        <a href="/console/resources" className="underline decoration-rule underline-offset-2">
+          Resources
+        </a>
+        .
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-xs leading-relaxed text-ink-muted">
+        Daily request caps for this group. Leave empty for unlimited. Changes take effect
+        immediately — the proxy reads limits on every request.
+      </p>
+      {resources.map((r) => (
+        <ResourceCaps key={r.id} group={enforcerGroup} resource={r} />
+      ))}
     </div>
   );
 }
