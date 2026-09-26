@@ -7,30 +7,14 @@ export default function CreatePage() {
   return (
     <>
       <SiteHeader />
-      {/* Full-bleed on the grid paper, like the landing. The page used to sit in a 1180px box
-          with the texture stopping at its edges, which made the setup flow look like a form
-          bolted onto the product rather than a part of it. */}
-      <main id="main" className="paper-grid flex flex-1 flex-col">
-        <div className="mx-auto w-full max-w-[1340px] px-5 py-12 lg:px-8 lg:py-16">
-          <header className="max-w-[40ch]">
-            {/* The display voice the rest of the product uses. At text-3xl this heading was
-                quieter than the hero's body copy, on the page where somebody commits to
-                deploying four contracts. */}
-            <h1 className="font-mono text-4xl font-medium leading-[0.95] tracking-[-0.04em] text-ink sm:text-5xl lg:text-6xl">
-              Create an
-              <br />
-              organization
-            </h1>
-            <p className="mt-6 max-w-[44ch] text-base leading-relaxed text-ink-muted">
-              Six steps, in the only order they can happen — each one needs the thing before it
-              to exist.
-            </p>
-          </header>
-
-          <div className="mt-12 lg:mt-16">
-            <Wizard />
-          </div>
-        </div>
+      {/* One screen, centred. The flow used to be a plate pinned to the top-left of a tall page
+          with the weather beside it; the step you are on is the only thing that matters here, so
+          it gets the viewport and the signal runs behind the whole of it. */}
+      <main
+        id="main"
+        className="relative flex flex-1 items-center justify-center overflow-hidden px-5 py-14 lg:min-h-[calc(100svh-3.5rem)] lg:py-16"
+      >
+        <Wizard />
       </main>
     </>
   );

@@ -44,16 +44,22 @@ export function Wizard() {
   const index = STEPS.findIndex((s) => s.id === step);
 
   return (
-    <div className="relative overflow-hidden rounded-sharp border border-rule bg-paper-raise">
-      {/* The signal is the ground the whole flow sits on, not a picture beside it. As a column
-          of its own it read as a fourth unrelated thing on the page; underneath everything it is
-          what binds the rail, the step and the heading into one surface. */}
-      <Plate step={step} progress={(index + 1) / STEPS.length} />
+    <>
+      {/* Weather, not a diagram. It has no subject and no centre, which is what lets the whole
+          flow sit on top of it without fighting for attention. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <SignalDither motif="liquid" cell={4} period={30} intensity={0.34} className="absolute inset-0" />
+      </div>
 
-      <div className="relative grid gap-8 px-5 py-8 sm:px-8 lg:grid-cols-[12rem_minmax(0,36rem)] lg:gap-14 lg:px-12 lg:py-12">
-        <Rail steps={STEPS} current={index} />
+      <div className="relative w-full max-w-[46rem]">
+        <div className="flex items-baseline justify-between gap-4 border-b border-rule pb-3">
+          <span className="label">
+            {String(index + 1).padStart(2, "0")} / {String(STEPS.length).padStart(2, "0")}
+          </span>
+          <span className="label">Create an organization</span>
+        </div>
 
-        <div className="min-w-0">
+        <div className="mt-10 min-w-0">
         {step === "connect" ? <ConnectStep onDone={() => setStep("name")} /> : null}
 
         {step === "name" ? (
@@ -103,137 +109,46 @@ export function Wizard() {
 
           {step === "done" ? <DoneStep org={orgName} branch={branchLabel} /> : null}
         </div>
+
+        <Rail steps={STEPS} current={index} />
       </div>
-    </div>
+    </>
   );
 }
 
 /**
- * The signal, filling in as the organization gets built.
+ * Progress, as a measure rather than a list.
  *
- * This flow had none of the product's own imagery — six panels on grid paper, while the landing
- * runs the same dither at full strength. A page that quietly opts out of its system's strongest
- * move is the reason it read as a form rather than as part of the product.
- *
- * The motif is not decoration here: it tracks what exists. It opens as a flat waveform, becomes
- * a ripple once a name is being chosen, sweeps as a radar while contracts deploy, and resolves
- * into the wifi mark once there is a perimeter to admit people to. Intensity rises with
- * progress, so the plate is faint at the start and fully lit at the end.
- */
-function Plate({ step, progress }: { step: StepId; progress: number }) {
-  const motif =
-    step === "connect" || step === "name"
-      ? "waveform"
-      : step === "setup"
-        ? "radar"
-        : step === "groups"
-          ? "ripple"
-          : "wifi";
-
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-y-0 right-0 hidden w-[58%] lg:block"
-    >
-      <SignalDither
-        motif={motif}
-        cell={3}
-        period={motif === "radar" ? 3.6 : 5}
-        // Low enough to stay a ground rather than compete with the text sitting on it, and
-        // rising as the organization fills in.
-        intensity={0.16 + progress * 0.26}
-        className="absolute inset-0"
-      />
-    </div>
-  );
-}
-
-/**
- * Where you are in a sequence you cannot reorder.
- *
- * The numbers are earned here rather than decorative: each step needs the thing before it to
- * exist, so "third" is information. The three states are drawn differently enough to read at a
- * glance — a done step is filled and ticked, the current one is filled in ink, and the rest are
- * a faint ring. Only the current step carries its explanation; six blurbs at equal weight is a
- * wall of text that buries the one line that applies right now.
+ * A vertical rail of six titles and blurbs was a second table of contents beside a flow that
+ * only ever shows one step — it said what was coming rather than where you are. A row of marks
+ * says the latter in a glance and takes a line instead of a column, which is what lets the step
+ * itself have the screen.
  */
 function Rail({ steps, current }: { steps: typeof STEPS; current: number }) {
   return (
-    // `min-w-0` so the horizontal step list can actually scroll on a phone. Without it the grid
-    // track sizes to the list's full width — six 8.5rem items — and every panel below inherits
-    // that width and runs off the screen.
-    <div className="min-w-0 lg:sticky lg:top-12 lg:self-start">
-      <p className="label mb-4 hidden lg:block">
-        Step {current + 1} of {steps.length}
-      </p>
-
-      <ol className="flex w-full gap-6 overflow-x-auto pb-1 lg:block lg:w-auto lg:overflow-visible lg:pb-0">
-        {steps.map((s, i) => {
-          const state = i < current ? "done" : i === current ? "active" : "todo";
-          return (
-            <li key={s.id} className="flex min-w-[8.5rem] gap-3 lg:min-w-0">
-              <span className="flex flex-col items-center">
-                <Marker state={state} index={i} />
-                {i < steps.length - 1 ? (
-                  <span
-                    aria-hidden
-                    className="mt-1 hidden w-px flex-1 lg:block"
-                    style={{ background: i < current ? "var(--ink)" : "var(--rule)" }}
-                  />
-                ) : null}
-              </span>
-
-              <span className={`min-w-0 ${i < steps.length - 1 ? "lg:pb-5" : ""}`}>
-                <span
-                  className="block font-mono text-xs"
-                  style={{
-                    color: state === "todo" ? "var(--ink-faint)" : "var(--ink)",
-                  }}
-                >
-                  {s.title}
-                </span>
-                {state === "active" ? (
-                  <span className="mt-1 hidden text-xs leading-relaxed text-ink-muted lg:block">
-                    {s.blurb}
-                  </span>
-                ) : null}
-              </span>
-            </li>
-          );
-        })}
+    <div className="mt-12 border-t border-rule pt-4">
+      <ol className="flex items-center gap-1.5">
+        {steps.map((s, i) => (
+          <li key={s.id} className="h-px flex-1" aria-current={i === current ? "step" : undefined}>
+            <span
+              aria-hidden
+              className="block h-px w-full"
+              style={{
+                background:
+                  i < current ? "var(--ink-muted)" : i === current ? "var(--ink)" : "var(--rule)",
+                height: i === current ? 2 : 1,
+              }}
+            />
+          </li>
+        ))}
       </ol>
+      <p className="mt-3 flex items-baseline justify-between gap-4">
+        <span className="font-mono text-xs text-ink">{steps[current]!.title}</span>
+        <span className="hidden text-xs leading-relaxed text-ink-muted sm:block">
+          {steps[current]!.blurb}
+        </span>
+      </p>
     </div>
-  );
-}
-
-function Marker({ state, index }: { state: "done" | "active" | "todo"; index: number }) {
-  const base = "grid size-6 shrink-0 place-items-center rounded-full font-mono text-[0.625rem]";
-  if (state === "done") {
-    return (
-      <span aria-hidden className={`${base} bg-ink text-paper`}>
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden>
-          <path
-            d="M3.5 8.5 6.5 11.5 12.5 4.5"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </span>
-    );
-  }
-  if (state === "active") {
-    return (
-      <span aria-hidden className={`${base} bg-ink text-paper`}>
-        {index + 1}
-      </span>
-    );
-  }
-  return (
-    <span aria-hidden className={`${base} border border-rule text-ink-faint`}>
-      {index + 1}
-    </span>
   );
 }
 
@@ -263,7 +178,7 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
   return (
     <section>
       <div>
-        <h2 className="text-lg tracking-[-0.01em] text-ink">Connect a wallet</h2>
+        <h2 className="text-2xl tracking-[-0.02em] text-ink sm:text-[1.75rem]">Connect a wallet</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           This wallet owns the organization. It holds the .eth name, root of every perimeter
           registry beneath it, and the authority to open perimeters later. Nothing here spends
@@ -343,7 +258,7 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
   return (
     <section>
       <div>
-        <h2 className="text-lg tracking-[-0.01em] text-ink">Choose the organization name</h2>
+        <h2 className="text-2xl tracking-[-0.02em] text-ink sm:text-[1.75rem]">Choose the organization name</h2>
         <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
           This name is the trust root. Every perimeter is registered beneath it and every membership
           resolves through it, so it has to be a name you own. Search for one here; if it is free,
@@ -505,7 +420,7 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
   return (
     <section>
       <div>
-        <h2 className="text-lg tracking-[-0.01em] text-ink">
+        <h2 className="text-2xl tracking-[-0.02em] text-ink sm:text-[1.75rem]">
           Set <span className="font-mono">{orgName}</span> up as an organization
         </h2>
         <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
@@ -676,7 +591,7 @@ function BranchStep({
   return (
     <section>
       <div>
-        <h2 className="text-lg tracking-[-0.01em] text-ink">Open the first perimeter</h2>
+        <h2 className="text-2xl tracking-[-0.02em] text-ink sm:text-[1.75rem]">Open the first perimeter</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           A perimeter is a location — an event, an office, a site. It gets a registry of its own,
           so memberships live inside it rather than at the organization level.
@@ -955,7 +870,7 @@ function GroupsStep({
   return (
     <section>
       <div>
-        <h2 className="text-lg tracking-[-0.01em] text-ink">Define the groups</h2>
+        <h2 className="text-2xl tracking-[-0.02em] text-ink sm:text-[1.75rem]">Define the groups</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           A group is a category of people — it mints no name. Onboarding assigns one, and its
           entitlements are written onto that person&rsquo;s name in the same transaction. Write
@@ -1296,7 +1211,7 @@ function DoneStep({ org, branch }: { org: string | null; branch: string | null }
         <SignalDither motif="ripple" cell={3} period={3.4} intensity={0.6} className="absolute inset-0" />
       </div>
       <div>
-        <h2 className="text-lg tracking-[-0.01em] text-ink">The organization is open</h2>
+        <h2 className="text-2xl tracking-[-0.02em] text-ink sm:text-[1.75rem]">The organization is open</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           {branch
             ? `Onboard someone into ${branch} and their name, role and entitlements are written in one transaction — then the network admits them.`
