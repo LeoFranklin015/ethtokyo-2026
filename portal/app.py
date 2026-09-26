@@ -144,6 +144,11 @@ def grant_access(ip: str, tier: str, ens_name=None, user_id=None) -> None:
             _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
                   "-s", ip, "-p", "udp", "--dport", "53",
                   "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
+            # HTTP :80 bypass — authed clients forward to the real internet.
+            # Sits ABOVE the baseline captive REDIRECT so their probes/browsing
+            # are not bounced back to the portal.
+            _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
+                  "-s", ip, "-p", "tcp", "--dport", "80", "-j", "RETURN"])
             _apply_ens_isolation(ip, action="I")
         except Exception:
             _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
@@ -172,6 +177,8 @@ def revoke_access(ip: str) -> None:
         _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
                  "-s", ip, "-p", "udp", "--dport", "53",
                  "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
+        _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
+                 "-s", ip, "-p", "tcp", "--dport", "80", "-j", "RETURN"])
         _apply_ens_isolation(ip, action="D")
         sid = SESSION_IDS.pop(ip, None)
         ENS_NAMES.pop(ip, None)
@@ -308,6 +315,18 @@ def _reaper_loop():
         time.sleep(10)
 
 
+def _bootstrap_captive_redirect() -> None:
+    """Install the baseline captive-portal HTTP trap: any AP-side client HTTP
+    (:80) is REDIRECTed to the portal on :8080. Combined with the dnsmasq
+    wildcard DNS hijack, this makes OS captive-portal probes reach the portal
+    and get a 302, which triggers the connect popup. Authed clients get a
+    per-IP :80 RETURN inserted above this by grant_access, so they browse the
+    real internet normally."""
+    _run_ok(["iptables", "-t", "nat", "-A", "PREROUTING",
+             "-i", AP_IFACE, "-p", "tcp", "--dport", "80",
+             "-j", "REDIRECT", "--to-ports", "8080"])
+
+
 def _flush_portal_rules():
     """Remove all portal-inserted rules on startup so stale state from a previous run is cleared."""
     # Flush all mangle FORWARD rules (portal marks)
@@ -326,5 +345,6 @@ def _flush_portal_rules():
 
 if __name__ == "__main__":
     _flush_portal_rules()
+    _bootstrap_captive_redirect()
     threading.Thread(target=_reaper_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8080, debug=False)
