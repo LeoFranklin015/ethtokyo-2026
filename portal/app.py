@@ -22,6 +22,8 @@ _GROUP_CACHE: dict[str, str] = {}
 # Gateway IP — used in redirects and iptables rules.
 # Override with ENSCA_GATEWAY_IP env var (default: 192.168.0.1 per dnsmasq.conf).
 GATEWAY_IP = os.environ.get("ENSCA_GATEWAY_IP", "192.168.0.1")
+# Off by default: see `login()`. Set ENSCA_ALLOW_NAME_LOGIN=1 only for a branch with no console.
+ALLOW_NAME_LOGIN = os.environ.get("ENSCA_ALLOW_NAME_LOGIN", "") == "1"
 PORTAL_URL = f"http://{GATEWAY_IP}:8080"
 # DNS server used for per-IP bypass rules.
 # Override with ENSCA_DNS_SERVER env var (default: 8.8.8.8).
@@ -237,6 +239,18 @@ def index():
 
 @app.route("/login", methods=["POST"])
 def login():
+    # An ENS name is public. Accepting one as proof of identity makes it a bearer token: anybody
+    # who can read the chain can type somebody else's name and be admitted as them. Admission
+    # now requires a wallet signature, which the console verifies before calling /internal/admit.
+    #
+    # Kept behind a flag rather than deleted, because a branch with no console reachable still
+    # needs a way in — but it is off unless an operator deliberately turns it on.
+    if not ALLOW_NAME_LOGIN:
+        return render_template(
+            "login.html",
+            error="Sign in with your wallet — a name alone is not proof of membership.",
+        ), 403
+
     ens_name = request.form.get("ens_name", "").strip().lower()
     ip = client_ip()
     ident = _lookup_ens(ens_name)
@@ -264,6 +278,44 @@ def connected():
 def logout():
     revoke_access(client_ip())
     return redirect("/", 302)
+
+
+@app.route("/internal/admit", methods=["POST"])
+def internal_admit():
+    """Admit a device whose membership somebody else has already proved.
+
+    The signature check lives in the console, which has the chain client and the ENS reader.
+    This endpoint is the other half: it trusts its caller — hence localhost-only, the same
+    boundary every other /internal route uses — and does the part only this host can do, which
+    is open the firewall.
+
+    It still resolves the name through `_lookup_ens` rather than taking the caller's word for
+    the tier, so the enforcer remains the authority on what a group is worth here.
+    """
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return make_response("forbidden", 403)
+
+    data = request.get_json(silent=True) or {}
+    ip = (data.get("ip") or "").strip()
+    ens_name = (data.get("ens_name") or "").strip().lower()
+    if not ens_name:
+        return jsonify({"error": "ens_name required"}), 400
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return jsonify({"error": "invalid_ip"}), 400
+
+    ident = _lookup_ens(ens_name)
+    if not ident:
+        # Either the name is not a member or the lookup could not be made. `_lookup_ens`
+        # collapses those two, which is a known wart — but refusing is right either way.
+        return jsonify({"error": "not_a_member"}), 403
+
+    if ip in AUTHED_IPS and ENS_NAMES.get(ip) != ident["ens_name"]:
+        revoke_access(ip)
+    ENS_NAMES[ip] = ident["ens_name"]
+    grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"])
+    return jsonify({"admitted": True, "ens_name": ident["ens_name"], "tier": ident["network_tier"]})
 
 
 @app.route("/internal/revoke-ip", methods=["POST"])

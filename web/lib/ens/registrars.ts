@@ -1,5 +1,11 @@
 import "server-only";
-import { createPublicClient, http, type Address } from "viem";
+import {
+  CallExecutionError,
+  ContractFunctionExecutionError,
+  createPublicClient,
+  http,
+  type Address,
+} from "viem";
 import { sepolia } from "viem/chains";
 import { registrarV2Abi, registryAbi } from "./abis";
 import { ENS, RPC_URL } from "./config";
@@ -27,10 +33,22 @@ export async function branchForRegistrar(
   if (!/^0x[0-9a-fA-F]{40}$/.test(registrar)) return null;
   const address = registrar as Address;
 
-  const [dnsName, registry] = await Promise.all([
-    client.readContract({ address, abi: registrarV2Abi, functionName: "BRANCH_DNS_NAME" }),
-    client.readContract({ address, abi: registrarV2Abi, functionName: "REGISTRY" }),
-  ]);
+  let dnsName: `0x${string}`;
+  let registry: Address;
+  try {
+    [dnsName, registry] = await Promise.all([
+      client.readContract({ address, abi: registrarV2Abi, functionName: "BRANCH_DNS_NAME" }),
+      client.readContract({ address, abi: registrarV2Abi, functionName: "REGISTRY" }),
+    ]);
+  } catch (error) {
+    // A contract that does not answer this interface is a definite "not one of ours" — a deny,
+    // not an outage. A network failure still throws, so the caller can tell them apart and
+    // return 502 rather than accusing a real registrar of being foreign.
+    if (error instanceof ContractFunctionExecutionError || error instanceof CallExecutionError) {
+      return null;
+    }
+    throw error;
+  }
 
   // First DNS label: one length byte, then that many bytes.
   const bytes = Buffer.from(dnsName.slice(2), "hex");

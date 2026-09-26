@@ -6,7 +6,6 @@ import { useUsers } from "@/lib/hooks/useUsers";
 import { useSessions } from "@/lib/hooks/useSessions";
 import { EnsMemberships } from "@/components/console/EnsMemberships";
 import { OnboardForm } from "@/components/console/OnboardForm";
-import { useEnsBranches } from "@/lib/hooks/useEns";
 
 function fmtBytes(b: number): string {
   if (b > 1_000_000) return `${(b / 1_000_000).toFixed(1)} MB`;
@@ -15,10 +14,9 @@ function fmtBytes(b: number): string {
 }
 
 export default function MembersPage() {
-  // The branch comes from ENS. The two env vars that used to build this string were never
-  // defined, so every row rendered as "alice.branch".
-  const { branches } = useEnsBranches();
-  const branchEns = branches?.[0]?.name ?? "…";
+  // One enforcer serves one branch, so the branch is configuration — not "whichever branch
+  // sorts first", which is what this used to be while the counts below are enforcer-wide.
+  const branchEns = process.env.NEXT_PUBLIC_BRANCH_ENS?.trim() || null;
 
   const { data: usersData, isLoading, error } = useUsers();
   const { data: sessionsData, error: sessionsError } = useSessions(true);
@@ -37,7 +35,7 @@ export default function MembersPage() {
       <PageHeader
         eyebrow="Branch"
         title="Memberships"
-        meta={error ? undefined : `${usersData?.total ?? users.length} at ${branchEns}`}
+        meta={error ? undefined : `${usersData?.total ?? users.length} known to this enforcer${branchEns ? ` · ${branchEns}` : ""}`}
       />
 
       <div className="px-5 py-6 lg:px-8 space-y-6">

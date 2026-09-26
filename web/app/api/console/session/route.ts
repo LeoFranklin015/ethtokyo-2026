@@ -27,7 +27,10 @@ export async function POST(req: NextRequest) {
   res.cookies.set("ensca_console", CONSOLE_TOKEN, {
     httpOnly: true,
     sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
+    // Secure unless explicitly developing over plain http. This cookie carries the credential
+    // that fronts ORG_PRIVATE_KEY; defaulting it off outside `production` meant a LAN or
+    // staging deployment shipped it in cleartext.
+    secure: process.env.CONSOLE_INSECURE_COOKIE !== "1",
     path: "/",
     maxAge: 60 * 60 * 12,
   });

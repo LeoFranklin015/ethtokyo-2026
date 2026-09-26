@@ -37,7 +37,13 @@ lagging() {
     [ "$got" = "$want" ] && { ok "$what"; return; }
     sleep 4
   done
-  printf '  \033[33mLAG \033[0m %s (indexer has not caught up; chain state is correct)\n' "$what"
+  # A miss here is only tolerable if the route itself is healthy. If it is erroring, or its
+  # shape changed, that is a failure wearing a lag costume.
+  if [ -z "$got" ]; then
+    no "$what (the query returned nothing at all, which is not indexer lag)"
+    return
+  fi
+  printf '  \033[33mLAG \033[0m %s (indexer behind; the same branch is present via the chain fallback)\n' "$what"
   lag=$((lag+1))
 }
 
@@ -48,16 +54,21 @@ enf()  { curl -s -H "authorization: Bearer $ET" "$@"; }
 
 STAMP=$(date +%H%M%S)
 BRANCH_LABEL="e2e-$STAMP"
-GROUP=mentor
+GROUP="mentor$STAMP"
 MEMBER=alice
 # A Member name is minted in the ORGANIZATION registry, the same namespace branches live in —
 # so a member label equal to the branch label collides with the branch and `ensureMember`
 # reverts LabelUnavailable. Distinct prefix, deliberately.
 MEMBER_LABEL="m$STAMP"
+# Deliberately different from the role name: the enforcer joins on the `wifi.group` entitlement,
+# not on what the role is called, and a test where the two are equal cannot tell them apart.
+WIFI_GROUP="wifi$STAMP"
 
 step "0. The gate is closed to anyone without the console token"
 is "unauthenticated write is refused" \
    "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONSOLE/api/ens/groups" -d '{}')" 401
+is "...while the same route still answers reads: the gate is on the method, not the path" \
+   "$(curl -s -o /dev/null -w '%{http_code}' "$CONSOLE/api/ens/groups?registrar=0x0000000000000000000000000000000000000001")" 200
 is "unauthenticated enforcer proxy is refused" \
    "$(curl -s -o /dev/null -w '%{http_code}' "$CONSOLE/api/admin/groups")" 401
 
@@ -80,11 +91,13 @@ GROUP_JSON=$(api -X POST "$CONSOLE/api/ens/groups" -d "{
   \"registrar\":\"$REGISTRAR\",\"name\":\"$GROUP\",
   \"canOnboard\":false,\"openToOnboarders\":true,
   \"editableKeys\":[\"avatar\"],
-  \"entitlements\":[{\"key\":\"wifi.group\",\"value\":\"$GROUP\"},{\"key\":\"role\",\"value\":\"$GROUP\"},{\"key\":\"wifi.rate\",\"value\":\"20mbps\"}]}")
+  \"entitlements\":[{\"key\":\"wifi.group\",\"value\":\"$WIFI_GROUP\"},{\"key\":\"role\",\"value\":\"$GROUP\"},{\"key\":\"wifi.rate\",\"value\":\"20mbps\"}]}")
 is "group mirrored to the enforcer" \
    "$(echo "$GROUP_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("mirrored"))')" True
-is "the enforcer now has a row under the wifi.group name" \
-   "$(enf "$ENFORCER/admin/groups" | python3 -c "import json,sys;print(any(g['name']=='$GROUP' for g in json.load(sys.stdin)['groups']))")" True
+is "the enforcer row is named for the wifi.group entitlement, not the role" \
+   "$(enf "$ENFORCER/admin/groups" | python3 -c "import json,sys;gs=json.load(sys.stdin)['groups'];print(any(g['name']=='$WIFI_GROUP' for g in gs))")" True
+is "and NOT for the role name, which is a different string" \
+   "$(enf "$ENFORCER/admin/groups" | python3 -c "import json,sys;gs=json.load(sys.stdin)['groups'];print(any(g['name']=='$GROUP' for g in gs))")" False
 is "the chain agrees which keys the group may edit" \
    "$(cast call "$REGISTRAR" 'editableKeysOf(bytes32)(string[])' "$(cast keccak $GROUP)" --rpc-url "$RPC")" \
    '["avatar"]'
@@ -108,6 +121,8 @@ is "entitlements resolve at the real namehash" \
    "$(cast call "$RESOLVER" 'text(bytes32,string)(string)' "$NODE" 'wifi.rate' --rpc-url "$RPC")" '"20mbps"'
 is "the enforcer knows this member by their full ENS name" \
    "$(enf "$ENFORCER/admin/users/by-ens/$NAME" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("ens_name",""))')" "$NAME"
+is "and filed them under the group the enforcer will look up" \
+   "$(enf "$ENFORCER/admin/users/by-ens/$NAME" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("group",{}).get("name",""))')" "$WIFI_GROUP"
 
 step "3b. Every ENS query the console makes, against live state"
 # --- the console's HTTP query surface -------------------------------------------------
@@ -161,8 +176,9 @@ is "registry: a membership carries no subregistry of its own" \
    "$(cast call "$REGISTRY" 'getSubregistry(string)(address)' "$MEMBER" --rpc-url "$RPC")" \
    0x0000000000000000000000000000000000000000
 
-is "registrar: roleId is keccak of the group name" \
-   "$(cast call "$REGISTRAR" 'roleId(string)(bytes32)' "$GROUP" --rpc-url "$RPC")" "$(cast keccak $GROUP)"
+is "registrar: the group we defined is the one roleOf points at" \
+   "$(cast call "$REGISTRAR" 'roleId(string)(bytes32)' "$GROUP" --rpc-url "$RPC")" \
+   "$(cast call "$REGISTRAR" 'roleOf(uint256)(bytes32)' "$RES_ID" --rpc-url "$RPC")"
 is "registrar: membershipNode matches the real namehash" \
    "$(cast call "$REGISTRAR" 'membershipNode(string)(bytes32)' "$MEMBER" --rpc-url "$RPC")" "$NODE"
 is "registrar: roleOf maps the membership to its group" \
@@ -176,8 +192,8 @@ is "registrar: effectiveRole reports the member's role" \
    "$(cast call "$REGISTRAR" 'effectiveRole(address)(bytes32,bool)' "$ADDR" --rpc-url "$RPC" | head -1)" "$(cast keccak $GROUP)"
 is "registrar: the group is active in the catalogue" \
    "$(cast call "$REGISTRAR" 'roleSpec(bytes32)(uint256,bool,bool,bool)' "$(cast keccak $GROUP)" --rpc-url "$RPC" | tail -1)" true
-is "registrar: an unknown group is not active" \
-   "$(cast call "$REGISTRAR" 'roleSpec(bytes32)(uint256,bool,bool,bool)' "$(cast keccak nosuchgroup)" --rpc-url "$RPC" | tail -1)" false
+is "registrar: a group defined on ANOTHER branch is not active here" \
+   "$(cast call "$REGISTRAR" 'roleSpec(bytes32)(uint256,bool,bool,bool)' "$(cast keccak mentor)" --rpc-url "$RPC" | tail -1)" false
 
 is "org registrar: the member has an org-wide Member name" \
    "$(cast call 0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7 'isMember(address)(bool)' "$ADDR" --rpc-url "$RPC")" true
@@ -185,12 +201,54 @@ is "org registrar: minted once, under the label we asked for" \
    "$(cast call 0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7 'labelOf(address)(string)' "$ADDR" --rpc-url "$RPC" | tr -d '"')" "$MEMBER_LABEL"
 
 step "4. The permission matrix, against the live resolver"
-may() { cast call "$RESOLVER" 'setText(bytes32,string,string)' "$2" "$3" probe --from "$1" --rpc-url "$RPC" >/dev/null 2>&1 && echo yes || echo no; }
+# A denial and a broken RPC are not the same answer. `cast call` exits non-zero for both, so
+# match on the revert the resolver actually raises; anything else is reported as an error and
+# fails the assertion rather than quietly reading as "correctly denied".
+may() {
+  local out
+  out=$(cast call "$RESOLVER" 'setText(bytes32,string,string)' "$2" "$3" probe --from "$1" --rpc-url "$RPC" 2>&1)
+  if [ $? -eq 0 ]; then echo yes; return; fi
+  case "$out" in
+    *EACUnauthorizedAccountRoles*|*"execution reverted"*) echo no ;;
+    *) echo "error: ${out:0:60}" ;;
+  esac
+}
 is "member may write their own listed key"        "$(may "$ADDR" "$NODE" avatar)"    yes
 is "member may NOT write an unlisted key"         "$(may "$ADDR" "$NODE" wifi.rate)" no
 is "member may NOT write the branch node"         "$(may "$ADDR" "$(cast namehash "$BRANCH_NAME")" avatar)" no
 is "member may NOT hijack the discovery record"   "$(may "$ADDR" "$(cast namehash "$BRANCH_NAME")" ensca.registrar)" no
 is "a stranger may write nothing"                 "$(may 0x000000000000000000000000000000000000dEaD "$NODE" avatar)" no
+
+step "4b. The member actually writes — and cannot write for anyone else"
+# Fund the member so they can send a real transaction. Until this existed, the revocation
+# assertion below compared an empty record to an empty record and proved nothing.
+cast send "$ADDR" --value 0.003ether --private-key "$PRIVATE_KEY" --rpc-url "$RPC" >/dev/null 2>&1
+if cast send "$RESOLVER" 'setText(bytes32,string,string)' "$NODE" avatar "ipfs://$STAMP" \
+     --private-key "$PK" --rpc-url "$RPC" >/dev/null 2>&1; then
+  ok "the member wrote their own record, signed by their own key"
+else
+  no "the member could not write their own record"
+fi
+is "and it is readable at their name" \
+   "$(cast call "$RESOLVER" 'text(bytes32,string)(string)' "$NODE" avatar --rpc-url "$RPC")" "\"ipfs://$STAMP\""
+
+# A second member, so the cross-member case is testable at all.
+SECOND=$(cast wallet new --json)
+S2_ADDR=$(echo "$SECOND" | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["address"])')
+api -X POST "$CONSOLE/api/ens/onboard" -d "{
+  \"registrar\":\"$REGISTRAR\",\"label\":\"bob\",\"owner\":\"$S2_ADDR\",
+  \"group\":\"$GROUP\",\"memberLabel\":\"b$STAMP\"}" > /dev/null
+S2_NODE=$(cast namehash "bob.$BRANCH_NAME")
+is "the second member exists" \
+   "$(cast call "$REGISTRAR" 'membershipOf(address)(uint256)' "$S2_ADDR" --rpc-url "$RPC" | awk '{print $1}' | grep -q '^0$' && echo missing || echo present)" present
+is "a member may NOT write another member's listed key" "$(may "$ADDR" "$S2_NODE" avatar)" no
+is "...and the other way round either"                  "$(may "$S2_ADDR" "$NODE" avatar)" no
+
+step "4c. The org key cannot be aimed at a contract that is not ours"
+is "a foreign registrar is refused" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONSOLE/api/ens/groups" -H "x-console-token: $CT" \
+      -H 'content-type: application/json' \
+      -d '{"registrar":"0x00000000219ab540356cBB839Cbe05303d7705Fa","name":"x","entitlements":[]}')" 403
 
 step "5. The member signs in at the portal"
 NONCE=$(curl -s -X POST "$CONSOLE/api/portal/challenge" | python3 -c 'import json,sys;print(json.load(sys.stdin)["nonce"])')
@@ -199,8 +257,8 @@ VERIFY=$(curl -s -X POST "$CONSOLE/api/portal/verify" -H 'content-type: applicat
   -d "{\"nonce\":\"$NONCE\",\"signature\":\"$SIG\",\"wallet_address\":\"$ADDR\"}")
 is "the signature resolves to their membership" \
    "$(echo "$VERIFY" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("ens_name",""))')" "$NAME"
-is "and carries the group the enforcer will look up" \
-   "$(echo "$VERIFY" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("group_name",""))')" "$GROUP"
+is "and carries the wifi.group the enforcer will look up, not the role name" \
+   "$(echo "$VERIFY" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("group_name",""))')" "$WIFI_GROUP"
 is "the nonce cannot be replayed" \
    "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONSOLE/api/portal/verify" -H 'content-type: application/json' \
       -d "{\"nonce\":\"$NONCE\",\"signature\":\"$SIG\",\"wallet_address\":\"$ADDR\"}")" 401
@@ -223,7 +281,15 @@ is "and to a real local user, not the shared anon sentinel" \
 
 step "7. Revoke — the name, the records and the delegated rights all go"
 RES=$(cast call "$REGISTRAR" 'membershipOf(address)(uint256)' "$ADDR" --rpc-url "$RPC" | awk '{print $1}')
-cast send "$REGISTRAR" 'revoke(uint256)' "$RES" --private-key "$PRIVATE_KEY" --rpc-url "$RPC" >/dev/null 2>&1
+# Through the product's own endpoint, not raw cast — this is the path an operator has, and it
+# is the only thing that also disables the member on the enforcer.
+REVOKE_JSON=$(api -X POST "$CONSOLE/api/ens/revoke" -d "{\"registrar\":\"$REGISTRAR\",\"wallet\":\"$ADDR\"}")
+is "revoked through the console, and mirrored to the enforcer" \
+   "$(echo "$REVOKE_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("mirrored"))')" True
+is "the enforcer has disabled them" \
+   "$(enf "$ENFORCER/admin/users/by-ens/$NAME" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("disabled"))')" True
+is "so an enforcer lookup now refuses them even with the console down" \
+   "$(curl -s -o /dev/null -w '%{http_code}' "$ENFORCER/internal/ens-lookup/$NAME")" 404
 is "the membership pointer is cleared"  "$(cast call "$REGISTRAR" 'membershipOf(address)(uint256)' "$ADDR" --rpc-url "$RPC" | awk '{print $1}')" 0
 is "the entitlements are cleared"       "$(cast call "$RESOLVER" 'text(bytes32,string)(string)' "$NODE" 'wifi.rate' --rpc-url "$RPC")" '""'
 is "what the member wrote is cleared"   "$(cast call "$RESOLVER" 'text(bytes32,string)(string)' "$NODE" 'avatar' --rpc-url "$RPC")" '""'

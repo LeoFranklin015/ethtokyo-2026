@@ -374,6 +374,29 @@ export type BranchInput = {
  * places, publishes the registrar for discovery, hands the branch to its owner and revokes itself.
  * Doing it atomically is what stops a half-built branch existing at all.
  */
+/**
+ * End a membership: free the name, clear every record, hand back the delegated write rights.
+ *
+ * The chain half of revocation. The enforcer half lives in `mirrorRevoke`, and both must run —
+ * a member revoked on chain but still enabled on the enforcer keeps the network for as long as
+ * the console is unreachable, because the enforcer falls back to its local table.
+ */
+export async function revokeMembership(input: {
+  branchRegistrar: Address;
+  resource: bigint;
+}): Promise<{ txHash: Hex }> {
+  const { client } = wallet();
+  const txHash = await send(
+    await client.writeContract({
+      address: input.branchRegistrar,
+      abi: registrarWriteAbi,
+      functionName: "revoke",
+      args: [input.resource],
+    }),
+  );
+  return { txHash };
+}
+
 export async function createBranch(input: BranchInput): Promise<{
   txHash: Hex;
   label: string;

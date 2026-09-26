@@ -418,7 +418,22 @@ export async function resolveByWallet(wallet: Address): Promise<ResolvedIdentity
  * carries the label, the registry and the registrar, so no follow-up read is needed to know
  * where to look.
  */
-async function chainBranches(): Promise<{ name: string; registrar: Address }[]> {
+export type ChainBranch = {
+  name: string;
+  label: string;
+  registrar: Address;
+  registry: Address;
+};
+
+let chainBranchCache: { at: number; branches: ChainBranch[] } | null = null;
+
+export async function chainBranches(): Promise<ChainBranch[]> {
+  // Cached: this is reached from an unauthenticated endpoint, and the scan is O(blocks) with no
+  // upper bound. Branches are created a handful of times in an organization's life.
+  if (chainBranchCache && Date.now() - chainBranchCache.at < 30_000) {
+    return chainBranchCache.branches;
+  }
+
   const logs = await client.getContractEvents({
     address: ENS.branchFactory as Address,
     abi: branchFactoryAbi,
@@ -427,11 +442,25 @@ async function chainBranches(): Promise<{ name: string; registrar: Address }[]> 
     toBlock: "latest",
   });
 
-  const branches = new Map<string, Address>();
+  const byLabel = new Map<string, { registrar: Address; registry: Address }>();
   for (const log of logs) {
-    const { label, registrar } = log.args as { label?: string; registrar?: Address };
+    const { label, registrar, registry } = log.args as {
+      label?: string;
+      registrar?: Address;
+      registry?: Address;
+    };
     // Later entries win: a label re-opened points at its newest registrar.
-    if (label && registrar) branches.set(`${label}.${ENS.organization}`, registrar);
+    if (label && registrar && registry) byLabel.set(label, { registrar, registry });
   }
-  return [...branches].map(([name, registrar]) => ({ name, registrar }));
+  const branches = [...byLabel]
+    .map(([label, { registrar, registry }]) => ({
+      name: `${label}.${ENS.organization}`,
+      label,
+      registrar,
+      registry,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  chainBranchCache = { at: Date.now(), branches };
+  return branches;
 }

@@ -3,6 +3,7 @@ import { verifyMessage } from "viem";
 import type { Address } from "viem";
 import { resolveByWallet, resolveIdentity } from "@/lib/ens/read";
 import { challengeMessage, consumeNonce } from "@/lib/portal/nonces";
+import { admit } from "@/lib/portal/admit";
 import { clientIp } from "../challenge/route";
 
 export const dynamic = "force-dynamic";
@@ -99,8 +100,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Admission itself. Until this call the person has only been *identified*; the thing that
+  // puts them on the network is an iptables rule, and only the branch host can write one.
+  // Reported separately so the page never claims a device is online when it is not.
+  const admitted = await admit(clientIp(req), identity.name);
+
   return NextResponse.json({
     ok: true,
+    admitted: admitted.ok,
+    admissionError: admitted.reason,
     ens_name: identity.name,
     group_name: identity.entitlements["wifi.group"] ?? identity.role,
     role: identity.role,

@@ -27,9 +27,12 @@ export default function OverviewPage() {
   const users = useUsers();
   const { branches } = useEnsBranches();
 
-  // The branch is whatever ENS says it is. There is no env var for this, and the two that used
-  // to supply it rendered the literal string "branch." as the page title.
-  const branchEns = branches?.[0]?.name ?? null;
+  // One enforcer serves one branch, so the branch is configuration. Picking `branches[0]`
+  // instead meant the alphabetically-first branch's name sat above figures that are
+  // enforcer-wide — a real number under a label that did not describe it.
+  const configured = process.env.NEXT_PUBLIC_BRANCH_ENS?.trim();
+  const branchEns = configured || null;
+  const branchCount = branches?.length ?? null;
 
   // The five-minute window has to advance on its own, so the clock is state, not a render read.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -54,8 +57,14 @@ export default function OverviewPage() {
     <>
       <PageHeader
         eyebrow="Branch overview"
-        title={branchEns ?? "…"}
-        meta={branchEns ? "Live from ENS and the branch enforcer" : undefined}
+        title={branchEns ?? "This enforcer"}
+        meta={
+          branchEns
+            ? "Live from ENS and the branch enforcer"
+            : branchCount !== null
+              ? `Set NEXT_PUBLIC_BRANCH_ENS to name this branch — ${branchCount} exist in ENS`
+              : undefined
+        }
         actions={<Freshness down={Boolean(enforcerDown)} loading={loading} />}
       />
 
@@ -79,7 +88,7 @@ export default function OverviewPage() {
           <Kpi
             label="Memberships"
             value={users.data?.total}
-            sub="onboarded at this branch"
+            sub="known to this enforcer"
             failed={Boolean(users.error)}
             loading={users.isLoading}
           />
@@ -93,13 +102,18 @@ export default function OverviewPage() {
           <Kpi
             label="Groups"
             value={groups.data?.length}
-            sub="defined on the enforcer"
+            sub="defined on this enforcer"
             failed={Boolean(groups.error)}
             loading={groups.isLoading}
           />
         </div>
 
-        {samples.length >= 2 ? (
+        {throughput.error ? (
+          <Panel as="section" className="mt-6">
+            <PanelHeader>API proxy throughput</PanelHeader>
+            <Failed what="throughput series" />
+          </Panel>
+        ) : samples.length >= 2 ? (
           <Panel as="section" className="mt-6">
             <PanelHeader
               right={

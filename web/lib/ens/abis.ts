@@ -16,6 +16,7 @@ export const registrarV2Abi = [
   { type: "function", name: "REGISTRY", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "labelOf", stateMutability: "view", inputs: [{ name: "resource", type: "uint256" }], outputs: [{ type: "string" }] },
   { type: "function", name: "roleOf", stateMutability: "view", inputs: [{ name: "resource", type: "uint256" }], outputs: [{ type: "bytes32" }] },
+  { type: "function", name: "revoke", stateMutability: "nonpayable", inputs: [{ name: "anyId", type: "uint256" }], outputs: [] },
   { type: "function", name: "membershipOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "effectiveRole", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "role", type: "bytes32" }, { name: "fromOrg", type: "bool" }] },
   { type: "function", name: "roleSpec", stateMutability: "view", inputs: [{ name: "roleId", type: "bytes32" }], outputs: [{ name: "registryBitmap", type: "uint256" }, { name: "canOnboard", type: "bool" }, { name: "openToOnboarders", type: "bool" }, { name: "active", type: "bool" }] },
@@ -76,6 +77,7 @@ export const erc20Abi = [
 
 /** Registrar writes the console performs on behalf of the organization. */
 export const registrarWriteAbi = [
+  { type: "function", name: "revoke", stateMutability: "nonpayable", inputs: [{ name: "anyId", type: "uint256" }], outputs: [] },
   { type: "function", name: "defineRole", stateMutability: "nonpayable", inputs: [
     { name: "name", type: "string" },
     { name: "registryBitmap", type: "uint256" },

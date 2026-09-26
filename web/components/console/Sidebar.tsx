@@ -27,9 +27,17 @@ const SECTIONS = [
 export function Sidebar() {
   const pathname = usePathname();
   const { branches } = useEnsBranches();
-  const { data: status } = useProxyStatus();
+  const { data: status, error: statusError, isLoading: statusLoading } = useProxyStatus();
 
-  const online = !!status && status.status === "ok";
+  // Three states, not two. "Not yet answered" rendered as "unreachable" meant the first paint
+  // of every console page accused the enforcer of being down.
+  const enforcer = statusError
+    ? { colour: "var(--alert)", label: "Enforcer unreachable" }
+    : statusLoading || !status
+      ? { colour: "var(--ink-faint)", label: "Checking the enforcer…" }
+      : status.status === "ok"
+        ? { colour: "var(--signal)", label: "Enforcer online" }
+        : { colour: "var(--alert)", label: `Enforcer ${status.status}` };
 
   return (
     <div className="flex h-full flex-col">
@@ -101,8 +109,8 @@ export function Sidebar() {
         </div>
         <div className="border-t border-rule px-5 py-3">
           <p className="flex items-center gap-2 font-mono text-[0.6875rem] text-ink-muted">
-            <span aria-hidden className="size-1.5 rounded-full" style={{ background: online ? "var(--signal)" : "var(--alert)" }} />
-            {online ? "Proxy online" : "Proxy unreachable"}
+            <span aria-hidden className="size-1.5 rounded-full" style={{ background: enforcer.colour }} />
+            {enforcer.label}
           </p>
         </div>
       </div>

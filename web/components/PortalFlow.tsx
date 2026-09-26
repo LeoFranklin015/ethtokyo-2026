@@ -24,11 +24,11 @@ const COPY: Record<State, { status: string; title: string; body: string }> = {
     body: "Sign the challenge to prove control of your membership name.",
   },
   connected: {
-    status: "Verified",
-    title: "Your membership checks out",
+    status: "Admitted",
+    title: "You are online",
     body:
-      "Your wallet signed for this name and ENS confirms the membership. The branch enforcer " +
-      "applies the entitlements below when it admits the device.",
+      "Your wallet signed for this name, ENS confirmed the membership, and the branch enforcer " +
+      "opened the network for this device.",
   },
   denied: {
     status: "Refused",
@@ -100,6 +100,8 @@ export function PortalFlow() {
       });
       const result = await verifyRes.json() as {
         ok: boolean;
+        admitted?: boolean;
+        admissionError?: string;
         reason?: string;
         ens_name?: string;
         group_name?: string;
@@ -115,6 +117,14 @@ export function PortalFlow() {
       // Only what the server actually returned. A "Tier" row used to sit here permanently
       // reading "—", because the tier is the enforcer's decision and this endpoint never
       // returns one.
+      // Identified is not the same as online. Say which one actually happened.
+      if (!result.admitted) {
+        setError(
+          `Your membership checks out, but the branch enforcer did not admit this device${
+            result.admissionError ? `: ${result.admissionError}` : ""
+          }.`,
+        );
+      }
       setGrant([
         ["Membership", result.ens_name ?? address],
         ["Group", result.group_name ?? "—"],
