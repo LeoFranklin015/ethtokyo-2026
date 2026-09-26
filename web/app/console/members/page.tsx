@@ -7,6 +7,7 @@ import { RoleChip } from "@/components/ui/RoleChip";
 import { useUsers } from "@/lib/hooks/useUsers";
 import { useSessions } from "@/lib/hooks/useSessions";
 import { EnsMemberships } from "@/components/console/EnsMemberships";
+import { OnboardForm } from "@/components/console/OnboardForm";
 import type { RoleName } from "@/lib/data";
 
 const TIER_ROLE: Record<string, RoleName> = {
@@ -44,6 +45,10 @@ export default function MembersPage() {
       />
 
       <div className="px-5 py-6 lg:px-8 space-y-6">
+        <div className="max-w-[560px]">
+          <OnboardForm />
+        </div>
+
         <EnsMemberships />
 
         <Panel as="section" className="overflow-hidden">

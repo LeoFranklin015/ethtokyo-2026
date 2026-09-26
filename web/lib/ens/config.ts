@@ -16,6 +16,7 @@ export const ENS = {
 
   orgRegistry: "0xEb716b3fB749f357be2B74a10647675D11a94517",
   orgRegistrar: "0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7",
+  branchFactory: "0x9ab4aFB832b7669eA427df486287D75bb936b67f",
   resolver: "0x9D8f1376aED12F6F7Ba041285Cce833AcED13092",
 
   /**
@@ -32,6 +33,11 @@ export const ENS = {
   branchRegistrar: "0xA1e540738e89430598f34f279ce39E3009CBfAB6",
 
   universalResolver: "0x5d25C1D6aCBb71B7a28AA7899618a3412a8303e3",
+
+  /** ENSv2 Sepolia beta: where a `.eth` name is bought. */
+  ethRegistrar: "0xAbe76F6C8DFcEd81AA5A2bB8034202A7136b94ca",
+  ethRegistry: "0x657eA849311d3D5823348ddEd7C2AaAFb3EDE09E",
+  paymentToken: "0x16f95D91DBa7dA3Aca778Ec053dF0FF6C6A8aA8e",
 
   /** Floor for log queries — the block the V2 registrar was deployed in. */
   fromBlock: 11782000n,

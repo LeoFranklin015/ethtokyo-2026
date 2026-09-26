@@ -5,19 +5,22 @@ import { usePathname } from "next/navigation";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
 import { useEnsBranches } from "@/lib/hooks/useEns";
+import { ENS } from "@/lib/ens/config";
 
 const SECTIONS = [
   {
-    heading: "Branch",
+    heading: "Operate",
     items: [
       { href: "/console", label: "Overview" },
       { href: "/console/members", label: "Memberships" },
-      { href: "/console/roles", label: "Roles" },
     ],
   },
   {
-    heading: "Organization",
-    items: [{ href: "/console/branches", label: "Branches" }],
+    heading: "Configure",
+    items: [
+      { href: "/console/groups", label: "Groups" },
+      { href: "/console/branches", label: "Branches" },
+    ],
   },
 ] as const;
 
@@ -36,12 +39,28 @@ export function Sidebar() {
         <Link href="/" className="flex items-center">
           <span className="font-mono text-sm font-medium tracking-[0.18em] text-ink">ENSCA</span>
         </Link>
+        <p className="mt-1 truncate font-mono text-[0.6875rem] text-ink-muted">{ENS.organization}</p>
       </div>
 
-      {/* Branch label — single branch, no switcher */}
+      {/* Branches, discovered from ENS rather than configured */}
       <div className="border-b border-rule px-4 py-3 lg:px-5">
         <p className="label">Branches</p>
-        <p className="mt-2 font-mono text-xs text-ink">{branchLabel}</p>
+        <ul className="mt-2 space-y-1">
+          {branches === undefined ? (
+            <li className="font-mono text-xs text-ink-muted">discovering…</li>
+          ) : branches.length === 0 ? (
+            <li className="font-mono text-xs text-ink-muted">none yet</li>
+          ) : (
+            branches.map((b) => (
+              <li key={b.name} className="flex items-baseline justify-between gap-2">
+                <span className="truncate font-mono text-xs text-ink">{b.label}</span>
+                <span className="shrink-0 font-mono text-[0.6875rem] tabular-nums text-ink-muted">
+                  {b.memberCount}
+                </span>
+              </li>
+            ))
+          )}
+        </ul>
       </div>
 
       {/* Navigation */}
