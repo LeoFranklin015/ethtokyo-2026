@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
 import { useEnsBranches } from "@/lib/hooks/useEns";
-import { useOrg, withOrg } from "@/lib/hooks/useOrg";
+import { useOrg } from "@/lib/hooks/useOrg";
+import { usePerimeter, withScope } from "@/lib/hooks/usePerimeter";
 import { WalletButton } from "@/components/WalletButton";
 import { WifiMark } from "@/components/WifiMark";
 import { useConsoleSession } from "@/lib/hooks/useConsoleSession";
@@ -38,6 +39,7 @@ const SECTIONS = [
 export function Sidebar() {
   const pathname = usePathname();
   const org = useOrg();
+  const perimeter = usePerimeter();
   const { branches, error: branchesError } = useEnsBranches(org);
   const { data: status, error: statusError, isLoading: statusLoading } = useProxyStatus();
   const activeLabel = pathname.startsWith("/console/branches/")
@@ -71,7 +73,7 @@ export function Sidebar() {
       <div className="border-b border-rule px-2 py-3 lg:px-3">
         <div className="flex items-center justify-between px-2 pb-1.5">
           <Link
-            href={withOrg("/console/branches", org)}
+            href={withScope("/console/branches", org, perimeter)}
             className="label hover:text-ink transition-colors"
           >
             Perimeters
@@ -94,9 +96,12 @@ export function Sidebar() {
             <li className="px-2 font-mono text-xs text-ink-faint">none yet</li>
           ) : (
             branches.map((b) => {
-              const isActive = activeLabel === b.label;
+              // Two different kinds of "current": the perimeter this page is about, and the
+              // one the console as a whole is scoped to. They are usually the same and the rail
+              // marks either, but opening one from here changes the scope as well as the page.
+              const isActive = activeLabel === b.label || perimeter === b.label;
               const isOpen = expanded === b.label;
-              const href = withOrg(`/console/branches/${b.label}`, org);
+              const href = withScope(`/console/branches/${b.label}`, org, b.label);
               return (
                 <li key={b.name}>
                   <div className={`flex items-center rounded-sharp transition-colors ${isActive ? "bg-ink/8" : "hover:bg-ink/5"}`}>
@@ -168,7 +173,7 @@ export function Sidebar() {
                 return (
                   <li key={item.href}>
                     <Link
-                      href={withOrg(item.href, org)}
+                      href={withScope(item.href, org, perimeter)}
                       aria-current={active ? "page" : undefined}
                       className={`flex min-h-11 items-center gap-2.5 rounded-sharp px-2 text-sm transition-colors ${
                         active ? "bg-ink/8 font-medium text-ink" : "text-ink-muted hover:bg-ink/5 hover:text-ink"

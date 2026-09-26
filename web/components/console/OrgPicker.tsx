@@ -141,6 +141,29 @@ export function OrgPicker() {
  * This asks the registry directly, so "I made it a minute ago and cannot see it" has an answer.
  */
 function OpenByName() {
+  return (
+    <Panel as="section">
+      <div className="px-5 py-5">
+        <h2 className="text-sm tracking-[-0.01em] text-ink">Open one by name</h2>
+        <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+          Read straight from the registry, so an organization set up in the last few minutes is
+          reachable before the indexer has caught up with it.
+        </p>
+        <div className="mt-3">
+          <OpenByNameField />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * The field itself, without the plate around it.
+ *
+ * The console's entry gate asks the same question in a different composition, and the part worth
+ * sharing is the registry read and its three answers — not the panel it happens to sit in here.
+ */
+export function OpenByNameField() {
   const router = useRouter();
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
@@ -170,42 +193,35 @@ function OpenByName() {
   }
 
   return (
-    <Panel as="section">
-      <div className="px-5 py-5">
-        <h2 className="text-sm tracking-[-0.01em] text-ink">Open one by name</h2>
-        <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
-          Read straight from the registry, so an organization set up in the last few minutes is
-          reachable before the indexer has caught up with it.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="flex h-11 min-w-0 flex-1 items-center rounded-sharp border border-rule bg-paper px-3">
-            <input
-              value={value}
-              onChange={(e) => {
-                setValue(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
-                setMessage(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && label) void open();
-              }}
-              placeholder="acme"
-              aria-label="Organization name"
-              autoComplete="off"
-              className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink outline-none placeholder:text-ink-faint"
-            />
-            <span className="shrink-0 font-mono text-sm text-ink-muted">.eth</span>
-          </span>
-          <Button variant="outline" onClick={open} disabled={!label || checking}>
-            {checking ? "Reading…" : "Open"}
-          </Button>
-        </div>
-        {message ? (
-          <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
-            {message}
-          </p>
-        ) : null}
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex h-11 min-w-0 flex-1 items-center rounded-sharp border border-rule bg-paper px-3">
+          <input
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
+              setMessage(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && label) void open();
+            }}
+            placeholder="acme"
+            aria-label="Organization name"
+            autoComplete="off"
+            className="min-w-0 flex-1 bg-transparent font-mono text-sm text-ink outline-none placeholder:text-ink-faint"
+          />
+          <span className="shrink-0 font-mono text-sm text-ink-muted">.eth</span>
+        </span>
+        <Button variant="outline" onClick={open} disabled={!label || checking}>
+          {checking ? "Reading…" : "Open"}
+        </Button>
       </div>
-    </Panel>
+      {message ? (
+        <p className="mt-2 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+          {message}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

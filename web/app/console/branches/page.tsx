@@ -65,7 +65,7 @@ function PerimeterList({ org }: { org: string }) {
         <div className="px-4 py-10 text-center">
           <p className="text-sm text-ink">No perimeters yet</p>
           <p className="mx-auto mt-1.5 max-w-[44ch] text-sm text-ink-muted">
-            A perimeter is a branch registry. Use "Create perimeter" to open one.
+            A perimeter is a branch registry. Use &ldquo;Create perimeter&rdquo; to open one.
           </p>
         </div>
       </Panel>
