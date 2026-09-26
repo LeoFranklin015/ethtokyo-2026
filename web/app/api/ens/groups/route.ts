@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mirrorGroup } from "@/lib/enforcer/mirror";
 import { defineGroup, signerConfigured } from "@/lib/ens/write";
 import { getRoles } from "@/lib/ens/read";
 import type { Address } from "viem";
@@ -47,7 +48,11 @@ export async function POST(req: NextRequest) {
       editableKeys: body.editableKeys ?? [],
       entitlements: (body.entitlements ?? []).filter((e) => e.key && e.value),
     });
-    return NextResponse.json({ txHash, name: body.name });
+
+    // A group that exists only on chain admits nobody: the enforcer denies any member whose
+    // `wifi.group` entitlement names a group it has no row for.
+    const mirror = await mirrorGroup(body.name);
+    return NextResponse.json({ txHash, name: body.name , ...mirror });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "transaction failed" },

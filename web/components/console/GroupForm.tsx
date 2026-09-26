@@ -58,7 +58,12 @@ export function GroupForm({ onDone }: { onDone?: () => void }) {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "failed");
-      setMessage({ ok: true, text: `Group “${name}” is defined on-chain.` });
+      setMessage({
+        ok: true,
+        text: body.mirrored
+          ? `Group “${name}” is defined on-chain and known to the enforcer.`
+          : `Group “${name}” is defined on-chain, but the enforcer was not updated (${body.reason ?? "unknown"}). Members of this group will be denied the network until it is.`,
+      });
       setName("");
       onDone?.();
     } catch (e) {

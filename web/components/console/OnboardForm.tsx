@@ -84,13 +84,22 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
       const res = await fetch("/api/ens/onboard", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ registrar: target, label, owner: owner.trim(), group: selectedGroup }),
+        body: JSON.stringify({
+          registrar: target,
+          label,
+          owner: owner.trim(),
+          group: selectedGroup,
+          // The enforcer joins on the full name, so it needs the branch too.
+          branch: branch?.name,
+        }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "failed");
       setMessage({
         ok: true,
-        text: `${label}.${branch?.name} is live, in group “${selectedGroup}”.`,
+        text: body.mirrored
+          ? `${label}.${branch?.name} is live, in group “${selectedGroup}”.`
+          : `${label}.${branch?.name} is minted on ENS, but the enforcer was not updated (${body.reason ?? "unknown"}). They will not be admitted to the network until it is.`,
       });
       setLabel("");
       setOwner("");
