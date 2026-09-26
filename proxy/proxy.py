@@ -471,6 +471,119 @@ def list_users():
     return jsonify({"users": [dict(r) for r in rows], "total": total})
 
 
+# ── ENS name candidates ───────────────────────────────────────────────────────
+
+ENS_KINDS = ("organization", "branch", "membership")
+HEX_ADDRESS = re.compile(r"^0x[0-9a-f]{40}$")
+HEX_TX = re.compile(r"^0x[0-9a-f]{64}$")
+
+
+def _split_ens_name(name: str, kind: str):
+    """Break a full ENS name into the columns `ens_names` stores, for the given kind.
+
+    Derived rather than trusted, because the reader filters candidates by organization and by
+    branch label: a row whose `branch_label` disagrees with its own name would let a query for
+    one branch hand back another branch's member, which is exactly the fault this table exists
+    to avoid repeating.
+
+    Returns `None` when the name does not have the shape its kind requires.
+    """
+    if not name.endswith(".eth"):
+        return None
+    parts = name[: -len(".eth")].split(".")
+    if not all(ORG_LABEL.match(p) for p in parts):
+        return None
+    if kind == "organization" and len(parts) == 1:
+        return {"org": parts[0], "branch_label": None, "label": parts[0]}
+    if kind == "branch" and len(parts) == 2:
+        return {"org": parts[1], "branch_label": parts[0], "label": parts[0]}
+    if kind == "membership" and len(parts) == 3:
+        return {"org": parts[2], "branch_label": parts[1], "label": parts[0]}
+    return None
+
+
+@app.route("/admin/ens-names", methods=["POST"])
+@require_admin
+def upsert_ens_name():
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name", "")).strip().lower().rstrip(".")
+    kind = str(data.get("kind", "")).strip().lower()
+    if not name or kind not in ENS_KINDS:
+        return jsonify({"error": "invalid_param"}), 400
+    parsed = _split_ens_name(name, kind)
+    if parsed is None:
+        return jsonify({"error": "invalid_param"}), 400
+
+    # A caller may state these too; they have to agree with the name, or one of the two is wrong
+    # and we cannot tell which.
+    for field in ("org", "branch_label", "label"):
+        given = data.get(field)
+        if given is not None and str(given).strip().lower() != (parsed[field] or ""):
+            return jsonify({"error": "invalid_param"}), 400
+
+    owner = data.get("owner")
+    owner = str(owner).strip().lower() if owner else None
+    if owner is not None and not HEX_ADDRESS.match(owner):
+        return jsonify({"error": "invalid_param"}), 400
+    registrar = data.get("registrar")
+    registrar = str(registrar).strip().lower() if registrar else None
+    if registrar is not None and not HEX_ADDRESS.match(registrar):
+        return jsonify({"error": "invalid_param"}), 400
+    tx_hash = data.get("tx_hash")
+    tx_hash = str(tx_hash).strip().lower() if tx_hash else None
+    if tx_hash is not None and not HEX_TX.match(tx_hash):
+        return jsonify({"error": "invalid_param"}), 400
+
+    db = get_db()
+    # Idempotent on `name`: the console re-records a name every time it re-mirrors one, and
+    # `created_at` is when we first saw it, so a replay must not move it.
+    db.execute(
+        "INSERT INTO ens_names(name,kind,org,branch_label,label,owner,registrar,tx_hash,created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(name) DO UPDATE SET kind=excluded.kind, org=excluded.org, "
+        "branch_label=excluded.branch_label, label=excluded.label, "
+        "owner=COALESCE(excluded.owner, ens_names.owner), "
+        "registrar=COALESCE(excluded.registrar, ens_names.registrar), "
+        "tx_hash=COALESCE(excluded.tx_hash, ens_names.tx_hash)",
+        (name, kind, parsed["org"], parsed["branch_label"], parsed["label"],
+         owner, registrar, tx_hash, _now())
+    )
+    db.commit()
+    _audit("POST", "/admin/ens-names", 200, body=data, db=db)
+    row = db.execute("SELECT * FROM ens_names WHERE name=?", (name,)).fetchone()
+    return jsonify(_row(row))
+
+
+@app.route("/admin/ens-names", methods=["GET"])
+@require_admin
+def list_ens_names():
+    qp = request.args
+    where, params = ["1=1"], []
+    org = qp.get("org")
+    if org is not None:
+        org = org.strip().lower().removesuffix(".eth")
+        if not ORG_LABEL.match(org):
+            return jsonify({"error": "invalid_param"}), 400
+        where.append("org=?"); params.append(org)
+    kind = qp.get("kind")
+    if kind is not None:
+        if kind not in ENS_KINDS:
+            return jsonify({"error": "invalid_param"}), 400
+        where.append("kind=?"); params.append(kind)
+    branch = qp.get("branch")
+    if branch is not None:
+        branch = branch.strip().lower()
+        if not ORG_LABEL.match(branch):
+            return jsonify({"error": "invalid_param"}), 400
+        where.append("branch_label=?"); params.append(branch)
+
+    db = get_db()
+    rows = db.execute(
+        f"SELECT * FROM ens_names WHERE {' AND '.join(where)} ORDER BY created_at, name", params
+    ).fetchall()
+    return jsonify({"names": [dict(r) for r in rows], "total": len(rows)})
+
+
 # ── ENS identity lookup ───────────────────────────────────────────────────────
 
 @app.route("/admin/users/by-ens/<path:ens_name>")

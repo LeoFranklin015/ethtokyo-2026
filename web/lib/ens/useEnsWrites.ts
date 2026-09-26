@@ -11,6 +11,7 @@ import {
 import { sendCalls, waitForCallsStatus } from "@wagmi/core";
 import { decodeEventLog, encodeFunctionData, type Address, type Hex } from "viem";
 import { branchFactoryAbi, registrarWriteAbi } from "@/lib/ens/abis";
+import { recordEnsName } from "@/lib/ens/recordName";
 
 /**
  * Every ENS write, signed by whoever is connected.
@@ -100,7 +101,7 @@ export function useEnsWrites() {
   const createBranch = useCallback(
     // The organization's own factory, always. There is no default: falling back to a
     // configured one is what made a branch land under somebody else's organization.
-    (label: string, expiry: bigint, owner: Address, factory: Address) =>
+    (label: string, expiry: bigint, owner: Address, factory: Address, organization: string) =>
       run(async () => {
         const hash = await writeContractAsync({
           address: factory,
@@ -125,6 +126,15 @@ export function useEnsWrites() {
                 registry: Address;
                 registrar: Address;
               };
+              // A branch is not listable from the chain alone, and the indexer will not have it
+              // for a while — so record it now, while we hold the registrar the receipt named.
+              void recordEnsName({
+                name: `${args.label}.${organization.replace(/\.eth$/, "")}.eth`,
+                kind: "branch",
+                owner,
+                registrar: args.registrar,
+                txHash: hash,
+              });
               return { ...args, txHash: hash };
             }
           } catch {

@@ -60,6 +60,7 @@ export default function PeoplePage() {
     isLoading: chainLoading,
     stale: chainStale,
     lag: chainLag,
+    source: chainSource,
   } = useEnsMemberships(org);
   const { branches } = useEnsBranches(org);
   // `useUsers` rather than the paginated `useEnforcerUsers`: a join that only saw the first page
@@ -78,11 +79,15 @@ export default function PeoplePage() {
   // "Answered" is stricter than "no error": SWR reports neither while the first request is in
   // flight, and a row must not be called one-sided before the other side has had its turn.
   //
-  // A stale index does not count as an answer. Memberships can only be read from the index —
-  // nothing on chain enumerates a branch's members — so when that index is far behind, an empty
-  // list means "we do not know yet", not "there is nobody". Treating it as an answer is what put
-  // `NOT ON CHAIN` beside a member who was registered, owned and perfectly valid on chain.
-  const chainAnswered = !chainError && memberships !== undefined && !chainStale;
+  // A stale index does not count as an answer: an empty list from an index that stopped an hour
+  // ago means "we do not know yet", not "there is nobody", and reading it as an answer is what
+  // put `NOT ON CHAIN` beside a member who was registered, owned and perfectly valid on chain.
+  //
+  // `source: "chain"` is the exception, and it is not a weakening of that rule. Those rows were
+  // each read back off the registry in this request, so they are an answer however far behind
+  // the index happens to be — the index's age says nothing about them.
+  const chainAnswered =
+    !chainError && memberships !== undefined && (chainSource === "chain" || !chainStale);
   const enforcerAnswered = !enforcerError && usersData !== undefined;
   const sessionsAnswered = !sessionsError && sessionsData !== undefined;
 
@@ -216,11 +221,22 @@ export default function PeoplePage() {
           {chainStale && !chainError ? (
             <p className="border-b border-rule px-4 py-2.5 text-xs leading-relaxed text-ink-muted">
               The ENS index is{" "}
-              <span className="font-mono text-ink">{chainLag ?? "?"}</span> blocks behind, so
-              on-chain memberships cannot be listed right now. Nobody below is being called
-              unregistered on the strength of that — the chain column reads{" "}
-              <span className="font-mono">not read</span> until the index catches up. Branches and
-              organizations are unaffected; those are read from the chain directly.
+              <span className="font-mono text-ink">{chainLag ?? "?"}</span> blocks behind.{" "}
+              {chainSource === "chain" ? (
+                <>
+                  The memberships below were therefore read back off the registry one by one,
+                  from the names this console recorded writing — so the chain column is the
+                  chain&apos;s own answer, not the index&apos;s. A membership written from
+                  somewhere else may still be missing until the index catches up.
+                </>
+              ) : (
+                <>
+                  Nobody below is being called unregistered on the strength of that — the chain
+                  column reads <span className="font-mono">not read</span> until the index catches
+                  up. Branches and organizations are unaffected; those are read from the chain
+                  directly.
+                </>
+              )}
             </p>
           ) : null}
 

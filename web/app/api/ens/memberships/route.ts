@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMemberships, indexerLag } from "@/lib/ens/read";
+import { getMemberships, indexerLag, STALE_AFTER_BLOCKS } from "@/lib/ens/read";
 import { orgFromRequest } from "@/lib/ens/route-org";
 import { getIndexerStatus } from "@/lib/ens/indexer";
 
@@ -16,10 +16,11 @@ export async function GET(req: NextRequest) {
       getMemberships(org.name, branch ?? undefined, org.orgRegistrar),
       getIndexerStatus(),
     ]);
-    // Memberships can only come from the index — nothing on chain enumerates the members of a
-    // branch — so the caller has to be told how old that index is. An empty list from an
-    // indexer stopped an hour ago is not evidence that a membership does not exist, and the
-    // console was using it as exactly that: real members were being labelled "not on chain".
+    // The caller has to be told how old the index is: an empty list from an indexer stopped an
+    // hour ago is not evidence that a membership does not exist, and the console was using it as
+    // exactly that — real members were being labelled "not on chain". `source` says which path
+    // actually produced these rows, and `source: "chain"` means each was read back off the
+    // registry in this request, so it is an answer whatever the lag says.
     const lag = await indexerLag(indexer?.block ?? null);
     return NextResponse.json({
       memberships,
@@ -27,8 +28,10 @@ export async function GET(req: NextRequest) {
       source,
       indexedBlock: indexer?.block ?? null,
       lag,
-      // Generous: a handful of blocks is ordinary indexing delay, not staleness.
-      stale: lag === null ? true : lag > 30,
+      // Generous: a handful of blocks is ordinary indexing delay, not staleness. The same
+      // threshold `getMemberships` uses to decide whether to verify candidates on chain, so the
+      // two cannot disagree about whether the index is worth believing.
+      stale: lag === null ? true : lag > STALE_AFTER_BLOCKS,
     });
   } catch (error) {
     // A read failing is reported, never substituted with a plausible number.

@@ -13,6 +13,7 @@ import {
 import { encodeFunctionData, keccak256, toHex, type Address, type Hex } from "viem";
 import { ethRegistryWriteAbi, orgFactoryAbi, registryAbi } from "@/lib/ens/abis";
 import { ENS } from "@/lib/ens/config";
+import { recordEnsName } from "@/lib/ens/recordName";
 
 /**
  * Turning a name you own into an organization.
@@ -103,11 +104,12 @@ export function useOrgSetup(label: string | null) {
         args: [label],
       })) as Address;
 
-      setState({
-        step: "deployed",
-        org,
-        pointed: pointedAt.toLowerCase() === org.registry.toLowerCase(),
-      });
+      const pointed = pointedAt.toLowerCase() === org.registry.toLowerCase();
+      setState({ step: "deployed", org, pointed });
+      // Recorded once the name resolves to its own registry, which is the point at which the
+      // organization is real to everything else here. The server re-reads the factory before
+      // believing it, so a repeat costs nothing.
+      if (pointed) void recordEnsName({ name: `${label}.eth`, kind: "organization" });
     } catch (e) {
       setError(readable(e));
     }

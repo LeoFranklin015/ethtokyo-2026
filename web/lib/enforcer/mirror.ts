@@ -53,7 +53,9 @@ export function enforcerGroupName(
   return wifiGroup || roleName;
 }
 
-async function call(
+/** One authenticated call to the enforcer's admin API. Exported so the ENS name record, which
+ * needs the same URL and the same token, does not carry a second copy of it. */
+export async function call(
   method: string,
   path: string,
   body?: unknown,

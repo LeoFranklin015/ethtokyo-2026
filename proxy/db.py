@@ -166,6 +166,25 @@ def init_db():
             created_at  INTEGER NOT NULL
         );
 
+        -- Names the console has written to ENS. Not an answer in itself: nothing on chain
+        -- enumerates the members of a branch, so this is the list of names worth asking the
+        -- chain about when the ENS indexer is behind. A row here is a candidate, and a
+        -- candidate the chain does not confirm is dropped by the reader, never shown.
+        CREATE TABLE IF NOT EXISTS ens_names (
+            name         TEXT PRIMARY KEY,
+            kind         TEXT NOT NULL,
+            org          TEXT NOT NULL,
+            branch_label TEXT,
+            label        TEXT NOT NULL,
+            owner        TEXT,
+            registrar    TEXT,
+            tx_hash      TEXT,
+            created_at   INTEGER NOT NULL
+        );
+
+        -- Every read of this table is "the candidates of one organization", usually of one kind.
+        CREATE INDEX IF NOT EXISTS idx_ens_names_org ON ens_names(org, kind);
+
         CREATE TABLE IF NOT EXISTS audit_log (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             ts              INTEGER NOT NULL,

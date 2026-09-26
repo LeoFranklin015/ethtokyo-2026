@@ -571,6 +571,7 @@ function BranchStep({
         BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60),
         address as Address,
         factory as `0x${string}`,
+        orgLabel,
       );
       if (!created) throw new Error(writes.error ?? "the transaction did not go through");
       const body = created;

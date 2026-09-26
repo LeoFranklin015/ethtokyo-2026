@@ -7,6 +7,7 @@ import { getRoles } from "@/lib/ens/read";
 import { branchForRegistrar } from "@/lib/ens/registrars";
 import { resolveOrg } from "@/lib/ens/org";
 import { enforcerGroupName, mirrorGroup, mirrorMember, mirrorRevoke } from "@/lib/enforcer/mirror";
+import { recordEnsName } from "@/lib/enforcer/ens-names";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -67,6 +68,10 @@ export async function POST(req: NextRequest) {
     );
   }
   const registrar = body.registrar as Address;
+
+  // The branch has just been proved to belong to this organization, so this is a good moment to
+  // remember it exists — the indexer is not always the first to know.
+  void recordEnsName({ name: branch.name, kind: "branch", registrar });
 
   try {
     if (body.kind === "group") {
@@ -146,6 +151,15 @@ export async function POST(req: NextRequest) {
         ensName: `${label}.${branch.name}`,
         wallet: owner,
         group: enforcerGroupName(role.name, role.entitlements).trim().toLowerCase(),
+      });
+      // Recorded here because this is the one place that has read the membership back off the
+      // chain: the label, the owner and the role all came from the registrar a moment ago. The
+      // row is what lets this member be found again while the indexer is behind.
+      await recordEnsName({
+        name: `${label}.${branch.name}`,
+        kind: "membership",
+        owner,
+        registrar,
       });
       return NextResponse.json(result);
     }

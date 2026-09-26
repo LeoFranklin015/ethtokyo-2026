@@ -10,9 +10,10 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { branchFactoryAbi, orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
+import { listEnsCandidates } from "../enforcer/ens-names";
 import { ENTITLEMENT_KEYS, MEMBERSHIP_TEXT_KEYS, RPC_BATCH_SIZE, RPC_URL } from "./config";
-import { getIndexedBranches, getIndexedMemberships } from "./indexer";
-import { orgForName, type Organization } from "./org";
+import { getIndexedBranches, getIndexedMemberships, getIndexerStatus } from "./indexer";
+import { orgForName, resolveOrg, type Organization } from "./org";
 
 /**
  * Reads the ENSCA contracts directly. Server-side only, so viem never reaches the client bundle.
@@ -160,26 +161,160 @@ export async function indexerLag(indexedBlock: number | null): Promise<number | 
   }
 }
 
+/** A handful of blocks behind is ordinary indexing delay; beyond that the index is not evidence. */
+export const STALE_AFTER_BLOCKS = 30;
+
 /**
  * Live memberships in the branch.
  *
- * Index-only, and unavoidably so: nothing on chain enumerates the members of a branch. The
- * registrar emits `Onboarded` but keeps no list, so the alternative is an `eth_getLogs` range
+ * Still index-first, because nothing on chain enumerates the members of a branch: the registrar
+ * emits `Onboarded` but keeps no list, and scanning for those logs means an `eth_getLogs` range
  * that grows by a block every twelve seconds until a provider refuses it — which is how this
  * once reported "no members" during an outage rather than an error.
+ *
+ * What it now has instead is a *list of names to check*. The console records every name it
+ * writes, and when the index is empty or behind, each recorded name for this branch is put to
+ * the registry: registered, owned by whom, in which group. Only what the chain confirms is
+ * returned, so a stale or wrong row in that list cannot put a phantom member on screen — the
+ * list decides what is asked about, never what is answered.
+ *
+ * The fallback that used to live here ignored `branchLabel` entirely and answered a question
+ * about Osaka with Tokyo's members, stamped "tokyo", at HTTP 200. `branchLabel` is therefore
+ * carried into the candidate query and checked again on every row that comes back.
  */
 export async function getMemberships(
   organization: string,
   branchLabel?: string,
   orgRegistrar?: Address,
 ): Promise<MembershipsResult> {
-  // No fallback. There used to be one and it ignored `branchLabel` entirely — asking for Osaka
-  // during an indexer outage returned Tokyo's members, stamped "tokyo", with HTTP 200. A
-  // confident wrong answer is worse than the 502 the caller now gets and can report.
-  return {
-    memberships: await fromIndexer(organization, branchLabel, orgRegistrar),
-    source: "indexer",
-  };
+  const [indexed, status] = await Promise.all([
+    fromIndexer(organization, branchLabel, orgRegistrar),
+    getIndexerStatus(),
+  ]);
+  const lag = await indexerLag(status?.block ?? null);
+  const stale = lag === null || lag > STALE_AFTER_BLOCKS;
+  if (indexed.length > 0 && !stale) return { memberships: indexed, source: "indexer" };
+
+  const verified = await fromCandidates(organization, branchLabel, orgRegistrar);
+  if (verified.length === 0) return { memberships: indexed, source: "indexer" };
+
+  // Indexed rows the chain was never asked about are kept — a member onboarded from another
+  // console is real and is not in our candidate list — but a name the chain has just answered
+  // for wins, because that answer is the newer one.
+  const byName = new Map(indexed.map((m) => [m.name, m]));
+  for (const m of verified) byName.set(m.name, m);
+  return { memberships: [...byName.values()], source: "chain" };
+}
+
+/**
+ * Verify the names this console has written, one by one, against the registry.
+ *
+ * A candidate is dropped unless `getStatus` says REGISTERED, which is the same test the
+ * admission path applies — so a revoked member, a name recorded for a transaction that reverted,
+ * and a row left behind by a branch that no longer exists all disappear here rather than being
+ * shown. Everything returned is read from the chain in this request; nothing is remembered
+ * except which names were worth asking about.
+ */
+async function fromCandidates(
+  organization: string,
+  branchLabel?: string,
+  orgRegistrar?: Address,
+): Promise<EnsMembership[]> {
+  const org = await resolveOrg(organization).catch(() => null);
+  if (!org) return [];
+
+  const candidates = await listEnsCandidates(org.label, "membership", branchLabel);
+  if (candidates.length === 0) return [];
+
+  const branches = new Map((await chainBranches(org)).map((b) => [b.label, b]));
+
+  const rows = await Promise.all(
+    candidates.map(async (candidate) => {
+      const bl = candidate.branch_label;
+      // The enforcer already filtered on this; checked again because getting it wrong is the
+      // specific failure this whole path exists to not repeat.
+      if (!bl || (branchLabel && bl !== branchLabel)) return null;
+      const branch = branches.get(bl);
+      if (!branch) return null;
+
+      const token = labelHash(candidate.label);
+      const status = await client.readContract({
+        address: branch.registry,
+        abi: registryAbi,
+        functionName: "getStatus",
+        args: [token],
+      });
+      if (status !== 2) return null;
+
+      const [owner, resource, names] = await Promise.all([
+        client.readContract({
+          address: branch.registry,
+          abi: registryAbi,
+          functionName: "getOwner",
+          args: [token],
+        }),
+        client.readContract({
+          address: branch.registry,
+          abi: registryAbi,
+          functionName: "getResource",
+          args: [token],
+        }),
+        roleNames(branch.registrar),
+      ]);
+      if (owner === ZERO_ADDRESS) return null;
+
+      const node = namehash(candidate.name);
+      const [roleId, ownRoles, memberLabel, texts] = await Promise.all([
+        client.readContract({
+          address: branch.registrar,
+          abi: registrarV2Abi,
+          functionName: "roleOf",
+          args: [resource],
+        }),
+        client.readContract({
+          address: branch.registry,
+          abi: registryAbi,
+          functionName: "roles",
+          args: [resource, owner],
+        }),
+        orgRegistrar
+          ? client.readContract({
+              address: orgRegistrar,
+              abi: orgRegistrarAbi,
+              functionName: "labelOf",
+              args: [owner],
+            })
+          : Promise.resolve(""),
+        Promise.all(
+          ENTITLEMENT_KEYS.map((key) =>
+            client.readContract({
+              address: org.resolver,
+              abi: resolverAbi,
+              functionName: "text",
+              args: [node, key],
+            }),
+          ),
+        ),
+      ]);
+
+      return {
+        label: candidate.label,
+        name: candidate.name,
+        branch: branch.name,
+        branchLabel: bl,
+        owner,
+        role: names.get(roleId.toLowerCase()) ?? "unknown",
+        ownRoles: ownRoles.toString(),
+        memberName: memberLabel ? `${memberLabel}.${organization}` : null,
+        // Empty is absent, as on the resolver: a record nobody wrote reads as "".
+        entitlements: Object.fromEntries(
+          ENTITLEMENT_KEYS.map((key, i) => [key, texts[i]!]).filter(([, v]) => v !== ""),
+        ),
+      } satisfies EnsMembership;
+    }),
+  );
+
+  return rows.filter((row): row is EnsMembership => row !== null);
 }
 
 /**
