@@ -390,34 +390,24 @@ function SolutionSlide() {
 }
 
 /**
- * The tree, and what a leaf actually gets.
+ * The tree, drawn as one.
  *
- * Every other way of drawing this — a list, three boxes, an architecture diagram — loses the one
- * property that matters: access is *positional*. A membership is a leaf, its perimeter is the
- * branch above it, and the organization is the root; nothing is granted sideways. Drawn as a
- * tree that is self-evident, and the grants can sit on the same row as the name they belong to
- * rather than in a legend somewhere else.
+ * An indented list says the same words but loses the argument: access here is *positional*, and
+ * the two relationships that matter run in different directions. Solid lines go down — a
+ * perimeter is a child of the organization, a membership is a child of a perimeter, and that is
+ * where a leaf's bandwidth and quota come from. Dashed lines go sideways — who may write on
+ * somebody else's records, which the resolver scopes per name and per key.
  *
- * The figures are the entitlement text records on those names, not illustrations of them.
+ * Drawn in SVG because those are edges, not indentation, and an arrow that crosses the row is
+ * the only honest way to show that a volunteer may edit a hacker's records without being above
+ * them in the namespace.
  */
-const ORG_TREE: {
-  depth: number;
-  name: string;
-  role?: string;
-  wifi?: string;
-  api?: string;
-  shell?: boolean;
-  note?: string;
-  last?: boolean;
-}[] = [
-  { depth: 0, name: "ethglobal.eth", note: "organization · owns the registry" },
-  { depth: 1, name: "tokyo.ethglobal.eth", note: "perimeter · expires with the event" },
-  { depth: 2, name: "ana.tokyo.ethglobal.eth", role: "organizer", wifi: "50 Mbit", api: "unlimited", shell: true },
-  { depth: 2, name: "leo.tokyo.ethglobal.eth", role: "mentor", wifi: "20 Mbit", api: "2,000 / day", shell: false },
-  { depth: 2, name: "sam.tokyo.ethglobal.eth", role: "hacker", wifi: "5 Mbit", api: "500 / day", shell: false },
-  { depth: 2, name: "kit.tokyo.ethglobal.eth", role: "volunteer", wifi: "10 Mbit", api: "none", shell: false, last: true },
-  { depth: 1, name: "mumbai.ethglobal.eth", note: "perimeter · November, not open yet", last: true },
-];
+const LEAVES = [
+  { cx: 78, label: "pascal.tokyo", role: "organizer", grant: "50 Mbit · all APIs" },
+  { cx: 226, label: "leo.tokyo", role: "mentor", grant: "20 Mbit · 2k/day" },
+  { cx: 374, label: "kit.tokyo", role: "volunteer", grant: "10 Mbit · no API" },
+  { cx: 522, label: "sam.tokyo", role: "hacker", grant: "5 Mbit · 500/day" },
+] as const;
 
 function TreeSlide() {
   return (
@@ -425,77 +415,118 @@ function TreeSlide() {
       <Kicker n={4}>The tree</Kicker>
       <Heading>Where a name sits is what it may do.</Heading>
 
-      <Plate className="mt-8 overflow-x-auto p-5">
-        <div className="min-w-[44rem]">
-          <div className="grid grid-cols-[1fr_5.5rem_5.5rem_6rem_3.25rem] gap-x-4 border-b border-rule pb-2">
-            <span className="label">Name</span>
-            <span className="label">Role</span>
-            <span className="label">WiFi</span>
-            <span className="label">API</span>
-            <span className="label">Shell</span>
-          </div>
+      <Plate className="mt-7 overflow-x-auto p-5">
+        <svg
+          viewBox="0 0 900 328"
+          className="h-auto w-full min-w-[42rem] text-ink"
+          role="img"
+          aria-label="ethglobal.eth has two perimeters, tokyo and mumbai. Under tokyo sit four memberships: pascal the organizer, leo the mentor, kit the volunteer and sam the hacker, each with its own bandwidth and API quota. Dashed arrows show that pascal and kit may edit sam's records."
+        >
+          <defs>
+            <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0 1 7 4 0 7Z" fill="currentColor" />
+            </marker>
+          </defs>
 
-          <ul className="divide-y divide-rule-soft">
-            {ORG_TREE.map((row) => (
-              <li
-                key={row.name}
-                className="grid grid-cols-[1fr_5.5rem_5.5rem_6rem_3.25rem] items-baseline gap-x-4 py-2"
-              >
-                <span className="flex min-w-0 items-baseline font-mono text-sm">
-                  <span aria-hidden className="whitespace-pre text-ink-faint">
-                    {branchGlyph(row.depth, row.last)}
-                  </span>
-                  <span className={`truncate ${row.role ? "text-ink" : "font-medium text-ink"}`}>
-                    {row.name}
-                  </span>
-                </span>
-
-                {row.role ? (
-                  <>
-                    <span className="font-mono text-xs text-ink">{row.role}</span>
-                    <span className="font-mono text-xs tabular-nums text-ink-muted">{row.wifi}</span>
-                    <span className="font-mono text-xs tabular-nums text-ink-muted">{row.api}</span>
-                    <span className="font-mono text-xs text-ink-muted">{row.shell ? "yes" : "—"}</span>
-                  </>
-                ) : (
-                  <span className="col-span-4 text-xs text-ink-muted">{row.note}</span>
-                )}
-              </li>
+          {/* Namespace edges: parent to child, always downward. */}
+          <g stroke="currentColor" strokeWidth="1.25" fill="none" opacity="0.5">
+            <path d="M530 58v18H300v18M530 76h230v18" />
+            <path d="M300 144v20H78v18M78 164h444" />
+            {LEAVES.map((l) => (
+              <path key={l.cx} d={`M${l.cx} 164v18`} />
             ))}
-          </ul>
-        </div>
+          </g>
+
+          <Node x={440} y={8} w={180} h={50} title="ethglobal.eth" sub="organization" strong />
+          <Node x={215} y={94} w={170} h={50} title="tokyo.ethglobal.eth" sub="perimeter · this event" strong />
+          <Node x={665} y={94} w={190} h={50} title="mumbai.ethglobal.eth" sub="perimeter · November" muted />
+
+          {LEAVES.map((l) => (
+            <Node
+              key={l.cx}
+              x={l.cx - 66}
+              y={182}
+              w={132}
+              h={68}
+              title={l.label}
+              sub={l.role}
+              grant={l.grant}
+            />
+          ))}
+
+          {/* Write authority: sideways, and not implied by the namespace at all. */}
+          <g stroke="currentColor" strokeWidth="1.25" fill="none" strokeDasharray="3 4" markerEnd="url(#arrow)">
+            <path d="M78 250q0 56 222 56t222-56" />
+            <path d="M374 250q0 30 74 30t74-30" />
+          </g>
+          <text x={300} y={322} textAnchor="middle" className="fill-current font-mono" fontSize="12" opacity="0.7">
+            may edit sam&rsquo;s records
+          </text>
+        </svg>
+
+        <p className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-rule pt-3 font-mono text-[0.6875rem] text-ink-muted">
+          <span className="flex items-center gap-2">
+            <svg width="26" height="6" aria-hidden><path d="M0 3h26" stroke="currentColor" strokeWidth="1.25" opacity="0.5" /></svg>
+            namespace · a child inherits where it sits
+          </span>
+          <span className="flex items-center gap-2">
+            <svg width="26" height="6" aria-hidden><path d="M0 3h26" stroke="currentColor" strokeWidth="1.25" strokeDasharray="3 4" /></svg>
+            may write records on
+          </span>
+        </p>
       </Plate>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        {[
-          [
-            "The leaf carries the policy",
-            "wifi.rate, wifi.ceil and the API quota are text records on that membership name. Reading the name is reading the rule.",
-          ],
-          [
-            "Nothing is granted sideways",
-            "A hacker cannot reach a mentor's bandwidth by asking for it — the class is derived from where the name sits, in the kernel.",
-          ],
-          [
-            "The branch expires",
-            "tokyo lapses when the event ends and every membership under it goes with it. Mumbai opens as its own perimeter.",
-          ],
-        ].map(([t, d]) => (
-          <div key={t} className="border-t border-ink pt-3">
-            <p className="font-mono text-sm font-medium">{t}</p>
-            <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{d}</p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
 
-/** `tree(1)`'s own notation, because that is what a reader of monospace already knows. */
-function branchGlyph(depth: number, last?: boolean) {
-  if (depth === 0) return "";
-  const elbow = last ? "└─ " : "├─ ";
-  return depth === 1 ? elbow : `│  ${elbow}`;
+/** One box on the tree: a name, what it is, and — on a leaf — what it may reach. */
+function Node({
+  x,
+  y,
+  w,
+  h = 60,
+  title,
+  sub,
+  grant,
+  strong,
+  muted,
+}: {
+  x: number;
+  y: number;
+  w: number;
+  h?: number;
+  title: string;
+  sub: string;
+  grant?: string;
+  strong?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <g opacity={muted ? 0.5 : 1}>
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        rx="2"
+        fill="var(--paper)"
+        stroke="currentColor"
+        strokeWidth={strong ? 1.5 : 1}
+      />
+      <text x={x + w / 2} y={y + 24} textAnchor="middle" className="fill-current font-mono" fontSize="14">
+        {title}
+      </text>
+      <text x={x + w / 2} y={y + 42} textAnchor="middle" className="fill-current font-mono" fontSize="11" opacity="0.72">
+        {sub}
+      </text>
+      {grant ? (
+        <text x={x + w / 2} y={y + 59} textAnchor="middle" className="fill-current font-mono" fontSize="10" opacity="0.6">
+          {grant}
+        </text>
+      ) : null}
+    </g>
+  );
 }
 
 const SLIDES = [
