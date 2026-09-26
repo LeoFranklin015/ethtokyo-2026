@@ -17,7 +17,10 @@ const SECTIONS = [
   },
   {
     heading: "Organization",
-    items: [{ href: "/console/branches", label: "Branches" }],
+    items: [
+      { href: "/console/branches", label: "Branches" },
+      { href: "/console/setup", label: "Setup" },
+    ],
   },
 ] as const;
 
