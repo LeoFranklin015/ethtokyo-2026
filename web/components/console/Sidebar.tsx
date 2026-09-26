@@ -7,6 +7,7 @@ import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
 import { useEnsBranches } from "@/lib/hooks/useEns";
 import { useOrg, withOrg } from "@/lib/hooks/useOrg";
 import { WalletButton } from "@/components/WalletButton";
+import { useConsoleSession } from "@/lib/hooks/useConsoleSession";
 
 const SECTIONS = [
   {
@@ -23,6 +24,17 @@ const SECTIONS = [
       { href: "/console/branches", label: "Branches" },
     ],
   },
+  {
+    // The enforcer is one deployment, not one organization — it has no organization column, so
+    // these three are deliberately not `?org=`-scoped and each says so on screen.
+    heading: "Enforcer",
+    orgScoped: false,
+    items: [
+      { href: "/console/resources", label: "Resources" },
+      { href: "/console/access", label: "Access" },
+      { href: "/console/users", label: "Users" },
+    ],
+  },
 ] as const;
 
 export function Sidebar() {
@@ -30,6 +42,7 @@ export function Sidebar() {
   const org = useOrg();
   const { branches } = useEnsBranches(org);
   const { data: status, error: statusError, isLoading: statusLoading } = useProxyStatus();
+  const { session } = useConsoleSession();
 
   // Three states, not two. "Not yet answered" rendered as "unreachable" meant the first paint
   // of every console page accused the enforcer of being down.
@@ -83,7 +96,7 @@ export function Sidebar() {
                 return (
                   <li key={item.href}>
                     <Link
-                      href={withOrg(item.href, org)}
+                      href={"orgScoped" in section && !section.orgScoped ? item.href : withOrg(item.href, org)}
                       aria-current={active ? "page" : undefined}
                       className={`flex min-h-11 items-center gap-2.5 rounded-sharp px-2 text-sm transition-colors ${
                         active ? "bg-ink/8 font-medium text-ink" : "text-ink-muted hover:bg-ink/5 hover:text-ink"
@@ -127,12 +140,19 @@ export function Sidebar() {
           </Link>
         </div>
         <div className="border-t border-rule px-5 py-2.5">
-          <Link
-            href="/console/signin"
-            className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
-          >
-            Console sign-in
-          </Link>
+          {session ? (
+            <p className="flex items-center gap-2 font-mono text-[0.6875rem] text-ink-muted">
+              <span aria-hidden className="size-1.5 rounded-full" style={{ background: "var(--signal)" }} />
+              Owner of {session.org}.eth
+            </p>
+          ) : (
+            <Link
+              href="/console/signin"
+              className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+            >
+              Prove ownership to edit
+            </Link>
+          )}
         </div>
       </div>
     </div>

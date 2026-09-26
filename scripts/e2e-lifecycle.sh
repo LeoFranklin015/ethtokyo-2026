@@ -47,9 +47,10 @@ lagging() {
   lag=$((lag+1))
 }
 
-CT="${CONSOLE_TOKEN:?CONSOLE_TOKEN must be set}"
 ET="${ENFORCER_TOKEN:?ENFORCER_TOKEN must be set}"
-api()  { curl -s -H "x-console-token: $CT" -H 'content-type: application/json' "$@"; }
+# /api/ens/* is open, reads and writes alike: every ENS write is signed by the person making it
+# and the contracts check the role. There is no console token to present any more.
+api()  { curl -s -H 'content-type: application/json' "$@"; }
 enf()  { curl -s -H "authorization: Bearer $ET" "$@"; }
 
 STAMP=$(date +%H%M%S)
@@ -148,7 +149,7 @@ is "groups query: the catalogue reads back from chain logs" \
 is "groups query: entitlements come back with it" \
    "$(api "$CONSOLE/api/ens/groups?registrar=$REGISTRAR" | python3 -c "import json,sys;g=next(g for g in json.load(sys.stdin)['groups'] if g['name']=='$GROUP');print(next(e['value'] for e in g['entitlements'] if e['key']=='wifi.rate'))")" 20mbps
 is "groups query: a missing registrar is refused, not defaulted to another branch" \
-   "$(curl -s -o /dev/null -w '%{http_code}' -H "x-console-token: $CT" "$CONSOLE/api/ens/groups")" 400
+   "$(curl -s -o /dev/null -w '%{http_code}' "$CONSOLE/api/ens/groups")" 400
 
 lagging "memberships query: the member appears" True \
    "api '$CONSOLE/api/ens/memberships?branch=$BRANCH_LABEL' | python3 -c \"import json,sys;print(any(m['label']=='$MEMBER' for m in json.load(sys.stdin)['memberships']))\""
@@ -246,7 +247,7 @@ is "...and the other way round either"                  "$(may "$S2_ADDR" "$NODE
 
 step "4c. The org key cannot be aimed at a contract that is not ours"
 is "a foreign registrar is refused" \
-   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONSOLE/api/ens/groups" -H "x-console-token: $CT" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$CONSOLE/api/ens/groups" \
       -H 'content-type: application/json' \
       -d '{"registrar":"0x00000000219ab540356cBB839Cbe05303d7705Fa","name":"x","entitlements":[]}')" 403
 

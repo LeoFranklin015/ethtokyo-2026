@@ -90,13 +90,16 @@ export default function OverviewPage() {
         {signedOut ? (
           <Panel as="section" className="mb-6">
             <div className="px-4 py-5">
-              <p className="text-sm text-ink">This browser is not signed in to the console.</p>
+              <p className="text-sm text-ink">
+                This wallet has not proved it owns the organization.
+              </p>
               <p className="mt-1 max-w-[60ch] text-xs leading-relaxed text-ink-muted">
-                Enforcer figures are gated behind the console token. Anything sourced from ENS
-                below is public and shown regardless.
+                Enforcer figures need a signature from the wallet that holds the name — it is a
+                plain message, not a transaction. Anything sourced from ENS below is public and
+                shown regardless.
               </p>
               <p className="mt-3">
-                <ButtonLink href="/console/signin">Sign in</ButtonLink>
+                <ButtonLink href="/console/signin">Prove ownership</ButtonLink>
               </p>
             </div>
           </Panel>

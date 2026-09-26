@@ -7,7 +7,7 @@ import { useOrg } from "@/lib/hooks/useOrg";
 import { GroupForm } from "@/components/console/GroupForm";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsBranches } from "@/lib/hooks/useEns";
-import { ENS, explorer } from "@/lib/ens/config";
+import { explorer } from "@/lib/ens/config";
 import type { RoleInfo } from "@/lib/ens/read";
 import { useState } from "react";
 
