@@ -181,17 +181,24 @@ def revoke_access(ip: str) -> None:
 
 
 def _apply_ens_isolation(ip: str, action: str) -> None:
-    """Insert (I) or delete (D) DROP rules between ip and every authed IP on a DIFFERENT ENS name."""
+    """Insert (I) or delete (D) DROP rules between ip and every authed IP on a DIFFERENT ENS name.
+
+    On insert, DROP rules are prepended (-I FORWARD 1) so they sit ABOVE the
+    per-IP `-s ip -j ACCEPT` rule; iptables is first-match, so an appended DROP
+    below the ACCEPT would never fire and isolation would silently fail.
+    """
     my_name = ENS_NAMES.get(ip)
     for other_ip in list(AUTHED_IPS.keys()):
         if other_ip == ip:
             continue
         if ENS_NAMES.get(other_ip) == my_name and my_name is not None:
             continue  # same ENS user — allowed to talk
-        _run_ok(["iptables", f"-{action}", "FORWARD",
-                 "-s", ip, "-d", other_ip, "-j", "DROP"])
-        _run_ok(["iptables", f"-{action}", "FORWARD",
-                 "-s", other_ip, "-d", ip, "-j", "DROP"])
+        if action == "I":
+            _run_ok(["iptables", "-I", "FORWARD", "1", "-s", ip, "-d", other_ip, "-j", "DROP"])
+            _run_ok(["iptables", "-I", "FORWARD", "1", "-s", other_ip, "-d", ip, "-j", "DROP"])
+        else:
+            _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-d", other_ip, "-j", "DROP"])
+            _run_ok(["iptables", "-D", "FORWARD", "-s", other_ip, "-d", ip, "-j", "DROP"])
 
 
 @app.before_request
