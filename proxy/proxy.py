@@ -794,6 +794,37 @@ def revoke_session(sid):
 
 # ── proxy ─────────────────────────────────────────────────────────────────────
 
+@app.route("/api/wallet/account")
+def wallet_account():
+    ip = request.remote_addr  # the real VLAN source IP; never a forwarded header
+    db = get_db()
+    session = db.execute(
+        "SELECT * FROM sessions WHERE ip=? AND logged_out_at IS NULL AND revoked_at IS NULL "
+        "ORDER BY logged_in_at DESC LIMIT 1", (ip,)
+    ).fetchone()
+    if not session:
+        return jsonify({"error": "no_account"}), 404
+
+    wallet = _col(session, "wallet_address")
+    if wallet:
+        return jsonify({"address": wallet, "name": _col(session, "ens_name")})
+
+    ens_name = _col(session, "ens_name")
+    if not ens_name:
+        return jsonify({"error": "no_account"}), 404
+
+    resolved = _resolve_via_ens(ens_name)
+    if resolved is None:
+        # Could not ask — retryable, not a deny.
+        return jsonify({"error": "resolve_unreachable"}), 503
+    if resolved.get("denied"):
+        return jsonify({"error": "no_account"}), 404
+    owner = resolved.get("owner")
+    if not owner:
+        return jsonify({"error": "no_account"}), 404
+    return jsonify({"address": owner, "name": ens_name})
+
+
 @app.route("/proxy/<slug>", defaults={"subpath": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"], strict_slashes=False)
 @app.route("/proxy/<slug>/<path:subpath>", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"], strict_slashes=False)
 def proxy(slug, subpath):
