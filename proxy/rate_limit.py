@@ -162,16 +162,22 @@ def check_and_increment(ip: str, group_id: str, resource_id: str, ens_name=None)
     return None
 
 
-def get_usage_for_ip(ip: str, group_id: str) -> dict:
-    """Return today's usage across all resources accessible to this group."""
+def get_usage_for_ip(ip: str, group_id: str, ens_name: str = None) -> dict:
+    """Return today's usage across all resources accessible to this group.
+
+    When ens_name is given, also surface the per-ENS shared bucket
+    (ens_limit + ens_used) — the quota shared across all of a user's devices.
+    """
     db = get_db()
     today = datetime.now(timezone.utc).date().isoformat()
     rows = db.execute(
         """
         SELECT grl.resource_id, grl.per_device_per_day, grl.group_per_day,
+               grl.per_ens_per_day,
                r.slug,
                COALESCE(dc.count, 0) AS device_used,
-               COALESCE(dgc.count, 0) AS group_used
+               COALESCE(dgc.count, 0) AS group_used,
+               COALESCE(dec.count, 0) AS ens_used
         FROM group_resource_limits grl
         JOIN resources r ON r.id = grl.resource_id
         LEFT JOIN daily_counters dc
@@ -179,17 +185,24 @@ def get_usage_for_ip(ip: str, group_id: str) -> dict:
         LEFT JOIN daily_group_counters dgc
                ON dgc.date = ? AND dgc.group_id = grl.group_id
               AND dgc.resource_id = grl.resource_id
+        LEFT JOIN daily_ens_counters dec
+               ON dec.date = ? AND dec.ens_name = ?
+              AND dec.resource_id = grl.resource_id
         WHERE grl.group_id = ? AND r.enabled = 1
         """,
-        (today, ip, today, group_id)
+        (today, ip, today, today, ens_name, group_id)
     ).fetchall()
     result = {}
     for r in rows:
-        result[r["slug"]] = {
+        entry = {
             "used": r["device_used"],
             "device_limit": r["per_device_per_day"],
             "group_limit": r["group_per_day"],
             "group_used": r["group_used"],
             "resets_at": _resets_at(),
         }
+        if ens_name is not None:
+            entry["ens_limit"] = r["per_ens_per_day"]
+            entry["ens_used"] = r["ens_used"]
+        result[r["slug"]] = entry
     return result
