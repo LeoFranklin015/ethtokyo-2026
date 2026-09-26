@@ -45,7 +45,7 @@ export function Wizard() {
   const index = STEPS.findIndex((s) => s.id === step);
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[220px_1fr] lg:gap-12">
+    <div className="grid gap-8 lg:grid-cols-[14rem_minmax(0,38rem)] lg:gap-14">
       <Rail steps={STEPS} current={index} />
 
       <div className="min-w-0">
@@ -102,50 +102,92 @@ export function Wizard() {
   );
 }
 
+/**
+ * Where you are in a sequence you cannot reorder.
+ *
+ * The numbers are earned here rather than decorative: each step needs the thing before it to
+ * exist, so "third" is information. The three states are drawn differently enough to read at a
+ * glance — a done step is filled and ticked, the current one is filled in ink, and the rest are
+ * a faint ring. Only the current step carries its explanation; six blurbs at equal weight is a
+ * wall of text that buries the one line that applies right now.
+ */
 function Rail({ steps, current }: { steps: typeof STEPS; current: number }) {
   return (
-    <ol className="flex gap-4 overflow-x-auto lg:block lg:overflow-visible">
-      {steps.map((s, i) => {
-        const state = i < current ? "done" : i === current ? "active" : "todo";
-        const colour =
-          state === "done"
-            ? "var(--signal)"
-            : state === "active"
-              ? "var(--ink)"
-              : "var(--ink-faint)";
-        return (
-          <li key={s.id} className="flex min-w-[150px] gap-3 lg:min-w-0 lg:pb-6">
-            <span className="flex flex-col items-center">
-              <span
-                aria-hidden
-                className="grid size-6 shrink-0 place-items-center rounded-full border font-mono text-[0.6875rem]"
-                style={{ borderColor: colour, color: colour }}
-              >
-                {state === "done" ? "✓" : i + 1}
+    // `min-w-0` so the horizontal step list can actually scroll on a phone. Without it the grid
+    // track sizes to the list's full width — six 8.5rem items — and every panel below inherits
+    // that width and runs off the screen.
+    <div className="min-w-0 lg:sticky lg:top-10 lg:self-start">
+      <p className="label mb-4 hidden lg:block">
+        Step {current + 1} of {steps.length}
+      </p>
+
+      <ol className="flex w-full gap-6 overflow-x-auto pb-1 lg:block lg:w-auto lg:overflow-visible lg:pb-0">
+        {steps.map((s, i) => {
+          const state = i < current ? "done" : i === current ? "active" : "todo";
+          return (
+            <li key={s.id} className="flex min-w-[8.5rem] gap-3 lg:min-w-0">
+              <span className="flex flex-col items-center">
+                <Marker state={state} index={i} />
+                {i < steps.length - 1 ? (
+                  <span
+                    aria-hidden
+                    className="mt-1 hidden w-px flex-1 lg:block"
+                    style={{ background: i < current ? "var(--ink)" : "var(--rule)" }}
+                  />
+                ) : null}
               </span>
-              {i < steps.length - 1 ? (
+
+              <span className={`min-w-0 ${i < steps.length - 1 ? "lg:pb-5" : ""}`}>
                 <span
-                  aria-hidden
-                  className="mt-1 hidden w-px flex-1 lg:block"
-                  style={{ background: i < current ? "var(--signal)" : "var(--rule)" }}
-                />
-              ) : null}
-            </span>
-            <span className="min-w-0 pb-1">
-              <span
-                className="block font-mono text-xs"
-                style={{ color: state === "todo" ? "var(--ink-muted)" : "var(--ink)" }}
-              >
-                {s.title}
+                  className="block font-mono text-xs"
+                  style={{
+                    color: state === "todo" ? "var(--ink-faint)" : "var(--ink)",
+                  }}
+                >
+                  {s.title}
+                </span>
+                {state === "active" ? (
+                  <span className="mt-1 hidden text-xs leading-relaxed text-ink-muted lg:block">
+                    {s.blurb}
+                  </span>
+                ) : null}
               </span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">
-                {s.blurb}
-              </span>
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function Marker({ state, index }: { state: "done" | "active" | "todo"; index: number }) {
+  const base = "grid size-6 shrink-0 place-items-center rounded-full font-mono text-[0.625rem]";
+  if (state === "done") {
+    return (
+      <span aria-hidden className={`${base} bg-ink text-paper`}>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden>
+          <path
+            d="M3.5 8.5 6.5 11.5 12.5 4.5"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    );
+  }
+  if (state === "active") {
+    return (
+      <span aria-hidden className={`${base} bg-ink text-paper`}>
+        {index + 1}
+      </span>
+    );
+  }
+  return (
+    <span aria-hidden className={`${base} border border-rule text-ink-faint`}>
+      {index + 1}
+    </span>
   );
 }
 
@@ -188,21 +230,22 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
             <WalletButton />
           </div>
         ) : (
-          <div className="mt-5 space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <span
-                aria-hidden
-                className="size-1.5 rounded-full"
-                style={{ background: wrongChain ? "var(--alert)" : "var(--signal)" }}
-              />
-              <span className="font-mono text-sm text-ink">{short(address!)}</span>
-              <button
-                type="button"
-                onClick={() => disconnect()}
-                className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
-              >
-                disconnect
-              </button>
+          <div className="mt-5 space-y-4">
+            {/* A bordered row rather than a dot, an address and an underlined word: this is the
+                account about to own the organization, and it was styled more quietly than the
+                paragraph above it. */}
+            <div className="flex items-center justify-between gap-3 rounded-sharp border border-rule bg-paper px-3 py-2.5">
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span
+                  aria-hidden
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: wrongChain ? "var(--alert)" : "var(--signal)" }}
+                />
+                <span className="truncate font-mono text-sm text-ink">{short(address!)}</span>
+              </span>
+              <Button variant="ghost" onClick={() => disconnect()}>
+                Disconnect
+              </Button>
             </div>
 
             {wrongChain ? (
