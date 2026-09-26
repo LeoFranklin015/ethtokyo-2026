@@ -87,6 +87,7 @@ def init_db():
             resource_id        TEXT NOT NULL REFERENCES resources(id),
             per_device_per_day INTEGER,
             group_per_day      INTEGER,
+            per_ens_per_day    INTEGER,
             PRIMARY KEY (group_id, resource_id)
         );
 
@@ -144,6 +145,14 @@ def init_db():
             PRIMARY KEY (date, group_id, resource_id)
         );
 
+        CREATE TABLE IF NOT EXISTS daily_ens_counters (
+            date        TEXT NOT NULL,
+            ens_name    TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            count       INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, ens_name, resource_id)
+        );
+
         CREATE TABLE IF NOT EXISTS quota_adjustments (
             id          TEXT PRIMARY KEY,
             date        TEXT NOT NULL,
@@ -184,15 +193,23 @@ def _migrate(conn):
         ("resources", "query_param_name", "TEXT"),
         ("resources", "api_key_b64_user", "TEXT"),
         ("resources", "strip_path_prefix", "INTEGER NOT NULL DEFAULT 0"),
+        ("group_resource_limits", "per_ens_per_day", "INTEGER"),
     ]
     for table, col, typedef in migrations:
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
         except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
+            msg = str(e).lower()
+            # duplicate column: already migrated. no such table: fresh DB,
+            # executescript below will CREATE it with the column in place.
+            if "duplicate column name" not in msg and "no such table" not in msg:
                 raise
     # key_placement can now be no_auth with no api_key — relax NOT NULL if needed
-    conn.execute("UPDATE resources SET api_key='' WHERE api_key IS NULL")
+    try:
+        conn.execute("UPDATE resources SET api_key='' WHERE api_key IS NULL")
+    except sqlite3.OperationalError as e:
+        if "no such table" not in str(e).lower():
+            raise
 
     # Make default_group_id nullable so remove_member can set it to NULL.
     # SQLite can't ALTER COLUMN, so rebuild users table if constraint still present.
