@@ -1,19 +1,10 @@
+import type { Role } from "@/lib/data";
+
 export const ORG = {
   name: "ENSCA",
   ens: process.env.NEXT_PUBLIC_ORG_ENS ?? "ensca.eth",
   ssid: process.env.NEXT_PUBLIC_SSID ?? "ENSCA",
 } as const;
-
-export type Role = {
-  name: string; // RoleName values, but not importing the type to avoid duplication
-  group: string;
-  vlan: number;
-  rate: number;
-  ceil: number;
-  permissions: string[];
-  bitmap: string;
-  summary: string;
-};
 
 export const ROLES: Role[] = [
   {
