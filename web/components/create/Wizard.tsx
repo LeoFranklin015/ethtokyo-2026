@@ -633,11 +633,48 @@ function BranchStep({
 // Step 3 — groups
 ////////////////////////////////////////////////////////////////////////
 
+/**
+ * Starting points, not policy.
+ *
+ * These are prefilled into the editor rather than written straight to chain, because the
+ * numbers in them are invented. A rate of `5mbps` means whatever the branch enforcer decides it
+ * means; publishing it because a wizard suggested it would put a figure on chain that nobody
+ * chose and nothing enforces.
+ */
 const PRESETS = [
-  { name: "hacker", rate: "5mbps", ceil: "20mbps", group: "hacker", onboard: false },
-  { name: "volunteer", rate: "10mbps", ceil: "50mbps", group: "staff", onboard: true },
-  { name: "mentor", rate: "20mbps", ceil: "100mbps", group: "mentor", onboard: false },
+  {
+    name: "hacker",
+    onboard: false,
+    keys: "",
+    entitlements: [
+      { key: "wifi.group", value: "hacker" },
+      { key: "wifi.rate", value: "5mbps" },
+      { key: "wifi.ceil", value: "20mbps" },
+    ],
+  },
+  {
+    name: "volunteer",
+    onboard: true,
+    keys: "",
+    entitlements: [
+      { key: "wifi.group", value: "staff" },
+      { key: "wifi.rate", value: "10mbps" },
+      { key: "wifi.ceil", value: "50mbps" },
+    ],
+  },
+  {
+    name: "mentor",
+    onboard: false,
+    keys: "avatar, ssh.pubkey",
+    entitlements: [
+      { key: "wifi.group", value: "mentor" },
+      { key: "wifi.rate", value: "20mbps" },
+      { key: "wifi.ceil", value: "100mbps" },
+    ],
+  },
 ];
+
+type Row = { key: string; value: string };
 
 function GroupsStep({
   branchLabel,
@@ -657,37 +694,60 @@ function GroupsStep({
   const target = registrar ?? "";
   const writes = useEnsWrites();
   const [created, setCreated] = useState<string[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function add(preset: (typeof PRESETS)[number]) {
-    setBusy(preset.name);
+  const [name, setName] = useState("");
+  const [canOnboard, setCanOnboard] = useState(false);
+  const [editableKeys, setEditableKeys] = useState("");
+  const [rows, setRows] = useState<Row[]>([{ key: "wifi.group", value: "" }]);
+
+  function prefill(preset: (typeof PRESETS)[number]) {
+    setName(preset.name);
+    setCanOnboard(preset.onboard);
+    setEditableKeys(preset.keys);
+    setRows(preset.entitlements.map((e) => ({ ...e })));
+    setError(null);
+  }
+
+  function reset() {
+    setName("");
+    setCanOnboard(false);
+    setEditableKeys("");
+    setRows([{ key: "wifi.group", value: "" }]);
+  }
+
+  const clean = name.trim().toLowerCase();
+  const valid = /^[a-z0-9-]{1,32}$/.test(clean) && !created.includes(clean) && Boolean(target);
+
+  async function add() {
+    setBusy(true);
     setError(null);
     try {
       const written = await writes.defineGroup({
         registrar: target as Address,
-        name: preset.name,
-        canOnboard: preset.onboard,
+        name: clean,
+        canOnboard,
         openToOnboarders: true,
-        editableKeys: [],
-        entitlements: [
-          { key: "wifi.group", value: preset.group },
-          { key: "role", value: preset.name },
-          { key: "wifi.rate", value: preset.rate },
-          { key: "wifi.ceil", value: preset.ceil },
-        ],
+        editableKeys: editableKeys
+          .split(",")
+          .map((k) => k.trim())
+          .filter(Boolean),
+        entitlements: rows.filter((r) => r.key.trim() && r.value.trim()),
       });
       if (!written) throw new Error(writes.error ?? "the transaction did not go through");
+
       await fetch("/api/ens/mirror", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "group", registrar: target, name: preset.name }),
+        body: JSON.stringify({ kind: "group", registrar: target, name: clean }),
       });
-      setCreated((c) => [...c, preset.name]);
+      setCreated((c) => [...c, clean]);
+      reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -697,7 +757,8 @@ function GroupsStep({
         <h2 className="text-lg tracking-[-0.01em] text-ink">Define the groups</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           A group is a category of people — it mints no name. Onboarding assigns one, and its
-          entitlements are written onto that person&rsquo;s name in the same transaction.
+          entitlements are written onto that person&rsquo;s name in the same transaction. Name
+          them whatever your organization actually calls people.
         </p>
 
         {target ? (
@@ -720,55 +781,156 @@ function GroupsStep({
           </div>
         )}
 
-        <ul className="mt-5 divide-y divide-rule border-y border-rule">
-          {PRESETS.map((p) => (
-            <li key={p.name} className="flex items-center justify-between gap-4 py-3">
-              <span className="min-w-0">
-                <span className="block font-mono text-sm text-ink">{p.name}</span>
-                <span className="mt-0.5 block font-mono text-[0.6875rem] text-ink-muted">
-                  {p.rate} / {p.ceil} · group {p.group}
-                  {p.onboard ? " · may onboard" : ""}
+        {created.length > 0 ? (
+          <ul className="mt-5 divide-y divide-rule border-y border-rule">
+            {created.map((g) => (
+              <li key={g} className="flex items-center justify-between gap-4 py-2.5">
+                <span className="font-mono text-sm text-ink">{g}</span>
+                <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
+                  defined
                 </span>
-              </span>
-              <Button
-                variant={created.includes(p.name) ? "ghost" : "outline"}
-                onClick={() => add(p)}
-                disabled={!target || busy !== null || created.includes(p.name)}
-              >
-                {created.includes(p.name)
-                  ? "added"
-                  : busy === p.name
-                    ? "adding…"
-                    : "add"}
-              </Button>
-            </li>
-          ))}
-        </ul>
-
-        <p className="mt-3 text-xs text-ink-muted">
-          These are starting points. Groups are data — you can add your own, with any name, from
-          the console.
-        </p>
-
-        {error ? (
-          <p className="mt-4 text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
-            {error}
-          </p>
+              </li>
+            ))}
+          </ul>
         ) : null}
 
         <div className="mt-6">
-          <Button variant="solid" onClick={onDone}>
+          <span className="label">Start from</span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {PRESETS.map((p) => (
+              <Button key={p.name} variant="outline" onClick={() => prefill(p)}>
+                {p.name}
+              </Button>
+            ))}
+            <Button variant="ghost" onClick={reset}>
+              blank
+            </Button>
+          </div>
+          <p className="mt-2 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+            These fill the form below so you can see and change what gets published. The rates
+            are suggestions — what they mean is the branch enforcer&rsquo;s decision, not ENS&rsquo;s.
+          </p>
+        </div>
+
+        <div className="mt-5 space-y-4 rounded-sharp border border-rule px-4 py-4">
+          <label className="block">
+            <span className="label">Group name</span>
+            <input
+              value={name}
+              onChange={(e) =>
+                setName(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())
+              }
+              placeholder="crew"
+              autoComplete="off"
+              className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink placeholder:text-ink-faint"
+            />
+          </label>
+
+          <label className="flex items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={canOnboard}
+              onChange={(e) => setCanOnboard(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-[var(--ink)]"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm text-ink">Members of this group may onboard others</span>
+              <span className="block text-xs leading-relaxed text-ink-muted">
+                Authority is derived from the membership, so there is no per-person grant and no
+                limit on how many of them there are.
+              </span>
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="label">Self-editable records</span>
+            <input
+              value={editableKeys}
+              onChange={(e) => setEditableKeys(e.target.value)}
+              placeholder="avatar, ssh.pubkey"
+              autoComplete="off"
+              className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-xs text-ink placeholder:text-ink-faint"
+            />
+            <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
+              Comma-separated keys a member may write on their own name — and only their own.
+              Leave empty and they can write nothing.
+            </span>
+          </label>
+
+          <fieldset>
+            <legend className="label">Entitlements written to every member</legend>
+            <div className="mt-2 space-y-2">
+              {rows.map((row, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    value={row.key}
+                    onChange={(e) =>
+                      setRows(rows.map((r, j) => (i === j ? { ...r, key: e.target.value } : r)))
+                    }
+                    placeholder="key"
+                    aria-label={`Entitlement key ${i + 1}`}
+                    className="h-10 w-2/5 rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink placeholder:text-ink-faint"
+                  />
+                  <input
+                    value={row.value}
+                    onChange={(e) =>
+                      setRows(rows.map((r, j) => (i === j ? { ...r, value: e.target.value } : r)))
+                    }
+                    placeholder="value"
+                    aria-label={`Entitlement value ${i + 1}`}
+                    className="h-10 min-w-0 flex-1 rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink placeholder:text-ink-faint"
+                  />
+                  {rows.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                      aria-label={`Remove entitlement ${i + 1}`}
+                      className="shrink-0 px-2 font-mono text-xs text-ink-muted hover:text-ink"
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRows([...rows, { key: "", value: "" }])}
+              className="mt-2 font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+            >
+              add another
+            </button>
+            <p className="mt-2 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+              <span className="font-mono">wifi.group</span> is the one the enforcer joins on — it
+              decides what that group is worth locally. Everything else is yours to invent.
+            </p>
+          </fieldset>
+
+          {error ? (
+            <p className="text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+              {error}
+            </p>
+          ) : null}
+
+          <Button variant="solid" onClick={add} disabled={!valid || busy}>
+            {busy ? "Defining…" : "Define this group"}
+          </Button>
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <Button variant="solid" onClick={onDone} disabled={created.length === 0}>
             Done
           </Button>
+          {created.length === 0 ? (
+            <span className="text-xs text-ink-muted">
+              Define at least one — a branch with no groups can admit nobody.
+            </span>
+          ) : null}
         </div>
       </div>
     </Panel>
   );
 }
-
-////////////////////////////////////////////////////////////////////////
-// Step 4
-////////////////////////////////////////////////////////////////////////
 
 function DoneStep({ org, branch }: { org: string | null; branch: string | null }) {
   return (
