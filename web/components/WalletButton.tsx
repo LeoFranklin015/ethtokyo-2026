@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAccount, useDisconnect, useSwitchChain } from "wagmi";
+import { useAccount, useDisconnect, useEnsName, useSwitchChain } from "wagmi";
 import { useAppKit } from "@reown/appkit/react";
 import { sepolia } from "wagmi/chains";
 import { Button } from "@/components/ui/Button";
+import { ENS } from "@/lib/ens/config";
 
 /**
  * The wallet, wherever you are in the product.
@@ -24,6 +25,17 @@ export function WalletButton({ compact = false }: { compact?: boolean }) {
   const { open: openModal } = useAppKit();
   const { disconnect } = useDisconnect();
   const { switchChain, isPending: switching } = useSwitchChain();
+
+  // The primary name, if this wallet has set one. Pointed at the ENSv2 Universal Resolver
+  // deployed for this network rather than viem's built-in Sepolia address: the two happen to
+  // agree on reverse lookups today, but every other read in this app goes through the v2
+  // resolver and a wallet menu disagreeing with the rest of the console would be its own bug.
+  const { data: primaryName } = useEnsName({
+    address,
+    chainId: sepolia.id,
+    universalResolverAddress: ENS.universalResolver as `0x${string}`,
+    query: { enabled: Boolean(address) },
+  });
 
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -99,7 +111,7 @@ export function WalletButton({ compact = false }: { compact?: boolean }) {
         className="inline-flex h-11 items-center gap-2 rounded-full border border-ink/35 bg-paper px-4 font-mono text-xs tracking-[0.08em] text-ink transition-colors hover:border-ink hover:bg-ink/5"
       >
         <StatusDot wrongChain={wrongChain} />
-        {short(address)}
+        {primaryName ?? short(address)}
       </button>
 
       {open ? (
@@ -121,12 +133,25 @@ export function WalletButton({ compact = false }: { compact?: boolean }) {
           >
             <div className="border-b border-rule px-4 py-3">
               <p className="label">Connected</p>
-              {/* Truncated, with copying right beside it. Printing all 42 characters forced a
+              {/* The primary name leads when there is one — it is what a person recognises, and
+                  the whole premise of this product is that a name is the identity. The address
+                  stays underneath rather than being replaced: it is what a block explorer and a
+                  wallet both show, so hiding it would make the two impossible to reconcile.
+
+                  Truncated, with copying right beside it. Printing all 42 characters forced a
                   line break mid-address, which nobody reads and nobody checks — the ends are
                   what people compare against their wallet, and the clipboard is how the whole
                   thing actually gets used. */}
-              <div className="mt-2 flex items-center gap-2">
-                <span className="font-mono text-sm text-ink" title={address}>
+              {primaryName ? (
+                <p className="mt-2 truncate text-sm text-ink" title={primaryName}>
+                  {primaryName}
+                </p>
+              ) : null}
+              <div className={`flex items-center gap-2 ${primaryName ? "mt-1" : "mt-2"}`}>
+                <span
+                  className={`font-mono ${primaryName ? "text-xs text-ink-muted" : "text-sm text-ink"}`}
+                  title={address}
+                >
                   {truncate(address)}
                 </span>
                 <button

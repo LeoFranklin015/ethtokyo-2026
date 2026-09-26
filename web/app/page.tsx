@@ -1,6 +1,7 @@
 import { SiteHeader } from "@/components/SiteHeader";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { ButtonLink } from "@/components/ui/Button";
+import { PlusIcon } from "@/components/ui/icons";
 
 
 export default function Home() {
@@ -15,9 +16,7 @@ export default function Home() {
       >
         <div className="mx-auto grid w-full max-w-[1280px] flex-1 items-center gap-10 px-5 py-14 lg:grid-cols-[1fr_1.05fr] lg:gap-12 lg:py-0">
           <div>
-            <p className="label">Identity-gated infrastructure</p>
-
-            <h1 className="mt-6 font-mono text-6xl font-medium leading-[0.9] tracking-[-0.04em] text-ink sm:text-7xl lg:text-8xl">
+            <h1 className="font-mono text-6xl font-medium leading-[0.9] tracking-[-0.04em] text-ink sm:text-7xl lg:text-8xl">
               Radius
             </h1>
 
@@ -31,10 +30,14 @@ export default function Home() {
               records. No password on a slide. No user database on the box.
             </p>
 
+            {/* Two actions, in the order a first visit needs them: an organization has to exist
+                before there is a console worth opening. */}
             <div className="mt-9 flex flex-wrap items-center gap-2.5">
-              <ButtonLink href="/console" variant="solid">
-                Open console
+              <ButtonLink href="/create" variant="solid">
+                <PlusIcon />
+                Create an organization
               </ButtonLink>
+              <ButtonLink href="/console">Open console</ButtonLink>
             </div>
           </div>
 

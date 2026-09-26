@@ -4,10 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WalletButton } from "@/components/WalletButton";
 import { WifiMark } from "@/components/WifiMark";
+import { PlusIcon } from "@/components/ui/icons";
 
 const NAV = [
-  { href: "/create", label: "Create org" },
-  { href: "/console", label: "Console" },
+  { href: "/create", label: "Create org", icon: true },
+  { href: "/console", label: "Console", icon: false },
 ] as const;
 
 export function SiteHeader() {
@@ -40,10 +41,11 @@ export function SiteHeader() {
                   <Link
                     href={item.href}
                     aria-current={active ? "page" : undefined}
-                    className={`inline-flex min-h-11 items-center whitespace-nowrap rounded-full px-2.5 font-mono text-[0.6875rem] uppercase tracking-[0.12em] transition-colors sm:px-3 ${
+                    className={`inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 font-mono text-[0.6875rem] uppercase tracking-[0.12em] transition-colors sm:px-3 ${
                       active ? "bg-ink text-paper" : "text-ink-muted hover:bg-ink/5 hover:text-ink"
                     }`}
                   >
+                    {item.icon ? <PlusIcon size={13} /> : null}
                     {item.label}
                   </Link>
                 </li>
