@@ -8,7 +8,7 @@ import base64
 import bcrypt
 from datetime import datetime, timezone
 from urllib.parse import urlencode
-from flask import Flask, request, jsonify, g, Response, stream_with_context
+from flask import Flask, request, jsonify, g, Response, stream_with_context, send_from_directory, send_file, abort
 import requests as req_lib
 
 import wallet_allowlist
@@ -850,6 +850,30 @@ def wallet_account():
     if not owner:
         return jsonify({"error": "no_account"}), 404
     return jsonify({"address": owner, "name": ens_name})
+
+
+_WALLET_ASSET_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "web", "public", "wallet")
+)
+_WALLET_ASSET_ALLOW = {"provider.js", "provider.l2.js", "read-methods.json"}
+
+
+@app.route("/wallet/ca.crt")
+def wallet_ca():
+    path = os.path.expanduser(
+        os.environ.get("WALLET_CA_PATH", "~/.mitmproxy/mitmproxy-ca-cert.pem")
+    )
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype="application/x-x509-ca-cert",
+                     as_attachment=True, download_name="ca.crt")
+
+
+@app.route("/wallet/<path:asset>")
+def wallet_asset(asset):
+    if asset not in _WALLET_ASSET_ALLOW:
+        abort(404)
+    return send_from_directory(_WALLET_ASSET_DIR, asset)
 
 
 @app.route("/proxy/<slug>", defaults={"subpath": ""}, methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS","HEAD"], strict_slashes=False)
