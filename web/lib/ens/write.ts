@@ -155,7 +155,8 @@ export type CommitResult = { commitment: Hex; readyInSeconds: number; alreadyCom
  * ENS requires a delay between committing and registering so that watching the mempool does not
  * let someone front-run the name out from under you.
  */
-export async function commitOrg(label: string): Promise<CommitResult> {
+export async function commitOrg(label: string, owner: Address): Promise<CommitResult> {
+  // The org key pays in MockUSDC; `owner` is who ends up holding the name.
   const { account, client } = wallet();
   const secret = secretFor(label);
 
@@ -165,7 +166,7 @@ export async function commitOrg(label: string): Promise<CommitResult> {
     functionName: "makeCommitment",
     args: [
       label,
-      account.address,
+      owner, // the connected wallet, not the server key — it is the org's owner
       secret,
       NO_SUBREGISTRY,
       ENS.resolver as Address, // must match `registerOrg` exactly, or the hashes differ
@@ -228,8 +229,11 @@ export async function commitOrg(label: string): Promise<CommitResult> {
 }
 
 /** Step two: reveal the commitment and take the name. */
-export async function registerOrg(label: string): Promise<{ txHash: Hex; name: string }> {
-  const { account, client } = wallet();
+export async function registerOrg(
+  label: string,
+  owner: Address,
+): Promise<{ txHash: Hex; name: string }> {
+  const { client } = wallet();
 
   const txHash = await send(
     await client.writeContract({
@@ -238,7 +242,7 @@ export async function registerOrg(label: string): Promise<{ txHash: Hex; name: s
       functionName: "register",
       args: [
         label,
-        account.address,
+        owner, // must match the commitment exactly, or the hashes differ
         secretFor(label),
         NO_SUBREGISTRY,
         ENS.resolver as Address,

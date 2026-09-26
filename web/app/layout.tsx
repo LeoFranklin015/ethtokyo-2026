@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
+import { Providers } from "./providers";
 
 const plexSans = IBM_Plex_Sans({
   variable: "--font-sans-stack",
@@ -19,7 +21,9 @@ export const metadata: Metadata = {
     "Your ENS subname is the credential for the network. Organizations, branches, roles and entitlements, read straight from ENS.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const cookies = (await headers()).get("cookie");
+
   return (
     <html
       lang="en"
@@ -32,7 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         >
           Skip to content
         </a>
-        {children}
+        <Providers cookies={cookies}>{children}</Providers>
       </body>
     </html>
   );

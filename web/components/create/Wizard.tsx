@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
+import { sepolia } from "wagmi/chains";
 import Link from "next/link";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -15,9 +17,10 @@ import { SignalDither } from "@/components/dither/SignalDither";
  * only reachable once the thing it depends on exists.
  */
 
-type StepId = "name" | "branch" | "groups" | "done";
+type StepId = "connect" | "name" | "branch" | "groups" | "done";
 
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
+  { id: "connect", title: "Wallet", blurb: "Connect the wallet that will own the organization." },
   { id: "name", title: "Name", blurb: "Claim the .eth name the organization is built on." },
   { id: "branch", title: "Branch", blurb: "Open a location. It gets its own registry." },
   { id: "groups", title: "Groups", blurb: "Define the categories people are onboarded into." },
@@ -25,7 +28,7 @@ const STEPS: { id: StepId; title: string; blurb: string }[] = [
 ];
 
 export function Wizard() {
-  const [step, setStep] = useState<StepId>("name");
+  const [step, setStep] = useState<StepId>("connect");
   const [orgName, setOrgName] = useState<string | null>(null);
   const [branchLabel, setBranchLabel] = useState<string | null>(null);
   const [registrar, setRegistrar] = useState<string | null>(null);
@@ -37,6 +40,8 @@ export function Wizard() {
       <Rail steps={STEPS} current={index} />
 
       <div className="min-w-0">
+        {step === "connect" ? <ConnectStep onDone={() => setStep("name")} /> : null}
+
         {step === "name" ? (
           <NameStep
             onDone={(name) => {
@@ -115,10 +120,112 @@ function Rail({ steps, current }: { steps: typeof STEPS; current: number }) {
 }
 
 ////////////////////////////////////////////////////////////////////////
+// Step 0 — the wallet
+////////////////////////////////////////////////////////////////////////
+
+function short(address: string) {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+/**
+ * Connecting the wallet.
+ *
+ * This is first because an organization is a name somebody owns. The address connected here
+ * becomes the `owner` of the .eth name and of every branch registry beneath it — the server's
+ * key signs and pays the registration, but it never holds the name.
+ */
+function ConnectStep({ onDone }: { onDone: () => void }) {
+  const { address, isConnected, chainId } = useAccount();
+  const { connect, connectors, isPending, error } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { switchChain, isPending: switching } = useSwitchChain();
+
+  const wrongChain = isConnected && chainId !== sepolia.id;
+
+  return (
+    <Panel as="section">
+      <div className="px-5 py-6">
+        <h2 className="text-lg tracking-[-0.01em] text-ink">Connect a wallet</h2>
+        <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
+          This wallet owns the organization. It holds the .eth name, root of every branch registry
+          beneath it, and the authority to open branches later. Nothing here spends from it — the
+          console signs and pays for registration.
+        </p>
+
+        {!isConnected ? (
+          <div className="mt-5 space-y-2">
+            {connectors.map((c) => (
+              <Button
+                key={c.uid}
+                variant="solid"
+                onClick={() => connect({ connector: c })}
+                disabled={isPending}
+              >
+                {isPending ? "Connecting…" : c.name}
+              </Button>
+            ))}
+            {connectors.length === 0 ? (
+              <p className="text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
+                No connectors are configured. Set NEXT_PUBLIC_REOWN_PROJECT_ID to enable
+                WalletConnect, or install a browser wallet.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-5 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                aria-hidden
+                className="size-1.5 rounded-full"
+                style={{ background: wrongChain ? "var(--alert)" : "var(--signal)" }}
+              />
+              <span className="font-mono text-sm text-ink">{short(address!)}</span>
+              <button
+                type="button"
+                onClick={() => disconnect()}
+                className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+              >
+                disconnect
+              </button>
+            </div>
+
+            {wrongChain ? (
+              <div className="space-y-2">
+                <p className="text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
+                  This wallet is on another network. Every ENSCA contract is deployed on Sepolia.
+                </p>
+                <Button
+                  variant="solid"
+                  onClick={() => switchChain({ chainId: sepolia.id })}
+                  disabled={switching}
+                >
+                  {switching ? "Switching…" : "Switch to Sepolia"}
+                </Button>
+              </div>
+            ) : (
+              <Button variant="solid" onClick={onDone}>
+                Continue
+              </Button>
+            )}
+          </div>
+        )}
+
+        {error ? (
+          <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+            {error.message}
+          </p>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
+////////////////////////////////////////////////////////////////////////
 // Step 1 — the organization name
 ////////////////////////////////////////////////////////////////////////
 
 function NameStep({ onDone }: { onDone: (name: string) => void }) {
+  const { address } = useAccount();
   const [label, setLabel] = useState("");
   const [check, setCheck] = useState<{
     valid: boolean;
@@ -167,7 +274,9 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
       const res = await fetch("/api/ens/org", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ step, label: label.trim().toLowerCase() }),
+        // `owner` is the connected wallet: it must be byte-identical between commit and
+        // register, because the commitment hash covers it.
+        body: JSON.stringify({ step, label: label.trim().toLowerCase(), owner: address }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "failed");
@@ -281,6 +390,7 @@ function BranchStep({
   onDone: (label: string, registrar: string | null) => void;
   onSkip: () => void;
 }) {
+  const { address } = useAccount();
   const [label, setLabel] = useState("");
   const [free, setFree] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -307,7 +417,8 @@ function BranchStep({
       const res = await fetch("/api/ens/branch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ label: label.trim().toLowerCase() }),
+        // The connected wallet takes root of the new branch registry, not the server key.
+        body: JSON.stringify({ label: label.trim().toLowerCase(), owner: address }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "failed");
