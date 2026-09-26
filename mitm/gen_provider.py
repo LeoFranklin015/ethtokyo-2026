@@ -37,7 +37,7 @@ def generate_l2(source: str, base_url: str) -> str:
 
 def main():
     here = os.path.dirname(__file__)
-    repo = os.path.dirname(os.path.dirname(here))
+    repo = os.path.dirname(here)
     src = os.path.join(repo, "web", "public", "wallet", "provider.js")
     dst = os.path.join(repo, "web", "public", "wallet", "provider.l2.js")
     base = os.environ.get("WALLET_L2_BASE", "http://192.168.0.1:8081")

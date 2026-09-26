@@ -44,3 +44,24 @@ def test_base_url_is_parametrized():
     other = gen.generate_l2(open(SRC).read(), "http://10.0.0.5:9999")
     assert 'fetch("http://10.0.0.5:9999/api/wallet/account")' in other
     assert BASE not in other  # default base must not be hardcoded into output
+
+
+def test_main_writes_l2_file():
+    # main() must resolve the repo root correctly and write provider.l2.js.
+    dst = os.path.join(REPO, "web", "public", "wallet", "provider.l2.js")
+    if os.path.exists(dst):
+        os.remove(dst)
+    prev = os.environ.get("WALLET_L2_BASE")
+    os.environ["WALLET_L2_BASE"] = "http://10.11.12.13:7070"
+    try:
+        gen.main()
+        assert os.path.exists(dst), "main() did not write provider.l2.js"
+        content = open(dst).read()
+        assert 'fetch("http://10.11.12.13:7070/api/wallet/account")' in content
+    finally:
+        if prev is None:
+            os.environ.pop("WALLET_L2_BASE", None)
+        else:
+            os.environ["WALLET_L2_BASE"] = prev
+        if os.path.exists(dst):
+            os.remove(dst)
