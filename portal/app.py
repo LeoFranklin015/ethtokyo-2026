@@ -318,6 +318,32 @@ def internal_admit():
     return jsonify({"admitted": True, "ens_name": ident["ens_name"], "tier": ident["network_tier"]})
 
 
+@app.route("/internal/status", methods=["GET"])
+def internal_status():
+    """Whether one device is already on the network.
+
+    Read-only, and localhost-only like every other /internal route. The captive page asks this
+    before it walks a guest through a badge and a signature: the portal is reopened every time
+    the OS probes the network, and an already-admitted device should be told it is online rather
+    than sent back to the start of a flow it has completed.
+    """
+    if request.remote_addr not in ("127.0.0.1", "::1"):
+        return make_response("forbidden", 403)
+
+    ip = (request.args.get("ip") or "").strip()
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return jsonify({"error": "invalid_ip"}), 400
+
+    with _state_lock:
+        tier = AUTHED_IPS.get(ip)
+        ens_name = ENS_NAMES.get(ip)
+    if not tier:
+        return jsonify({"admitted": False})
+    return jsonify({"admitted": True, "ens_name": ens_name or "", "tier": tier})
+
+
 @app.route("/internal/revoke-ip", methods=["POST"])
 def internal_revoke_ip():
     if request.remote_addr not in ("127.0.0.1", "::1"):

@@ -405,6 +405,32 @@ export async function resolveByWallet(
 }
 
 /**
+ * Which membership carries this badge id, anywhere in the organization?
+ *
+ * A badge carries the five-character label and nothing else — not the branch it was issued at —
+ * so every branch is asked and the first registered answer is the member. Labels are unique
+ * within a branch but not across them, so the branch order decides a collision; that is a
+ * duplicate the desk has to fix, and picking one is better than admitting nobody.
+ *
+ * A read that fails throws, as in `resolveIdentity`: an unanswered chain must not be rendered as
+ * "no such badge", which would turn an RPC blip into a queue of people told they are not members.
+ */
+export async function resolveByLabel(
+  label: string,
+  org: Organization,
+): Promise<ResolvedIdentity | null> {
+  const branches = await chainBranches(org);
+  if (branches.length === 0) {
+    throw new Error("no branches could be read; cannot rule out a membership");
+  }
+
+  const found = await Promise.all(
+    branches.map((branch) => resolveIdentity(`${label}.${branch.name}`)),
+  );
+  return found.find((identity) => identity !== null) ?? null;
+}
+
+/**
  * Every branch this organization has opened, read from the factory's logs.
  *
  * The indexer is the nicer source — one query, entitlements included — but it is a cache, and

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { issueNonce } from "@/lib/portal/nonces";
+import { challengeMessage, issueNonce } from "@/lib/portal/nonces";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +11,15 @@ export const dynamic = "force-dynamic";
  *
  * This exists because the live portal admits anyone who types a name into a box. An ENS name is
  * public, so without a signature it is a bearer token: typing `alice.eth` admits you as Alice.
+ *
+ * The text to sign is composed here and returned with the nonce. When the page built it too, any
+ * divergence in wording produced a signature over a message the server never saw, and the only
+ * symptom was a flat refusal with nothing to point at.
  */
 export async function POST(req: NextRequest) {
   const ip = clientIp(req);
   const { nonce, expiresInSeconds } = issueNonce(ip);
-  return NextResponse.json({ nonce, expiresInSeconds });
+  return NextResponse.json({ nonce, expiresInSeconds, message: challengeMessage(nonce) });
 }
 
 /**

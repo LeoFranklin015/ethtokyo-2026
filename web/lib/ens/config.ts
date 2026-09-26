@@ -34,7 +34,15 @@ export const ENS = {
 } as const;
 
 /** The entitlement keys the console renders. A group may publish any key it likes. */
-export const ENTITLEMENT_KEYS = ["role", "wifi.group", "wifi.rate", "wifi.ceil"] as const;
+/**
+ * The text records read for every membership.
+ *
+ * `name` is not an entitlement — it is the member's own name, written per member rather than
+ * per group — but it is read from the same resolver on the same node, and keeping one list means
+ * the portal, the indexer and `resolveIdentity` cannot drift on which records exist. A member
+ * whose name was never written simply has no entry; nothing downstream requires it.
+ */
+export const ENTITLEMENT_KEYS = ["name", "role", "wifi.group", "wifi.rate", "wifi.ceil"] as const;
 
 export function explorer(address: string): string {
   return `https://sepolia.etherscan.io/address/${address}`;

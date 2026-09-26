@@ -1,107 +1,207 @@
 "use client";
 
-/** The slice of EIP-1193 this flow uses. viem's own type over-constrains `personal_sign`. */
-type WalletProvider = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
-
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
 import { SignalDither } from "@/components/dither/SignalDither";
+import { QrScanner } from "@/components/QrScanner";
+import { short } from "@/components/WalletButton";
 import { Button } from "@/components/ui/Button";
 
-type State = "idle" | "signing" | "connected" | "denied";
+/**
+ * Getting a guest onto the network.
+ *
+ * Three things in order: the badge says who they claim to be, the wallet must be the one that
+ * badge was registered to, and a signature proves they hold it. Only then does `verify` ask the
+ * branch enforcer to open the firewall.
+ *
+ * The badge comes first on purpose. Searching every branch for a wallet is a chain scan on an
+ * unauthenticated path; a five-character label is one lookup, and it also means a guest holding
+ * the wrong wallet can be told *which* wallet the badge expects instead of being refused with
+ * nothing to act on.
+ *
+ * Every way this fails is its own message. A guest standing in a lobby cannot tell a blocked
+ * camera from an unknown badge from a dead enforcer unless the page tells them, and the
+ * difference decides whether they tap retry, find an organizer, or switch wallets.
+ */
 
-const ORDER: State[] = ["idle", "signing", "connected", "denied"];
-
-const COPY: Record<State, { status: string; title: string; body: string }> = {
-  idle: {
-    status: "Not admitted",
-    title: "Sign in to the network",
-    body: "Connect the wallet holding your membership. Only a signature leaves this device — no password, no account.",
-  },
-  signing: {
-    status: "Verifying",
-    title: "Check your wallet",
-    body: "Sign the challenge to prove control of your membership name.",
-  },
-  connected: {
-    status: "Admitted",
-    title: "You are online",
-    body:
-      "Your wallet signed for this name, ENS confirmed the membership, and the branch enforcer " +
-      "opened the network for this device.",
-  },
-  denied: {
-    status: "Refused",
-    title: "No membership at this branch",
-    body: "That wallet holds no membership here. Ask an organizer to onboard you.",
-  },
+type Badge = {
+  id: string;
+  name: string;
+  /** The member's own name from the resolver, absent for anyone onboarded before it was written. */
+  displayName: string | null;
+  wallet: string;
+  branch: string;
+  role: string;
 };
 
-type GrantInfo = [string, string][];
+type Trouble = { title: string; body: string };
 
-// Portal runs at the same origin as the captive page (port 8080).
-// In SSR there is no window; fall back to empty string — fetch calls only run client-side.
+type Step = "badge" | "wallet" | "sign" | "online";
+
+const STEPS: { key: Step; label: string }[] = [
+  { key: "badge", label: "Badge" },
+  { key: "wallet", label: "Wallet" },
+  { key: "sign", label: "Sign" },
+  { key: "online", label: "Online" },
+];
 
 export function PortalFlow() {
-  const [state, setState] = useState<State>("idle");
-  const [direction, setDirection] = useState(1);
-  const [grant, setGrant] = useState<GrantInfo>([]);
-  const [error, setError] = useState<string>("");
+  const { address, isConnected } = useAccount();
+  const { connect, connectors, isPending: connecting, error: connectError } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { signMessageAsync } = useSignMessage();
   const reduceMotion = useReducedMotion();
 
-  function go(next: State) {
-    setDirection(ORDER.indexOf(next) >= ORDER.indexOf(state) ? 1 : -1);
-    setState(next);
+  const [step, setStep] = useState<Step>("badge");
+  const [badge, setBadge] = useState<Badge | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [busy, setBusy] = useState<"" | "badge" | "sign">("");
+  const [trouble, setTrouble] = useState<Trouble | null>(null);
+  const [grant, setGrant] = useState<[string, string][]>([]);
+  // An admission that happened before this page was opened reads differently from one this
+  // flow just performed, and a captive portal is reopened constantly.
+  const [alreadyOnline, setAlreadyOnline] = useState(false);
+  // Read through the store hook rather than at render: the server has no window, and a
+  // hydration mismatch here would flash a dead connect button at the one person who cannot use
+  // it. `null` on the server means "not known yet", which renders as the ordinary path.
+  const injectedWallet = useSyncExternalStore(subscribeNothing, hasInjectedWallet, () => null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/status", { cache: "no-store" });
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          admitted: boolean | null;
+          ens_name: string | null;
+          tier: string | null;
+        };
+        // `null` is the enforcer not answering, which is not the same as "not admitted" — the
+        // flow simply starts from the beginning rather than claiming either way.
+        if (cancelled || body.admitted !== true) return;
+        setAlreadyOnline(true);
+        setGrant([
+          ["Membership", body.ens_name ?? "—"],
+          ["Tier", body.tier ?? "—"],
+        ]);
+        setStep("online");
+      } catch {
+        // Unreachable enforcer, captive DNS still hijacked, page opened off-network: none of
+        // these are worth an error, because the flow below works from a clean start regardless.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const walletMatches =
+    Boolean(badge) && isConnected && address?.toLowerCase() === badge?.wallet;
+
+  async function lookUpBadge(id: string) {
+    setScanning(false);
+    setBusy("badge");
+    setTrouble(null);
+    try {
+      const res = await fetch(`/api/portal/badge?id=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const body = (await res.json().catch(() => ({}))) as Partial<Badge> & { error?: string };
+
+      if (res.status === 404) {
+        setTrouble({
+          title: `Badge ${id} is not a membership`,
+          body: "Nobody at this organization holds that badge. Check you scanned your own, or ask an organizer to onboard you at the desk.",
+        });
+        return;
+      }
+      if (res.status === 502) {
+        setTrouble({
+          title: "That badge could not be checked",
+          body: "The chain did not answer, so this is not a refusal. Wait a moment and scan again.",
+        });
+        return;
+      }
+      if (!res.ok) {
+        setTrouble({
+          title: "This portal is not set up",
+          body: `${body.error ?? "The portal could not look up a badge."} An organizer has to fix this — scanning again will not help.`,
+        });
+        return;
+      }
+
+      setBadge(body as Badge);
+      setStep("wallet");
+    } catch {
+      setTrouble({
+        title: "The portal did not answer",
+        body: "Nothing could be looked up from this device. Stay on the network and try again.",
+      });
+    } finally {
+      setBusy("");
+    }
   }
 
-  async function connectWallet() {
-    setError("");
-    go("signing");
+  async function signIn() {
+    if (!badge || !address) return;
+    setBusy("sign");
+    setTrouble(null);
+    setStep("sign");
     try {
-      const eth = (window as unknown as { ethereum?: WalletProvider }).ethereum;
-      if (!eth) {
-        throw new Error("No Ethereum wallet found. Install MetaMask or a compatible wallet.");
+      // Always a fresh challenge, worded by the server. The nonce is spent by any attempt that
+      // reaches `verify`, and one abandoned in the wallet is simply left to expire.
+      let nonce: string;
+      let message: string;
+      try {
+        const res = await fetch("/api/portal/challenge", { method: "POST", cache: "no-store" });
+        if (!res.ok) throw new Error(String(res.status));
+        ({ nonce, message } = (await res.json()) as { nonce: string; message: string });
+      } catch {
+        setStep("wallet");
+        setTrouble({
+          title: "The portal did not answer",
+          body: "It could not issue a challenge to sign. Stay on this network and try again.",
+        });
+        return;
       }
 
-      // Request accounts — prompts MetaMask if not already connected
-      const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
-      const address = accounts[0]?.toLowerCase();
-      if (!address) throw new Error("No account selected.");
-
-      // Fetch a one-time challenge nonce from the portal
-      const challengeRes = await fetch("/api/portal/challenge", { method: "POST" });
-      if (!challengeRes.ok) throw new Error("Portal unreachable.");
-      const { nonce } = await challengeRes.json() as { nonce: string };
-
-      // EIP-191 personal_sign: sign the challenge message
-      const message = `Sign in to ENSCA\nNonce: ${nonce}`;
       let signature: string;
       try {
-        signature = (await eth.request({
-          method: "personal_sign",
-          params: [message, address],
-        })) as string;
-      } catch (err) {
-        // 4001 is the wallet's "user rejected" code.
-        if ((err as { code?: number })?.code === 4001) {
-          // User rejected the signature request in MetaMask
-          go("denied");
-          setError("Signature request was rejected.");
-          return;
-        }
-        throw err;
+        signature = await signMessageAsync({ message });
+      } catch (error) {
+        setStep("wallet");
+        const name = error instanceof Error ? error.name : "";
+        setTrouble(
+          name === "UserRejectedRequestError"
+            ? {
+                title: "You declined the signature",
+                body: "Nothing was signed, so nothing was proved. Tap sign again and approve the request in your wallet — it is a signature, not a transaction, and costs nothing.",
+              }
+            : {
+                title: "Your wallet could not sign",
+                body: error instanceof Error ? error.message : "The wallet returned no signature.",
+              },
+        );
+        return;
       }
 
-      // Submit nonce + signature to portal for server-side verification
-      const verifyRes = await fetch("/api/portal/verify", {
+      const res = await fetch("/api/portal/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nonce, signature, wallet_address: address }),
+        body: JSON.stringify({
+          nonce,
+          signature,
+          wallet_address: address,
+          ens_name: badge.name,
+        }),
       });
-      const result = await verifyRes.json() as {
-        ok: boolean;
+      const result = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
         admitted?: boolean;
         admissionError?: string;
+        admissionKind?: string | null;
         reason?: string;
         ens_name?: string;
         group_name?: string;
@@ -109,48 +209,47 @@ export function PortalFlow() {
       };
 
       if (!result.ok) {
-        setError(result.reason ?? "Unknown error");
-        go("denied");
+        setStep("wallet");
+        setTrouble(refusal(res.status, result.reason));
         return;
       }
 
-      // Only what the server actually returned. A "Tier" row used to sit here permanently
-      // reading "—", because the tier is the enforcer's decision and this endpoint never
-      // returns one.
-      // Identified is not the same as online. Say which one actually happened.
+      // Identified is not admitted. The signature check happens here; the firewall rule happens
+      // on the branch host, and the page must never claim the second because the first passed.
       if (!result.admitted) {
-        setError(
-          `Your membership checks out, but the branch enforcer did not admit this device${
-            result.admissionError ? `: ${result.admissionError}` : ""
-          }.`,
-        );
+        setStep("wallet");
+        setTrouble(notAdmitted(result.admissionKind ?? null, result.admissionError));
+        return;
       }
+
       setGrant([
-        ["Membership", result.ens_name ?? address],
-        ["Group", result.group_name ?? "—"],
-        ["Role", result.role ?? "—"],
-        ["Wallet", `${address.slice(0, 6)}…${address.slice(-4)}`],
+        ...(badge.displayName ? ([["Member", badge.displayName]] as [string, string][]) : []),
+        ["Badge", badge.id],
+        ["Membership", result.ens_name ?? badge.name],
+        ["Group", result.group_name ?? badge.role],
+        ["Wallet", short(address)],
       ]);
-      go("connected");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      go("denied");
+      setAlreadyOnline(false);
+      setStep("online");
+    } finally {
+      setBusy("");
     }
   }
 
-  const copy = COPY[state];
-  const slide = reduceMotion ? 0 : 20;
-  const accent =
-    state === "connected"
-      ? "var(--signal)"
-      : state === "denied"
-        ? "var(--alert)"
-        : "var(--ink-faint)";
+  function startOver() {
+    setBadge(null);
+    setTrouble(null);
+    setGrant([]);
+    setAlreadyOnline(false);
+    setStep("badge");
+  }
+
+  const current = STEPS.findIndex((s) => s.key === step);
 
   return (
-    <div className="w-full max-w-[400px]">
+    <div className="mx-auto w-full max-w-[420px]">
       <section className="rounded-sharp border border-rule bg-paper-raise">
-        <header className="flex items-baseline justify-between gap-3 border-b border-rule px-5 py-3">
+        <header className="flex items-baseline justify-between gap-3 border-b border-rule px-4 py-3">
           <p className="truncate font-mono text-xs text-ink">
             {process.env.NEXT_PUBLIC_SSID ?? "the branch network"}
           </p>
@@ -168,64 +267,304 @@ export function PortalFlow() {
           />
         </div>
 
+        <ol className="flex items-center gap-1.5 border-b border-rule px-4 py-2">
+          {STEPS.map((s, i) => (
+            <li
+              key={s.key}
+              aria-current={i === current ? "step" : undefined}
+              className="flex items-center gap-1.5 font-mono text-[0.625rem] uppercase tracking-[0.12em]"
+              style={{
+                color: i < current ? "var(--ink-muted)" : i === current ? "var(--ink)" : undefined,
+              }}
+            >
+              {i > 0 ? (
+                <span aria-hidden className="text-ink-faint">
+                  ·
+                </span>
+              ) : null}
+              <span className={i > current ? "text-ink-faint" : undefined}>{s.label}</span>
+            </li>
+          ))}
+        </ol>
+
         <div className="relative overflow-hidden">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
-              key={state}
-              initial={{ opacity: 0, x: direction * slide }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: direction * -slide }}
-              transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
-              className="px-5 py-5"
+              key={step}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.18 }}
+              className="px-4 py-5"
             >
-              <p className="label flex items-center gap-2">
-                <span aria-hidden className="size-1.5 rounded-full" style={{ background: accent }} />
-                {copy.status}
-              </p>
-              <h1 className="mt-3 text-lg leading-snug tracking-[-0.01em] text-ink">{copy.title}</h1>
-              <p className="mt-2 text-sm leading-relaxed text-ink-muted">{copy.body}</p>
-
-              {state === "connected" && grant.length > 0 && (
-                <dl className="mt-5 divide-y divide-rule border-y border-rule">
-                  {grant.map(([term, detail]) => (
-                    <div key={term} className="flex items-baseline justify-between gap-3 py-2">
-                      <dt className="label">{term}</dt>
-                      <dd className="text-right font-mono text-xs text-ink-80">{detail}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-
-              {state === "denied" && error && (
-                <p className="mt-3 font-mono text-xs text-alert">{error}</p>
-              )}
-
-              <div className="mt-6">
-                {state === "idle" && (
-                  <Button variant="solid" className="w-full" onClick={connectWallet}>
-                    Connect wallet
+              {step === "badge" ? (
+                <>
+                  <h1 className="text-lg leading-snug tracking-[-0.01em] text-ink">
+                    Scan your badge
+                  </h1>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+                    Point the camera at the code on your lanyard. Then sign with the wallet it was
+                    registered to — a signature only, no transaction and no password.
+                  </p>
+                  <Button
+                    variant="solid"
+                    className="mt-6 w-full"
+                    onClick={() => setScanning(true)}
+                    disabled={busy === "badge"}
+                  >
+                    {busy === "badge" ? "Checking…" : "Scan my badge"}
                   </Button>
-                )}
-                {state === "signing" && (
-                  <Button variant="outline" className="w-full" onClick={() => go("idle")}>
+                </>
+              ) : null}
+
+              {step === "wallet" && badge ? (
+                <>
+                  <h1 className="text-lg leading-snug tracking-[-0.01em] text-ink">
+                    {walletMatches ? "Sign to get online" : "Connect the badge's wallet"}
+                  </h1>
+                  <dl className="mt-4 divide-y divide-rule border-y border-rule">
+                    {badge.displayName ? <Row term="Member" detail={badge.displayName} /> : null}
+                    <Row term="Badge" detail={badge.id} />
+                    <Row term="Membership" detail={badge.name} />
+                    <Row term="Registered to" detail={short(badge.wallet)} />
+                  </dl>
+
+                  {!isConnected ? (
+                    injectedWallet === false && connectors.length <= 1 ? (
+                      <p className="mt-4 text-sm leading-relaxed text-ink-muted">
+                        There is no wallet in this browser. Captive-portal windows cannot reach
+                        one. Open <span className="font-mono text-xs text-ink">this page</span> in
+                        your wallet app&rsquo;s own browser, or finish joining the network on a
+                        phone that has the wallet installed.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="mt-4 text-sm leading-relaxed text-ink-muted">
+                          Connect the wallet this badge was registered to. Any other wallet will be
+                          refused, so there is nothing to lose by trying.
+                        </p>
+                        <div className="mt-5 flex flex-col gap-2">
+                          {connectors.map((connector) => (
+                            <Button
+                              key={connector.uid}
+                              variant="solid"
+                              className="w-full"
+                              onClick={() => connect({ connector })}
+                              disabled={connecting}
+                            >
+                              {connecting ? "Connecting…" : `Connect ${connector.name}`}
+                            </Button>
+                          ))}
+                        </div>
+                        {connectError ? (
+                          <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
+                            {connectError.message}
+                          </p>
+                        ) : null}
+                      </>
+                    )
+                  ) : !walletMatches ? (
+                    <>
+                      <p className="label mt-4" style={{ color: "var(--alert)" }}>
+                        Wrong wallet
+                      </p>
+                      <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+                        This badge belongs to a different wallet. It is registered to{" "}
+                        <span className="font-mono text-xs text-ink">{short(badge.wallet)}</span>,
+                        and you are connected as{" "}
+                        <span className="font-mono text-xs text-ink">
+                          {address ? short(address) : "—"}
+                        </span>
+                        . Disconnect and connect that one, or scan your own badge.
+                      </p>
+                      <div className="mt-5 flex flex-col gap-2">
+                        <Button variant="solid" className="w-full" onClick={() => disconnect()}>
+                          Disconnect
+                        </Button>
+                        <Button variant="outline" className="w-full" onClick={startOver}>
+                          Scan another badge
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-4 text-sm leading-relaxed text-ink-muted">
+                        Connected as{" "}
+                        <span className="font-mono text-xs text-ink">
+                          {address ? short(address) : ""}
+                        </span>
+                        , which is the wallet on this badge. Sign the challenge to prove you hold
+                        it and the branch will let this device through.
+                      </p>
+                      <div className="mt-5 flex flex-col gap-2">
+                        <Button
+                          variant="solid"
+                          className="w-full"
+                          onClick={signIn}
+                          disabled={busy === "sign"}
+                        >
+                          Sign and get online
+                        </Button>
+                        <Button variant="ghost" className="w-full" onClick={startOver}>
+                          Scan another badge
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : null}
+
+              {step === "sign" ? (
+                <>
+                  <h1 className="text-lg leading-snug tracking-[-0.01em] text-ink">
+                    Check your wallet
+                  </h1>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+                    Approve the signature request. It proves you hold{" "}
+                    <span className="font-mono text-xs text-ink">{badge?.name}</span> and moves no
+                    funds.
+                  </p>
+                  <Button variant="outline" className="mt-6 w-full" onClick={() => setStep("wallet")}>
                     Cancel
                   </Button>
-                )}
-                {state === "connected" && (
-                  <Button variant="outline" className="w-full" onClick={() => go("idle")}>
-                    Disconnect
+                </>
+              ) : null}
+
+              {step === "online" ? (
+                <>
+                  <p className="label flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="size-1.5 rounded-full"
+                      style={{ background: "var(--signal)" }}
+                    />
+                    Admitted
+                  </p>
+                  <h1 className="mt-3 text-lg leading-snug tracking-[-0.01em] text-ink">
+                    {alreadyOnline ? "This device is already online" : "You are online"}
+                  </h1>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+                    {alreadyOnline
+                      ? "It was admitted earlier and the branch is still letting it through. There is nothing to scan — close this page and carry on browsing."
+                      : "Your wallet signed for this badge and the branch opened the network for this device. Close this page and carry on browsing."}
+                  </p>
+                  {grant.length > 0 ? (
+                    <dl className="mt-5 divide-y divide-rule border-y border-rule">
+                      {grant.map(([term, detail]) => (
+                        <Row key={term} term={term} detail={detail} />
+                      ))}
+                    </dl>
+                  ) : null}
+                  <Button variant="ghost" className="mt-5 w-full" onClick={startOver}>
+                    Sign in as someone else
                   </Button>
-                )}
-                {state === "denied" && (
-                  <Button variant="solid" className="w-full" onClick={() => go("idle")}>
-                    Try another wallet
-                  </Button>
-                )}
-              </div>
+                </>
+              ) : null}
+
+              {trouble ? (
+                <div className="mt-5 border-t border-rule pt-4" role="status">
+                  <p className="label" style={{ color: "var(--alert)" }}>
+                    {trouble.title}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-muted">{trouble.body}</p>
+                </div>
+              ) : null}
             </motion.div>
           </AnimatePresence>
         </div>
       </section>
+
+      {scanning ? (
+        <QrScanner
+          confirmTitle="Is this your badge?"
+          confirmNote="Check it against the code on your lanyard — the network will only admit the wallet this badge was registered to."
+          confirmLabel="This is mine"
+          onScanned={lookUpBadge}
+          onClose={() => setScanning(false)}
+        />
+      ) : null}
     </div>
   );
+}
+
+/** `window.ethereum` never changes after load, so there is nothing to subscribe to. */
+function subscribeNothing() {
+  return () => {};
+}
+
+function hasInjectedWallet(): boolean {
+  return Boolean((window as unknown as { ethereum?: unknown }).ethereum);
+}
+
+function Row({ term, detail }: { term: string; detail: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2">
+      <dt className="label shrink-0">{term}</dt>
+      <dd className="truncate text-right font-mono text-xs text-ink-80">{detail}</dd>
+    </div>
+  );
+}
+
+/**
+ * What `verify` refused, in words. The status code carries the distinction that matters: 401 is
+ * the challenge, 403 is a decision about this membership, 502 is a chain that did not answer —
+ * and that last one must never be worded as a refusal.
+ */
+function refusal(status: number, reason?: string): Trouble {
+  if (status === 401) {
+    return {
+      title: "That signature was not accepted",
+      body: `${reason ?? "The challenge did not check out."} Challenges are good once and expire quickly — sign again for a fresh one.`,
+    };
+  }
+  if (status === 403) {
+    return {
+      title: "That badge is not admitted here",
+      body: `${reason ?? "The membership was refused."} Ask an organizer to check your membership at the desk.`,
+    };
+  }
+  if (status === 502) {
+    return {
+      title: "Your membership could not be checked",
+      body: "The chain did not answer, so this is not a refusal and you have not been turned away. Try again in a moment.",
+    };
+  }
+  if (status === 503) {
+    return {
+      title: "This portal is not set up",
+      body: `${reason ?? "The portal is misconfigured."} An organizer has to fix this — signing again will not help.`,
+    };
+  }
+  return {
+    title: "Sign-in did not complete",
+    body: reason ?? `The portal answered ${status} and said nothing more.`,
+  };
+}
+
+/**
+ * Verified but not on the network. Everything here is somebody else's outage, not the guest's
+ * fault, and saying "you are not allowed" would send them to argue with an organizer about a
+ * daemon that is simply down.
+ */
+function notAdmitted(kind: string | null, detail?: string): Trouble {
+  if (kind === "unreachable" || kind === "no-address") {
+    return {
+      title: "The network gate did not answer",
+      body: `Your membership checks out, so this is not a refusal — the branch enforcer is unreachable from this device${
+        detail ? ` (${detail})` : ""
+      }. Try again; if it keeps happening, tell an organizer the portal daemon is down.`,
+    };
+  }
+  if (kind === "unconfigured") {
+    return {
+      title: "This portal has no enforcer",
+      body: "Your membership checks out, but this portal is not wired to a branch that can open the network. An organizer has to fix this.",
+    };
+  }
+  return {
+    title: "The branch refused this device",
+    body: `Your membership checks out, but the enforcer would not open the network${
+      detail ? `: ${detail}` : ""
+    }. Ask an organizer what this branch allows your group.`,
+  };
 }

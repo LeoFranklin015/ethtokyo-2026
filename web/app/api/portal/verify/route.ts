@@ -130,6 +130,9 @@ export async function POST(req: NextRequest) {
     ok: true,
     admitted: admitted.ok,
     admissionError: admitted.reason,
+    // An enforcer that did not answer is not an enforcer that said no, and the page words those
+    // two very differently — one sends you to find an organizer, the other does not.
+    admissionKind: admitted.kind ?? null,
     ens_name: identity.name,
     group_name: identity.entitlements["wifi.group"] ?? identity.role,
     role: identity.role,
