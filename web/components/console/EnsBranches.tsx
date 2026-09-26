@@ -11,9 +11,18 @@ import { explorer } from "@/lib/ens/config";
  * and the index exposes it directly. Its registrar is published as an `ensca.registrar` record,
  * because a registrar is only an EAC role holder and is otherwise invisible. So a new branch shows
  * up here the moment it is registered; nothing in this app has to be redeployed.
+ *
+ * The indexer can be behind, or stopped — it has been both — and when it is, a branch that was
+ * registered minutes ago is read straight from the chain instead. That distinction used to be
+ * invisible: the panel said "ens indexer · block N" over a list that was partly not from the
+ * indexer at all, so a fresh branch looked identical to one the graph had missed, and the only
+ * way to tell a slow indexer from a failed registration was to go and read the chain by hand.
  */
 export function EnsBranches({ org }: { org: string }) {
   const { branches, indexedBlock, error, isLoading } = useEnsBranches(org);
+
+  // Branches the indexer has not seen yet, which the API served from the chain instead.
+  const fromChain = (branches ?? []).filter((b) => b.source === "chain");
 
   return (
     <Panel as="section" className="overflow-hidden">
@@ -26,6 +35,17 @@ export function EnsBranches({ org }: { org: string }) {
       >
         Branches of {org + ".eth"}
       </PanelHeader>
+
+      {fromChain.length > 0 ? (
+        <p className="border-b border-rule px-4 py-2.5 text-xs leading-relaxed text-ink-muted">
+          <span className="font-mono text-ink">{fromChain.length}</span> of{" "}
+          <span className="font-mono text-ink">{branches?.length ?? 0}</span>{" "}
+          {fromChain.length === 1 ? "branch is" : "branches are"} shown from the chain because the
+          ENS indexer has not reached {fromChain.length === 1 ? "it" : "them"} yet
+          {indexedBlock ? ` (it is at block ${indexedBlock})` : ""}. They are registered — the
+          graph is simply behind, and member counts stay blank until it catches up.
+        </p>
+      ) : null}
 
       {isLoading ? (
         <p className="px-4 py-10 text-center font-mono text-xs text-ink-muted">

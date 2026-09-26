@@ -1,8 +1,15 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { usePublicClient, useWriteContract } from "wagmi";
-import { decodeEventLog, type Address, type Hex } from "viem";
+import {
+  useAccount,
+  useCapabilities,
+  useConfig,
+  usePublicClient,
+  useWriteContract,
+} from "wagmi";
+import { sendCalls, waitForCallsStatus } from "@wagmi/core";
+import { decodeEventLog, encodeFunctionData, type Address, type Hex } from "viem";
 import { branchFactoryAbi, registrarWriteAbi } from "@/lib/ens/abis";
 
 /**
@@ -32,10 +39,41 @@ const IDLE: WriteState = { busy: false, error: null, txHash: null };
 
 export type Entitlement = { key: string; value: string };
 
+export type GroupDefinition = {
+  name: string;
+  canOnboard: boolean;
+  openToOnboarders: boolean;
+  editableKeys: string[];
+  entitlements: Entitlement[];
+};
+
+/**
+ * What happened to one group, named.
+ *
+ * `skipped` is not a failure: it is a group the sequential path never reached because an
+ * earlier one stopped it. Keeping it distinct from `failed` is what lets the UI say which
+ * groups exist on chain and which were never asked for, instead of lumping them together.
+ */
+export type GroupOutcome =
+  | { name: string; status: "defined"; txHash: Hex }
+  | { name: string; status: "failed"; error: string }
+  | { name: string; status: "skipped" };
+
+export type DefineGroupsResult = { mode: "batched" | "sequential"; outcomes: GroupOutcome[] };
+
 export function useEnsWrites() {
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
+  const config = useConfig();
+  const { chainId } = useAccount();
+  const { data: capabilities } = useCapabilities();
   const [state, setState] = useState<WriteState>(IDLE);
+
+  // Whether this wallet executes several calls as one atomic batch — EIP-5792. Smart accounts
+  // and EIP-7702 EOAs do; a plain EOA in an older wallet does not, and must be given the
+  // sequential path rather than an error.
+  const atomic = chainId ? capabilities?.[chainId]?.atomic?.status : undefined;
+  const batchable = atomic === "supported" || atomic === "ready";
 
   const run = useCallback(
     async <T,>(fn: () => Promise<T>): Promise<T | null> => {
@@ -130,6 +168,92 @@ export function useEnsWrites() {
   );
 
   /**
+   * Define several groups on one branch.
+   *
+   * Each group is its own `defineRole`, so N groups are N calls however they are sent. Where the
+   * wallet batches them, the operator confirms once and the chain either takes all of them or
+   * none — which is the point: a half-defined branch is a branch whose onboarding form offers
+   * groups that do not exist.
+   *
+   * Where it does not, they go one at a time and the first failure stops the run. The ones that
+   * already landed are reported by name so a retry can send only what is missing; re-sending a
+   * group that succeeded would work, but it would ask the operator to pay and confirm for
+   * nothing and would hide which attempt actually did it.
+   */
+  const defineGroups = useCallback(
+    async (registrar: Address, groups: GroupDefinition[]): Promise<DefineGroupsResult> => {
+      const args = (g: GroupDefinition) =>
+        [g.name, 0n, g.canOnboard, g.openToOnboarders, g.editableKeys, g.entitlements] as const;
+
+      setState({ busy: true, error: null, txHash: null });
+
+      if (batchable) {
+        try {
+          const sent = await sendCalls(config, {
+            calls: groups.map((g) => ({
+              to: registrar,
+              data: encodeFunctionData({
+                abi: registrarWriteAbi,
+                functionName: "defineRole",
+                args: args(g),
+              }),
+            })),
+          });
+          const id = typeof sent === "string" ? sent : sent.id;
+          const result = await waitForCallsStatus(config, { id });
+          if (result.status !== "success") {
+            throw new Error("the wallet reported that the batch did not go through");
+          }
+          const txHash = result.receipts?.[0]?.transactionHash ?? ("0x" as Hex);
+          setState({ busy: false, error: null, txHash });
+          return {
+            mode: "batched",
+            outcomes: groups.map((g) => ({ name: g.name, status: "defined", txHash })),
+          };
+        } catch (e) {
+          // Atomic, so a failure here means nothing was written — every group is still pending.
+          const error = readableError(e);
+          setState({ busy: false, error, txHash: null });
+          return {
+            mode: "batched",
+            outcomes: groups.map((g) => ({ name: g.name, status: "failed", error })),
+          };
+        }
+      }
+
+      const outcomes: GroupOutcome[] = [];
+      let failure: string | null = null;
+      for (const [i, group] of groups.entries()) {
+        try {
+          const hash = await writeContractAsync({
+            address: registrar,
+            abi: registrarWriteAbi,
+            functionName: "defineRole",
+            args: args(group),
+          });
+          await publicClient!.waitForTransactionReceipt({ hash });
+          outcomes.push({ name: group.name, status: "defined", txHash: hash });
+        } catch (e) {
+          failure = readableError(e);
+          outcomes.push({ name: group.name, status: "failed", error: failure });
+          for (const rest of groups.slice(i + 1)) {
+            outcomes.push({ name: rest.name, status: "skipped" });
+          }
+          break;
+        }
+      }
+      const landed = outcomes.filter((o) => o.status === "defined");
+      setState({
+        busy: false,
+        error: failure,
+        txHash: landed.length > 0 ? (landed[landed.length - 1] as { txHash: Hex }).txHash : null,
+      });
+      return { mode: "sequential", outcomes };
+    },
+    [batchable, config, publicClient, writeContractAsync],
+  );
+
+  /**
    * Onboard somebody. Requires `ROLE_MINT` on the role's resource — which a branch owner holds
    * at the root, and which a member of a `canOnboard` group gets derived for them. That derived
    * path is why an organization can run unlimited volunteers, and it works here unchanged: the
@@ -174,7 +298,16 @@ export function useEnsWrites() {
     [publicClient, run, writeContractAsync],
   );
 
-  return { ...state, createBranch, defineGroup, onboard, revoke, reset: () => setState(IDLE) };
+  return {
+    ...state,
+    batchable,
+    createBranch,
+    defineGroup,
+    defineGroups,
+    onboard,
+    revoke,
+    reset: () => setState(IDLE),
+  };
 }
 
 /**

@@ -84,6 +84,7 @@ export function Wizard() {
 
         {step === "groups" ? (
           <GroupsStep
+            org={orgName}
             branchLabel={branchLabel}
             registrar={registrar}
             onDone={() => setStep("done")}
@@ -644,7 +645,7 @@ function BranchStep({
 }
 
 ////////////////////////////////////////////////////////////////////////
-// Step 3 — groups
+// Step 4 — groups
 ////////////////////////////////////////////////////////////////////////
 
 /**
@@ -690,11 +691,44 @@ const PRESETS = [
 
 type Row = { key: string; value: string };
 
+/** A group as the operator has drawn it up, before anything is signed. */
+type Draft = {
+  id: string;
+  name: string;
+  canOnboard: boolean;
+  editableKeys: string;
+  entitlements: Row[];
+};
+
+/**
+ * What became of a draft once it was sent.
+ *
+ * The mirror is tracked apart from the chain write on purpose. A group that is defined on chain
+ * but missing from the enforcer is not a failed group — it exists, onboarding will offer it, and
+ * the people in it will be turned away by the network. That is a different thing to say.
+ */
+type Outcome = {
+  status: "defined" | "failed" | "skipped";
+  error?: string;
+  mirrored?: boolean;
+  mirrorReason?: string;
+};
+
+const BLANK: Omit<Draft, "id"> = {
+  name: "",
+  canOnboard: false,
+  editableKeys: "",
+  entitlements: [{ key: "wifi.group", value: "" }],
+};
+
 function GroupsStep({
+  org,
   branchLabel,
   registrar,
   onDone,
 }: {
+  /** The organization's `.eth` name. The enforcer mirror is scoped to it. */
+  org: string | null;
   branchLabel: string | null;
   registrar: string | null;
   onDone: () => void;
@@ -707,57 +741,102 @@ function GroupsStep({
   // the registrar, which is why it decodes `BranchCreated` rather than waiting for an indexer.
   const target = registrar ?? "";
   const writes = useEnsWrites();
-  const [created, setCreated] = useState<string[]>([]);
+
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
+  const [mode, setMode] = useState<"batched" | "sequential" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [name, setName] = useState("");
-  const [canOnboard, setCanOnboard] = useState(false);
-  const [editableKeys, setEditableKeys] = useState("");
-  const [rows, setRows] = useState<Row[]>([{ key: "wifi.group", value: "" }]);
+  // The editor below the list. `editing` is the draft being changed, or null when the form is
+  // composing a new one.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [form, setForm] = useState<Omit<Draft, "id">>(BLANK);
+
+  const clean = form.name.trim().toLowerCase();
+  const duplicate = drafts.some((d) => d.name === clean && d.id !== editing);
+  const formValid = /^[a-z0-9-]{1,32}$/.test(clean) && !duplicate;
+
+  // Anything not yet on chain. After a partial sequential run this is exactly what a retry
+  // should send — the groups that landed are never in it.
+  const pending = drafts.filter((d) => outcomes[d.name]?.status !== "defined");
+  const defined = drafts.filter((d) => outcomes[d.name]?.status === "defined");
+  const attempted = Object.keys(outcomes).length > 0;
 
   function prefill(preset: (typeof PRESETS)[number]) {
-    setName(preset.name);
-    setCanOnboard(preset.onboard);
-    setEditableKeys(preset.keys);
-    setRows(preset.entitlements.map((e) => ({ ...e })));
+    setEditing(null);
+    setForm({
+      name: preset.name,
+      canOnboard: preset.onboard,
+      editableKeys: preset.keys,
+      entitlements: preset.entitlements.map((e) => ({ ...e })),
+    });
     setError(null);
   }
 
-  function reset() {
-    setName("");
-    setCanOnboard(false);
-    setEditableKeys("");
-    setRows([{ key: "wifi.group", value: "" }]);
+  function commit() {
+    if (!formValid) return;
+    const draft: Draft = { ...form, id: editing ?? crypto.randomUUID(), name: clean };
+    setDrafts((list) =>
+      editing ? list.map((d) => (d.id === editing ? draft : d)) : [...list, draft],
+    );
+    setEditing(null);
+    setForm(BLANK);
   }
 
-  const clean = name.trim().toLowerCase();
-  const valid = /^[a-z0-9-]{1,32}$/.test(clean) && !created.includes(clean) && Boolean(target);
+  /**
+   * Copy a defined group into the enforcer.
+   *
+   * Separate from the chain write, and deliberately not allowed to fail the group: the server
+   * re-reads the chain before it writes, so this is a request to verify-and-copy rather than a
+   * claim it has to believe.
+   */
+  async function mirror(name: string): Promise<Pick<Outcome, "mirrored" | "mirrorReason">> {
+    try {
+      const res = await fetch("/api/ens/mirror", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "group", org: org ?? "", registrar: target, name }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { mirrored?: boolean; reason?: string; error?: string };
+      if (!res.ok) return { mirrored: false, mirrorReason: body.error ?? `the server said ${res.status}` };
+      return { mirrored: Boolean(body.mirrored), mirrorReason: body.reason };
+    } catch (e) {
+      return { mirrored: false, mirrorReason: e instanceof Error ? e.message : "unreachable" };
+    }
+  }
 
-  async function add() {
+  async function define(targets: Draft[]) {
+    if (targets.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const written = await writes.defineGroup({
-        registrar: target as Address,
-        name: clean,
-        canOnboard,
-        openToOnboarders: true,
-        editableKeys: editableKeys
-          .split(",")
-          .map((k) => k.trim())
-          .filter(Boolean),
-        entitlements: rows.filter((r) => r.key.trim() && r.value.trim()),
-      });
-      if (!written) throw new Error(writes.error ?? "the transaction did not go through");
+      const result = await writes.defineGroups(
+        target as Address,
+        targets.map((d) => ({
+          name: d.name,
+          canOnboard: d.canOnboard,
+          openToOnboarders: true,
+          editableKeys: d.editableKeys
+            .split(",")
+            .map((k) => k.trim())
+            .filter(Boolean),
+          entitlements: d.entitlements.filter((r) => r.key.trim() && r.value.trim()),
+        })),
+      );
+      setMode(result.mode);
 
-      await fetch("/api/ens/mirror", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "group", registrar: target, name: clean }),
-      });
-      setCreated((c) => [...c, clean]);
-      reset();
+      const mirrored = await Promise.all(
+        result.outcomes.map(async (o) =>
+          o.status === "defined"
+            ? ([o.name, { status: o.status, ...(await mirror(o.name)) }] as const)
+            : ([
+                o.name,
+                { status: o.status, error: o.status === "failed" ? o.error : undefined },
+              ] as const),
+        ),
+      );
+      setOutcomes((prev) => ({ ...prev, ...Object.fromEntries(mirrored) }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed");
     } finally {
@@ -765,21 +844,31 @@ function GroupsStep({
     }
   }
 
+  const actionLabel = busy
+    ? "Defining…"
+    : `${attempted && defined.length > 0 ? "Retry" : "Define"} ${pending.length} group${
+        pending.length === 1 ? "" : "s"
+      } — ${
+        writes.batchable
+          ? "one confirmation"
+          : `${pending.length} confirmation${pending.length === 1 ? "" : "s"}, one per group`
+      }`;
+
   return (
     <Panel as="section">
       <div className="px-5 py-6">
         <h2 className="text-lg tracking-[-0.01em] text-ink">Define the groups</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           A group is a category of people — it mints no name. Onboarding assigns one, and its
-          entitlements are written onto that person&rsquo;s name in the same transaction. Name
-          them whatever your organization actually calls people.
+          entitlements are written onto that person&rsquo;s name in the same transaction. Write
+          the whole list first; nothing is signed until you say so.
         </p>
 
         {target ? (
           <div className="mt-5 rounded-sharp border border-rule px-4 py-3">
             <span className="label">Branch</span>
             <p className="mt-1 font-mono text-sm text-ink">{branchLabel ?? "—"}</p>
-            <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">
+            <p className="mt-1 break-all font-mono text-[0.6875rem] text-ink-muted">
               registrar {target.slice(0, 10)}…{target.slice(-6)}
             </p>
           </div>
@@ -795,31 +884,109 @@ function GroupsStep({
           </div>
         )}
 
-        {created.length > 0 ? (
-          <ul className="mt-5 divide-y divide-rule border-y border-rule">
-            {created.map((g) => (
-              <li key={g} className="flex items-center justify-between gap-4 py-2.5">
-                <span className="font-mono text-sm text-ink">{g}</span>
-                <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
-                  defined
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        <div className="mt-6">
+          <span className="label">
+            {drafts.length === 0 ? "Groups" : `Groups · ${drafts.length}`}
+          </span>
+          {drafts.length === 0 ? (
+            <p className="mt-2 max-w-[52ch] rounded-sharp border border-dashed border-rule px-4 py-5 text-xs leading-relaxed text-ink-muted">
+              Nothing yet. Start from one of the presets below, or write your own — then define
+              them all at once.
+            </p>
+          ) : (
+            <ul className="mt-2 divide-y divide-rule rounded-sharp border border-rule">
+              {drafts.map((d) => {
+                const outcome = outcomes[d.name];
+                const entitlements = d.entitlements.filter((r) => r.key.trim() && r.value.trim());
+                return (
+                  <li key={d.id} className="px-3 py-3">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                      <span className="font-mono text-sm text-ink">{d.name}</span>
+                      <Status outcome={outcome} />
+                    </div>
+                    <p className="mt-1 break-words font-mono text-[0.6875rem] leading-relaxed text-ink-muted">
+                      {entitlements.length > 0
+                        ? entitlements.map((r) => `${r.key}=${r.value}`).join("  ·  ")
+                        : "no entitlements"}
+                    </p>
+                    {d.canOnboard || d.editableKeys.trim() ? (
+                      <p className="mt-0.5 text-[0.6875rem] leading-relaxed text-ink-muted">
+                        {d.canOnboard ? "may onboard others" : null}
+                        {d.canOnboard && d.editableKeys.trim() ? " · " : null}
+                        {d.editableKeys.trim() ? `self-editable: ${d.editableKeys.trim()}` : null}
+                      </p>
+                    ) : null}
+                    {outcome?.status === "failed" && outcome.error ? (
+                      <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
+                        {outcome.error}
+                      </p>
+                    ) : null}
+                    {outcome?.status === "defined" && outcome.mirrored === false ? (
+                      <p className="mt-1 max-w-[52ch] text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
+                        Defined on chain, but the enforcer was not updated (
+                        {outcome.mirrorReason ?? "unknown"}). Members of this group will be denied
+                        the network until it is.
+                      </p>
+                    ) : null}
+                    {outcome?.status !== "defined" ? (
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditing(d.id);
+                            setForm({
+                              name: d.name,
+                              canOnboard: d.canOnboard,
+                              editableKeys: d.editableKeys,
+                              entitlements: d.entitlements.map((r) => ({ ...r })),
+                            });
+                          }}
+                          className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+                        >
+                          edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDrafts((list) => list.filter((x) => x.id !== d.id));
+                            if (editing === d.id) {
+                              setEditing(null);
+                              setForm(BLANK);
+                            }
+                          }}
+                          className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+                        >
+                          remove
+                        </button>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
 
         <div className="mt-6">
-          <span className="label">Start from</span>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {PRESETS.map((p) => (
-              <Button key={p.name} variant="outline" onClick={() => prefill(p)}>
-                {p.name}
+          <span className="label">{editing ? "Editing" : "Start from"}</span>
+          {editing ? null : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {PRESETS.map((p) => (
+                <Button key={p.name} variant="outline" onClick={() => prefill(p)}>
+                  {p.name}
+                </Button>
+              ))}
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setEditing(null);
+                  setForm(BLANK);
+                }}
+              >
+                blank
               </Button>
-            ))}
-            <Button variant="ghost" onClick={reset}>
-              blank
-            </Button>
-          </div>
+            </div>
+          )}
           <p className="mt-2 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
             These fill the form below so you can see and change what gets published. The rates
             are suggestions — what they mean is the branch enforcer&rsquo;s decision, not ENS&rsquo;s.
@@ -830,21 +997,29 @@ function GroupsStep({
           <label className="block">
             <span className="label">Group name</span>
             <input
-              value={name}
+              value={form.name}
               onChange={(e) =>
-                setName(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())
+                setForm({
+                  ...form,
+                  name: e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase(),
+                })
               }
               placeholder="crew"
               autoComplete="off"
               className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink placeholder:text-ink-faint"
             />
+            {duplicate ? (
+              <span className="mt-1 block font-mono text-[0.6875rem]" style={{ color: "var(--alert)" }}>
+                already in the list
+              </span>
+            ) : null}
           </label>
 
           <label className="flex items-start gap-2.5">
             <input
               type="checkbox"
-              checked={canOnboard}
-              onChange={(e) => setCanOnboard(e.target.checked)}
+              checked={form.canOnboard}
+              onChange={(e) => setForm({ ...form, canOnboard: e.target.checked })}
               className="mt-0.5 size-4 shrink-0 accent-[var(--ink)]"
             />
             <span className="min-w-0">
@@ -859,8 +1034,8 @@ function GroupsStep({
           <label className="block">
             <span className="label">Self-editable records</span>
             <input
-              value={editableKeys}
-              onChange={(e) => setEditableKeys(e.target.value)}
+              value={form.editableKeys}
+              onChange={(e) => setForm({ ...form, editableKeys: e.target.value })}
               placeholder="avatar, ssh.pubkey"
               autoComplete="off"
               className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-3 font-mono text-xs text-ink placeholder:text-ink-faint"
@@ -874,12 +1049,17 @@ function GroupsStep({
           <fieldset>
             <legend className="label">Entitlements written to every member</legend>
             <div className="mt-2 space-y-2">
-              {rows.map((row, i) => (
+              {form.entitlements.map((row, i) => (
                 <div key={i} className="flex gap-2">
                   <input
                     value={row.key}
                     onChange={(e) =>
-                      setRows(rows.map((r, j) => (i === j ? { ...r, key: e.target.value } : r)))
+                      setForm({
+                        ...form,
+                        entitlements: form.entitlements.map((r, j) =>
+                          i === j ? { ...r, key: e.target.value } : r,
+                        ),
+                      })
                     }
                     placeholder="key"
                     aria-label={`Entitlement key ${i + 1}`}
@@ -888,16 +1068,26 @@ function GroupsStep({
                   <input
                     value={row.value}
                     onChange={(e) =>
-                      setRows(rows.map((r, j) => (i === j ? { ...r, value: e.target.value } : r)))
+                      setForm({
+                        ...form,
+                        entitlements: form.entitlements.map((r, j) =>
+                          i === j ? { ...r, value: e.target.value } : r,
+                        ),
+                      })
                     }
                     placeholder="value"
                     aria-label={`Entitlement value ${i + 1}`}
                     className="h-10 min-w-0 flex-1 rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink placeholder:text-ink-faint"
                   />
-                  {rows.length > 1 ? (
+                  {form.entitlements.length > 1 ? (
                     <button
                       type="button"
-                      onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          entitlements: form.entitlements.filter((_, j) => j !== i),
+                        })
+                      }
                       aria-label={`Remove entitlement ${i + 1}`}
                       className="shrink-0 px-2 font-mono text-xs text-ink-muted hover:text-ink"
                     >
@@ -909,7 +1099,9 @@ function GroupsStep({
             </div>
             <button
               type="button"
-              onClick={() => setRows([...rows, { key: "", value: "" }])}
+              onClick={() =>
+                setForm({ ...form, entitlements: [...form.entitlements, { key: "", value: "" }] })
+              }
               className="mt-2 font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
             >
               add another
@@ -920,30 +1112,82 @@ function GroupsStep({
             </p>
           </fieldset>
 
-          {error ? (
-            <p className="text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
-              {error}
-            </p>
-          ) : null}
-
-          <Button variant="solid" onClick={add} disabled={!valid || busy}>
-            {busy ? "Defining…" : "Define this group"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="solid" onClick={commit} disabled={!formValid}>
+              {editing ? "Save changes" : "Add to the list"}
+            </Button>
+            {editing ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setEditing(null);
+                  setForm(BLANK);
+                }}
+              >
+                Cancel
+              </Button>
+            ) : null}
+          </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <Button variant="solid" onClick={onDone} disabled={created.length === 0}>
+        {error ? (
+          <p className="mt-4 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+            {error}
+          </p>
+        ) : null}
+
+        {attempted && mode ? (
+          <p className="mt-4 max-w-[52ch] text-xs leading-relaxed text-ink-muted" role="status">
+            {mode === "batched"
+              ? defined.length > 0
+                ? `Sent as one batch — all ${defined.length} landed together.`
+                : "Sent as one batch. It was all-or-nothing, so nothing was written."
+              : `Sent one at a time — ${defined.length} of ${drafts.length} landed. The rest are untouched on chain.`}
+          </p>
+        ) : null}
+
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <Button
+            variant="solid"
+            onClick={() => void define(pending)}
+            disabled={busy || pending.length === 0 || !target}
+          >
+            {actionLabel}
+          </Button>
+          <Button variant="outline" onClick={onDone} disabled={defined.length === 0}>
             Done
           </Button>
-          {created.length === 0 ? (
-            <span className="text-xs text-ink-muted">
-              Define at least one — a branch with no groups can admit nobody.
-            </span>
-          ) : null}
         </div>
+        {defined.length === 0 ? (
+          <p className="mt-2 text-xs text-ink-muted">
+            Define at least one — a branch with no groups can admit nobody.
+          </p>
+        ) : null}
       </div>
     </Panel>
   );
+}
+
+function Status({ outcome }: { outcome: Outcome | undefined }) {
+  if (!outcome) return <span className="font-mono text-[0.6875rem] text-ink-faint">not yet defined</span>;
+  if (outcome.status === "defined") {
+    return (
+      <span
+        className="font-mono text-[0.6875rem]"
+        style={{ color: outcome.mirrored === false ? "var(--alert)" : "var(--signal)" }}
+      >
+        {outcome.mirrored === false ? "defined · not mirrored" : "defined"}
+      </span>
+    );
+  }
+  if (outcome.status === "failed") {
+    return (
+      <span className="font-mono text-[0.6875rem]" style={{ color: "var(--alert)" }}>
+        failed
+      </span>
+    );
+  }
+  return <span className="font-mono text-[0.6875rem] text-ink-muted">not attempted</span>;
 }
 
 function DoneStep({ org, branch }: { org: string | null; branch: string | null }) {

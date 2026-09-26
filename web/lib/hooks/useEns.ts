@@ -39,9 +39,22 @@ export function useEnsMemberships(org: string | null, branch?: string) {
 }
 
 /** Branches under the organization, discovered from ENS rather than configured. */
+/**
+ * A branch as the console sees it, which is not quite as the indexer sees it.
+ *
+ * `source` says where the row came from. The indexer can be behind or stopped, and a branch it
+ * has not reached is read from the chain instead — with no member count, because that figure is
+ * the indexer's. Callers must be able to tell the two apart: a chain-sourced row is registered
+ * and pending, not missing.
+ */
+export type ConsoleBranch = Omit<IndexedBranch, "memberCount"> & {
+  memberCount: number | null;
+  source: "indexer" | "chain";
+};
+
 export function useEnsBranches(org: string | null) {
   const { data, error, isLoading } = useSWR<{
-    branches: IndexedBranch[];
+    branches: ConsoleBranch[];
     indexedBlock: number | null;
   }>(org ? `ens-branches:${org}` : null, () => ensGet(`branches?org=${org}`), {
     refreshInterval: 60_000,
