@@ -11,7 +11,7 @@ import {
 import { sepolia } from "viem/chains";
 import { orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
 import { ENS, ENTITLEMENT_KEYS, RPC_URL } from "./config";
-import { getIndexedBranches, getIndexedMemberships, type IndexedBranch } from "./indexer";
+import { getIndexedBranches, getIndexedMemberships } from "./indexer";
 
 /**
  * Reads the ENSCA contracts directly. Server-side only, so viem never reaches the client bundle.

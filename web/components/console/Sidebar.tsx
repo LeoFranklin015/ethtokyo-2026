@@ -28,7 +28,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const { branches } = useEnsBranches();
   const { data: status } = useProxyStatus();
-  const branchLabel = process.env.NEXT_PUBLIC_BRANCH_LABEL ?? "branch";
 
   const online = !!status && status.status === "ok";
 

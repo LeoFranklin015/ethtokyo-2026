@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/console/PageHeader";
 import { ThroughputChart } from "@/components/console/ThroughputChart";
 import { SignalDither } from "@/components/dither/SignalDither";
@@ -9,7 +10,6 @@ import { useGroups } from "@/lib/hooks/useGroups";
 import { useSessions } from "@/lib/hooks/useSessions";
 import { useThroughput } from "@/lib/hooks/useThroughput";
 import { useUsers } from "@/lib/hooks/useUsers";
-import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
 import { ENFORCEMENT } from "@/lib/config";
 
 export default function OverviewPage() {
@@ -17,7 +17,6 @@ export default function OverviewPage() {
   const { data: sessionsData } = useSessions(true);
   const { data: throughputData } = useThroughput();
   const { data: usersData } = useUsers();
-  const { data: status } = useProxyStatus();
 
   const branchLabel = process.env.NEXT_PUBLIC_BRANCH_LABEL ?? "branch";
   const branchEns = `${branchLabel}.${process.env.NEXT_PUBLIC_ORG_ENS ?? ""}`;
@@ -34,7 +33,12 @@ export default function OverviewPage() {
   const totalPool = groups.reduce((s, g) => s + g.pool, 0);
   const peak = samples.length ? Math.max(...samples.map(s => s.mbps)) : 0;
 
-  const now = Math.floor(Date.now() / 1000);
+  // The five-minute window has to advance on its own, so the clock is state, not a render-time read.
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 10_000);
+    return () => clearInterval(t);
+  }, []);
   const joined5m = sessions.filter(s => s.logged_in_at >= now - 300).length;
   const { data: recentLeft } = useSessions(false);
   const left5m = (recentLeft?.sessions ?? []).filter(
@@ -48,7 +52,7 @@ export default function OverviewPage() {
     { label: "Denials",     value: "—", sub: "last hour" },
   ];
 
-  const recent = sessions
+  const recent = [...sessions]
     .sort((a, b) => b.logged_in_at - a.logged_in_at)
     .slice(0, 5);
 

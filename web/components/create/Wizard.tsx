@@ -143,7 +143,7 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
 
   useEffect(() => {
     const value = label.trim().toLowerCase();
-    if (!value) return setCheck(null);
+    if (!value) return;
     const t = setTimeout(async () => {
       try {
         setCheck(await (await fetch(`/api/ens/available?label=${value}`)).json());
@@ -195,7 +195,10 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
         <div className="mt-5 flex items-center gap-2">
           <input
             value={label}
-            onChange={(e) => setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())}
+            onChange={(e) => {
+              setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
+              setCheck(null);
+            }}
             placeholder="acme"
             aria-label="Organization name"
             autoComplete="off"
@@ -285,7 +288,7 @@ function BranchStep({
 
   useEffect(() => {
     const value = label.trim().toLowerCase();
-    if (!value) return setFree(null);
+    if (!value) return;
     const t = setTimeout(async () => {
       try {
         const body = await (await fetch(`/api/ens/branch?label=${value}`)).json();
@@ -328,7 +331,10 @@ function BranchStep({
         <div className="mt-5 flex items-center gap-2">
           <input
             value={label}
-            onChange={(e) => setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())}
+            onChange={(e) => {
+              setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
+              setFree(null);
+            }}
             placeholder="tokyo"
             aria-label="Branch name"
             autoComplete="off"

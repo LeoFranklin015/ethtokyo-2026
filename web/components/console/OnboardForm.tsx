@@ -23,6 +23,7 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
   const [label, setLabel] = useState("");
   const [owner, setOwner] = useState("");
   const [group, setGroup] = useState("");
+  // Derived rather than synced from an effect: the first group is the default until one is picked.
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [free, setFree] = useState<boolean | null>(null);
@@ -35,18 +36,13 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
     () => fetch(`/api/ens/groups?registrar=${target}`).then((r) => r.json()),
   );
   const groups = (groupData?.groups ?? []).filter((g) => g.active);
-
-  useEffect(() => {
-    if (!group && groups.length) setGroup(groups[0].name);
-  }, [groups, group]);
+  const selectedGroup = group || groups[0]?.name || "";
 
   // Is this label still free inside the chosen branch?
   useEffect(() => {
     const value = label.trim().toLowerCase();
-    if (!value || !branch) {
-      setFree(null);
-      return;
-    }
+    if (!value || !branch) return;
+
     const t = setTimeout(async () => {
       try {
         const res = await fetch(
@@ -62,7 +58,7 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
   }, [label, branch]);
 
   const validAddress = /^0x[0-9a-fA-F]{40}$/.test(owner.trim());
-  const canSubmit = Boolean(target && label && validAddress && group && free && !busy);
+  const canSubmit = Boolean(target && label && validAddress && selectedGroup && free && !busy);
 
   async function submit() {
     setBusy(true);
@@ -71,13 +67,13 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
       const res = await fetch("/api/ens/onboard", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ registrar: target, label, owner: owner.trim(), group }),
+        body: JSON.stringify({ registrar: target, label, owner: owner.trim(), group: selectedGroup }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "failed");
       setMessage({
         ok: true,
-        text: `${label}.${branch?.name} is live, in group “${group}”.`,
+        text: `${label}.${branch?.name} is live, in group “${selectedGroup}”.`,
       });
       setLabel("");
       setOwner("");
@@ -116,9 +112,10 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
           <span className="mt-2 flex items-center gap-2">
             <input
               value={label}
-              onChange={(e) =>
-                setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())
-              }
+              onChange={(e) => {
+                setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
+                setFree(null);
+              }}
               placeholder="leo"
               autoComplete="off"
               className="h-11 min-w-0 flex-1 rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink placeholder:text-ink-faint"
@@ -154,7 +151,7 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
         <label className="block">
           <span className="label">Group</span>
           <select
-            value={group}
+            value={selectedGroup}
             onChange={(e) => setGroup(e.target.value)}
             className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
           >
@@ -166,9 +163,9 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
             ))}
           </select>
           <span className="mt-1 block text-xs text-ink-muted">
-            {groups.find((g) => g.name === group)?.entitlements.length
+            {groups.find((g) => g.name === selectedGroup)?.entitlements.length
               ? groups
-                  .find((g) => g.name === group)!
+                  .find((g) => g.name === selectedGroup)!
                   .entitlements.map((e) => `${e.key}=${e.value}`)
                   .join(" · ")
               : "This group publishes no entitlements."}

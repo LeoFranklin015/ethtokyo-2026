@@ -3,6 +3,7 @@ import useSWR from "swr";
 import type { EnsBranch, EnsMembership } from "@/lib/ens/read";
 import type { IndexedBranch } from "@/lib/ens/indexer";
 
+
 /** Chain reads go through our own route handlers, the same shape as the proxy hooks. */
 async function ensGet<T>(path: string): Promise<T> {
   const res = await fetch(`/api/ens/${path}`, { cache: "no-store" });
