@@ -341,16 +341,19 @@ def set_group_limit(gid, rid):
     data = request.get_json(silent=True) or {}
     per_dev = data.get("per_device_per_day")  # None = unlimited
     per_grp = data.get("group_per_day")
+    per_ens = data.get("per_ens_per_day")
     db.execute(
-        "INSERT INTO group_resource_limits(group_id,resource_id,per_device_per_day,group_per_day) "
-        "VALUES(?,?,?,?) ON CONFLICT(group_id,resource_id) DO UPDATE SET "
-        "per_device_per_day=excluded.per_device_per_day, group_per_day=excluded.group_per_day",
-        (gid, rid, per_dev, per_grp)
+        "INSERT INTO group_resource_limits(group_id,resource_id,per_device_per_day,group_per_day,per_ens_per_day) "
+        "VALUES(?,?,?,?,?) ON CONFLICT(group_id,resource_id) DO UPDATE SET "
+        "per_device_per_day=excluded.per_device_per_day, group_per_day=excluded.group_per_day, "
+        "per_ens_per_day=excluded.per_ens_per_day",
+        (gid, rid, per_dev, per_grp, per_ens)
     )
     db.commit()
     _audit("PUT", f"/admin/groups/{gid}/limits/{rid}", 200, body=data, db=db)
     return jsonify({"group_id": gid, "resource_id": rid,
-                    "per_device_per_day": per_dev, "group_per_day": per_grp})
+                    "per_device_per_day": per_dev, "group_per_day": per_grp,
+                    "per_ens_per_day": per_ens})
 
 
 @app.route("/admin/groups/<gid>/limits/<rid>", methods=["DELETE"])
