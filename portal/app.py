@@ -227,6 +227,11 @@ def login():
     ident = _lookup_ens(ens_name)
     if not ident:
         return render_template("login.html", error="ENS name not recognized")
+    # Re-login from the same device under a DIFFERENT ENS: grant_access
+    # early-returns for an already-authed IP, so revoke first to tear down the
+    # old identity's cross-user isolation and let grant rebuild it cleanly.
+    if ip in AUTHED_IPS and ENS_NAMES.get(ip) != ident["ens_name"]:
+        revoke_access(ip)
     ENS_NAMES[ip] = ident["ens_name"]
     grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"])
     return redirect(f"{PORTAL_URL}/connected", 302)
