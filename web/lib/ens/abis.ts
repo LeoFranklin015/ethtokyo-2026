@@ -11,6 +11,18 @@ export const registryAbi = [
   { type: "function", name: "roles", stateMutability: "view", inputs: [{ name: "anyId", type: "uint256" }, { name: "account", type: "address" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "hasRootRoles", stateMutability: "view", inputs: [{ name: "roleBitmap", type: "uint256" }, { name: "account", type: "address" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "roleCount", stateMutability: "view", inputs: [{ name: "resource", type: "uint256" }], outputs: [{ type: "uint256" }] },
+  {
+    type: "event",
+    name: "LabelRegistered",
+    inputs: [
+      { name: "tokenId", type: "uint256", indexed: true },
+      { name: "labelHash", type: "bytes32", indexed: true },
+      { name: "label", type: "string", indexed: false },
+      { name: "owner", type: "address", indexed: false },
+      { name: "expiry", type: "uint64", indexed: false },
+      { name: "sender", type: "address", indexed: true },
+    ],
+  },
 ] as const;
 
 export const registrarAbi = [

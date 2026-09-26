@@ -32,14 +32,9 @@ const COPY: Record<State, { status: string; title: string; body: string }> = {
   },
 };
 
-const GRANT = [
-  ["Membership", "leo.tokyo2026.ethglobal.eth"],
-  ["Role", "hacker"],
-  ["Group", "hacker · vlan 100"],
-  ["Rate / ceiling", "5 / 20 Mbps"],
-];
+export type Grant = { term: string; detail: string }[];
 
-export function PortalFlow() {
+export function PortalFlow({ ssid, grant }: { ssid: string; grant: Grant }) {
   const [state, setState] = useState<State>("idle");
   const [direction, setDirection] = useState(1);
   const reduceMotion = useReducedMotion();
@@ -71,7 +66,7 @@ export function PortalFlow() {
     <div className="w-full max-w-[400px]">
       <section className="rounded-sharp border border-rule bg-paper-raise">
         <header className="flex items-baseline justify-between gap-3 border-b border-rule px-5 py-3">
-          <p className="truncate font-mono text-xs text-ink">ethglobal-tokyo2026</p>
+          <p className="truncate font-mono text-xs text-ink">{ssid}</p>
           <p className="label shrink-0">SSID</p>
         </header>
 
@@ -107,10 +102,12 @@ export function PortalFlow() {
 
               {state === "connected" ? (
                 <dl className="mt-5 divide-y divide-rule border-y border-rule">
-                  {GRANT.map(([term, detail]) => (
+                  {grant.map(({ term, detail }) => (
                     <div key={term} className="flex items-baseline justify-between gap-3 py-2">
                       <dt className="label">{term}</dt>
-                      <dd className="text-right font-mono text-xs text-ink-80">{detail}</dd>
+                      <dd className="text-right font-mono text-xs break-all text-ink-80">
+                        {detail}
+                      </dd>
                     </div>
                   ))}
                 </dl>

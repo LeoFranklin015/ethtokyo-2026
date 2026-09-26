@@ -9,32 +9,28 @@
    ────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Cool slate field — the dither reads as ink on paper stock, not on white. */
-  --paper:       #dce1ec;
-  --paper-sunk:  #d2d8e6;
-  --paper-raise: #e5e9f1;
+  /* Warm paper and near-black ink. One committed surface, no dark pair.
+     Text tokens clear WCAG AA 4.5:1; --ink-faint is non-text only. */
+  --paper:       #edece6;
+  --paper-sunk:  #e4e2d9;
+  --paper-raise: #f5f4ef;
 
-  /* Ink is blue-violet, not near-black: the whole UI is a duotone, the way
-     the reference plate is. 8.2:1 on --paper. */
-  --ink:         #343b63;
-  --ink-80:      rgba(52, 59, 99, 0.86);
-  /* Text token: 4.6:1 on --paper. */
-  --ink-muted:   rgba(52, 59, 99, 0.77);
-  /* NON-TEXT ONLY: dither marks, dots, icon strokes, rules. */
-  --ink-faint:   rgba(52, 59, 99, 0.45);
-  --rule:        rgba(52, 59, 99, 0.22);
-  --rule-soft:   rgba(52, 59, 99, 0.11);
+  --ink:         #14140f;
+  --ink-80:      rgba(20, 20, 15, 0.8);
+  /* Text token: 4.7:1 on --paper. */
+  --ink-muted:   rgba(20, 20, 15, 0.62);
+  /* NON-TEXT ONLY: dots, icon strokes, rules. 2.2:1. */
+  --ink-faint:   rgba(20, 20, 15, 0.35);
+  --rule:        rgba(20, 20, 15, 0.16);
+  --rule-soft:   rgba(20, 20, 15, 0.08);
 
-  /* Dither marks sit mid-slate, exactly as in the reference plate. */
-  --dither:      #6d7392;
+  /* The dither stipple: ink, softened so it reads as texture rather than a solid mass. */
+  --dither:      #3a3a33;
 
-  /* Duotone: "live" is carried by full ink plus its own label, never by a
-     second hue — a blue accent on a blue field separates at only 1.5:1 and
-     stops reading as an accent. --alert is the one chromatic exception,
-     reserved for over-cap and refusal. */
-  --signal:      #343b63;
-  --signal-text: #343b63;
-  --alert:       #a8331c;
+  /* --signal is a mark colour (3:1 floor); --signal-text is its text-safe step. */
+  --signal:      #0080bc;
+  --signal-text: #00618f;
+  --alert:       #b4381f;
 
   --radius:      2px;
 }
