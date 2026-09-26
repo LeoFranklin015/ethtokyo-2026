@@ -220,7 +220,6 @@ contract LiveDeploymentTest is Test {
     address constant SUPERSEDED_REGISTRAR = 0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A;
     address constant OWNER = 0xE08224B2CfaF4f27E2DC7cB3f6B99AcC68Cf06c0;
 
-    bytes32 constant LEO_NODE = 0x849603a21f59f0fcf34170db77da66501b069223229b77303ea7df0fea86cafd;
 
     function setUp() public {
         vm.skip(block.chainid != 11155111, "requires a Sepolia fork");
@@ -244,27 +243,21 @@ contract LiveDeploymentTest is Test {
         assertEq(label, "ethglobal2");
     }
 
-    function test_membership_and_its_entitlements() public view {
+    /// `leo` was the two-level artefact: a membership sitting directly under the organization.
+    /// It was revoked when the branch level was introduced, so the org registry holds only branches.
+    function test_org_registry_holds_no_memberships() public view {
         IPermissionedRegistry branch = IPermissionedRegistry(BRANCH_REGISTRY);
-        uint256 leo = uint256(keccak256("leo"));
-
         assertEq(
-            uint8(branch.getStatus(leo)), uint8(IPermissionedRegistry.Status.REGISTERED), "leo minted"
+            uint8(branch.getStatus(uint256(keccak256("leo")))),
+            uint8(IPermissionedRegistry.Status.AVAILABLE),
+            "leo revoked from the org registry"
         );
-        assertEq(branch.getOwner(leo), OWNER, "leo owned");
-        assertEq(branch.roles(leo, OWNER), 0, "hacker holds no registry roles over its own name");
 
         BranchRegistrar registrar = BranchRegistrar(REGISTRAR);
-        assertTrue(
+        assertFalse(
             branch.hasRootRoles(registrar.REQUIRED_REGISTRY_ROLES(), REGISTRAR),
-            "registrar still authorised"
+            "the org-level registrar is disarmed"
         );
-        assertEq(
-            uint8(registrar.roleOf(branch.getResource(leo))),
-            uint8(BranchRegistrar.Role.Hacker),
-            "role recorded"
-        );
-
         assertFalse(
             branch.hasRootRoles(registrar.REQUIRED_REGISTRY_ROLES(), SUPERSEDED_REGISTRAR),
             "the superseded registrar is disarmed"
@@ -273,11 +266,6 @@ contract LiveDeploymentTest is Test {
         assertFalse(exists);
         assertEq(uint8(none), uint8(BranchRegistrar.Role.None), "strangers deny by default");
 
-        PermissionedResolver resolver = PermissionedResolver(BRANCH_RESOLVER);
-        assertEq(resolver.text(LEO_NODE, "role"), "hacker");
-        assertEq(resolver.text(LEO_NODE, "wifi.group"), "hacker");
-        assertEq(resolver.text(LEO_NODE, "wifi.rate"), "5mbps");
-        assertEq(resolver.text(LEO_NODE, "wifi.ceil"), "20mbps");
     }
 }
 
