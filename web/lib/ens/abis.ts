@@ -119,3 +119,41 @@ export const branchFactoryAbi = [
     ],
   },
 ] as const;
+
+export const orgFactoryAbi = [
+  { type: "function", name: "createOrganization", stateMutability: "nonpayable", inputs: [
+    { name: "label", type: "string" },
+    { name: "dnsName", type: "bytes" },
+  ], outputs: [{ type: "tuple", components: [
+    { name: "registry", type: "address" },
+    { name: "resolver", type: "address" },
+    { name: "orgRegistrar", type: "address" },
+    { name: "branchFactory", type: "address" },
+    { name: "node", type: "bytes32" },
+  ] }] },
+  { type: "function", name: "organizationFor", stateMutability: "view", inputs: [{ name: "label", type: "string" }], outputs: [{ type: "tuple", components: [
+    { name: "registry", type: "address" },
+    { name: "resolver", type: "address" },
+    { name: "orgRegistrar", type: "address" },
+    { name: "branchFactory", type: "address" },
+    { name: "node", type: "bytes32" },
+  ] }] },
+  {
+    type: "event",
+    name: "OrganizationCreated",
+    inputs: [
+      { name: "label", type: "string", indexed: false },
+      { name: "node", type: "bytes32", indexed: true },
+      { name: "owner", type: "address", indexed: true },
+      { name: "registry", type: "address", indexed: false },
+      { name: "resolver", type: "address", indexed: false },
+      { name: "orgRegistrar", type: "address", indexed: false },
+      { name: "branchFactory", type: "address", indexed: false },
+    ],
+  },
+] as const;
+
+export const ethRegistryWriteAbi = [
+  { type: "function", name: "setSubregistry", stateMutability: "nonpayable", inputs: [{ name: "tokenId", type: "uint256" }, { name: "registry", type: "address" }], outputs: [] },
+  { type: "function", name: "setResolver", stateMutability: "nonpayable", inputs: [{ name: "tokenId", type: "uint256" }, { name: "resolver", type: "address" }], outputs: [] },
+] as const;

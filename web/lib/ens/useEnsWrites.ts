@@ -61,10 +61,12 @@ export function useEnsWrites() {
    * the flow has the registrar address immediately.
    */
   const createBranch = useCallback(
-    (label: string, expiry: bigint, owner: Address) =>
+    (label: string, expiry: bigint, owner: Address, factory?: Address) =>
       run(async () => {
         const hash = await writeContractAsync({
-          address: ENS.branchFactory as Address,
+          // The organization's own factory. Falling back to the configured one is what made a
+          // branch land under somebody else's organization entirely.
+          address: (factory ?? ENS.branchFactory) as Address,
           abi: branchFactoryAbi,
           functionName: "createBranch",
           args: [label, expiry, owner],

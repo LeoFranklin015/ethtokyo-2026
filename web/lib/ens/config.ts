@@ -17,6 +17,10 @@ export const ENS = {
   orgRegistry: "0xEb716b3fB749f357be2B74a10647675D11a94517",
   orgRegistrar: "0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7",
   branchFactory: "0x4C96E37b679427d362BDE6dFdF123A10f80caA0B",
+
+  /// Shared and unprivileged: anyone who owns a `.eth` name turns it into an organization with
+  /// this. It keeps nothing, so one instance serves everybody.
+  orgFactory: "0xecAAD0D9Afd9C7991f09ad43527B2076fa501132",
   resolver: "0x9D8f1376aED12F6F7Ba041285Cce833AcED13092",
 
   /**

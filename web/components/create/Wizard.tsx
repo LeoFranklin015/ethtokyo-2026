@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { ensAppLink, useOrgName, useOwnedNames } from "@/lib/ens/useOrgName";
+import { useOrgSetup, type OrgAddresses } from "@/lib/ens/useOrgSetup";
 import { useEnsWrites } from "@/lib/ens/useEnsWrites";
 import type { Address } from "viem";
 import { sepolia } from "wagmi/chains";
@@ -20,11 +21,12 @@ import { SignalDither } from "@/components/dither/SignalDither";
  * only reachable once the thing it depends on exists.
  */
 
-type StepId = "connect" | "name" | "branch" | "groups" | "done";
+type StepId = "connect" | "name" | "setup" | "branch" | "groups" | "done";
 
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
   { id: "connect", title: "Wallet", blurb: "Connect the wallet that will own the organization." },
   { id: "name", title: "Name", blurb: "The .eth name the organization is built on." },
+  { id: "setup", title: "Set up", blurb: "Deploy the contracts that live under that name." },
   { id: "branch", title: "Branch", blurb: "Open a location. It gets its own registry." },
   { id: "groups", title: "Groups", blurb: "Define the categories people are onboarded into." },
   { id: "done", title: "Open", blurb: "Start admitting people." },
@@ -35,6 +37,7 @@ export function Wizard() {
   const [orgName, setOrgName] = useState<string | null>(null);
   const [branchLabel, setBranchLabel] = useState<string | null>(null);
   const [registrar, setRegistrar] = useState<string | null>(null);
+  const [org, setOrg] = useState<OrgAddresses | null>(null);
 
   const index = STEPS.findIndex((s) => s.id === step);
 
@@ -49,6 +52,16 @@ export function Wizard() {
           <NameStep
             onDone={(name) => {
               setOrgName(name);
+              setStep("setup");
+            }}
+          />
+        ) : null}
+
+        {step === "setup" && orgName ? (
+          <SetupStep
+            orgName={orgName}
+            onDone={(addresses) => {
+              setOrg(addresses);
               setStep("branch");
             }}
           />
@@ -56,6 +69,7 @@ export function Wizard() {
 
         {step === "branch" ? (
           <BranchStep
+            factory={(org?.branchFactory ?? null) as `0x${string}` | null}
             onDone={(label, reg) => {
               setBranchLabel(label);
               setRegistrar(reg);
@@ -381,13 +395,124 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
 }
 
 ////////////////////////////////////////////////////////////////////////
-// Step 2 — the first branch
+// Step 2 — the organization's own contracts
+////////////////////////////////////////////////////////////////////////
+
+/**
+ * Owning the name is not the same as having an organization.
+ *
+ * An organization is a registry to hold branches, a resolver to publish records, an OrgRegistrar
+ * for the Member layer and a BranchFactory to open branches — all pinned to this one name. Until
+ * this step existed, choosing a name changed a label on screen and nothing underneath: branches
+ * still landed under whichever organization the deploy scripts had been aimed at.
+ */
+function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddresses) => void }) {
+  const label = orgName.replace(/\.eth$/, "");
+  const setup = useOrgSetup(label);
+
+  const ready = setup.state.step === "deployed" && setup.state.pointed;
+
+  return (
+    <Panel as="section">
+      <div className="px-5 py-6">
+        <h2 className="text-lg tracking-[-0.01em] text-ink">
+          Set <span className="font-mono">{orgName}</span> up as an organization
+        </h2>
+        <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
+          This deploys the contracts that live under your name — a registry for branches, a
+          resolver for records, and the registrars that mint memberships. They are yours: this
+          console keeps no key and no role over any of them.
+        </p>
+
+        <ol className="mt-5 space-y-4">
+          <li className="rounded-sharp border border-rule px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="text-sm text-ink">1 · Deploy the organization&rsquo;s contracts</span>
+              {setup.state.step === "deployed" ? (
+                <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
+                  done
+                </span>
+              ) : (
+                <Button variant="solid" onClick={setup.create} disabled={setup.busy}>
+                  {setup.busy ? "Deploying…" : "Deploy"}
+                </Button>
+              )}
+            </div>
+            {setup.state.step === "deployed" ? (
+              <dl className="mt-3 space-y-1">
+                {(
+                  [
+                    ["registry", setup.state.org.registry],
+                    ["resolver", setup.state.org.resolver],
+                    ["member registrar", setup.state.org.orgRegistrar],
+                    ["branch factory", setup.state.org.branchFactory],
+                  ] as const
+                ).map(([term, value]) => (
+                  <div key={term} className="flex items-baseline justify-between gap-3">
+                    <dt className="font-mono text-[0.6875rem] text-ink-muted">{term}</dt>
+                    <dd className="font-mono text-[0.6875rem] text-ink-80">
+                      {value.slice(0, 10)}…{value.slice(-6)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+          </li>
+
+          <li className="rounded-sharp border border-rule px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="text-sm text-ink">2 · Point {orgName} at them</span>
+              {ready ? (
+                <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
+                  done
+                </span>
+              ) : (
+                <Button
+                  variant="solid"
+                  onClick={setup.point}
+                  disabled={setup.busy || setup.state.step !== "deployed"}
+                >
+                  {setup.busy ? "Pointing…" : "Point the name"}
+                </Button>
+              )}
+            </div>
+            <p className="mt-2 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+              Only the name&rsquo;s owner may do this, which is why it is its own transaction
+              rather than something the factory could slip in.
+            </p>
+          </li>
+        </ol>
+
+        {setup.error ? (
+          <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+            {setup.error}
+          </p>
+        ) : null}
+
+        <div className="mt-5">
+          <Button
+            variant="solid"
+            onClick={() => setup.state.step === "deployed" && onDone(setup.state.org)}
+            disabled={!ready}
+          >
+            Continue
+          </Button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+////////////////////////////////////////////////////////////////////////
+// Step 3 — the first branch
 ////////////////////////////////////////////////////////////////////////
 
 function BranchStep({
+  factory,
   onDone,
   onSkip,
 }: {
+  factory: `0x${string}` | null;
   onDone: (label: string, registrar: string | null) => void;
   onSkip: () => void;
 }) {
@@ -426,6 +551,7 @@ function BranchStep({
         label.trim().toLowerCase(),
         BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60),
         address as Address,
+        factory ?? undefined,
       );
       if (!created) throw new Error(writes.error ?? "the transaction did not go through");
       const body = created;
