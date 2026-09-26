@@ -87,9 +87,11 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   useEffect(() => {
     const value = label.trim().toLowerCase();
     if (!value || !branch) return;
-    setSyncState("idle");
 
     const t = setTimeout(async () => {
+      // Reset inside the timeout rather than in the effect body: a synchronous setState there
+      // runs on every keystroke and re-renders before the debounce has decided anything.
+      setSyncState("idle");
       try {
         const res = await fetch(
           `/api/ens/available?label=${encodeURIComponent(value)}&registry=${branch.registry}`,
