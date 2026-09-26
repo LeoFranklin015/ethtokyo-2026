@@ -1,13 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getMemberships } from "@/lib/ens/read";
 import { getIndexerStatus } from "@/lib/ens/indexer";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // ?branch=<label> scopes to one branch; omitted, every branch in the organization.
+  const branch = req.nextUrl.searchParams.get("branch") ?? undefined;
   try {
     const [{ memberships, source }, indexer] = await Promise.all([
-      getMemberships(),
+      getMemberships(branch),
       getIndexerStatus(),
     ]);
     return NextResponse.json({

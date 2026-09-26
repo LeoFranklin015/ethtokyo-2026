@@ -5,6 +5,7 @@ import {EnhancedAccessControl} from "@ens-v2/access-control/EnhancedAccessContro
 import {IPermissionedRegistry} from "@ens-v2/registry/interfaces/IPermissionedRegistry.sol";
 import {IRegistry} from "@ens-v2/registry/interfaces/IRegistry.sol";
 import {OrgRegistrar} from "./OrgRegistrar.sol";
+import {RegistryRolesLib} from "@ens-v2/registry/libraries/RegistryRolesLib.sol";
 
 interface IBranchResolver {
     function setText(bytes32 node, string calldata key, string calldata value) external;
@@ -41,6 +42,13 @@ contract BranchRegistrarV2 is EnhancedAccessControl {
     /// @dev Scoped to a key resource: "may write this text record".
     uint256 public constant ROLE_EDIT_RECORD = 1 << 4;
     uint256 public constant ROLE_EDIT_RECORD_ADMIN = ROLE_EDIT_RECORD << 128;
+
+    /// @notice Roles this contract must hold at the branch registry's `ROOT_RESOURCE`.
+    /// @dev Only what it actually calls: `register` to mint, `unregister` to revoke, `renew` to
+    ///      extend. V2 sets a membership's registry bitmap at registration and never rewrites it,
+    ///      so it needs none of the `_ADMIN` roles V1 required for `promote`.
+    uint256 public constant REQUIRED_REGISTRY_ROLES = RegistryRolesLib.ROLE_REGISTRAR
+        | RegistryRolesLib.ROLE_RENEW | RegistryRolesLib.ROLE_UNREGISTER;
 
     /// @dev Root only: "may define and retire roles".
     uint256 public constant ROLE_ROLE_EDIT = 1 << 8;
