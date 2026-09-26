@@ -63,7 +63,7 @@ ADMIT_SECRET = os.environ.get("ENSCA_ADMIT_SECRET", "").strip()
 
 # ENS name whose avatar is shown as the event logo in the captive portal header.
 # Override with ENSCA_EVENT_ENS env var. Resolved once at startup; None if unavailable.
-_EVENT_ENS = os.environ.get("ENSCA_EVENT_ENS", "ethglobal1.eth").strip()
+_EVENT_ENS = os.environ.get("ENSCA_EVENT_ENS", "ethglobal.eth").strip()
 
 def _resolve_ens_avatar(ens_name: str) -> str | None:
     """Fetch the ENS avatar URL via the ENS metadata service. Returns None on failure."""
