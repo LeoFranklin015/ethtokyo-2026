@@ -6,23 +6,9 @@
   "expiry": 1821903888,
   "previousRegistrar": "0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A (disarmed: reentrancy in onboard)",
   "orgRegistry": "0xEb716b3fB749f357be2B74a10647675D11a94517",
-  "orgRegistrar": "0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7",
+  "orgRegistrar": "0x391554c4e72Ab1f10e1228aB8068F90a7Fb58fd5",
   "organization": "ethglobal2.eth",
   "branchRegistry": "0x306DE2Ec8c8B5FE668d31be152b6436481448660",
-  "resolver": "0x9D8f1376aED12F6F7Ba041285Cce833AcED13092",
-  "branchRegistrarV2": "0xA1e540738e89430598f34f279ce39E3009CBfAB6",
-  "branchNode": "0x732fdef4e1b816694e7e4c9282554901f9d5c61a4636bbe8e6d5ffd322af4c16",
-  "branchRegistrarV1": "0xb0487c88Eaea357aDa85540FB1E8bEfAD2868D52",
-  "branches": {
-    "tokyo": {
-      "registry": "0x306DE2Ec8c8B5FE668d31be152b6436481448660",
-      "registrar": "0xA1e540738e89430598f34f279ce39E3009CBfAB6",
-      "node": "0x732fdef4e1b816694e7e4c9282554901f9d5c61a4636bbe8e6d5ffd322af4c16"
-    },
-    "osaka": {
-      "registry": "0x17Ec4F680a8e97A7FFF1dE89fB5d004018E14187",
-      "registrar": "0xDB4De9b4fa494f79a5261736BdcB744F52E872C0",
-      "node": "0xcb93dc254db4ff713d8261ba97870b6ceac90fe3dc7f2885799a1ec724788897"
-    }
-  }
+  "branchRegistrar": "0xb0487c88Eaea357aDa85540FB1E8bEfAD2868D52",
+  "resolver": "0x9D8f1376aED12F6F7Ba041285Cce833AcED13092"
 }

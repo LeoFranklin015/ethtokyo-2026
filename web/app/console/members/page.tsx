@@ -6,7 +6,6 @@ import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { RoleChip } from "@/components/ui/RoleChip";
 import { useUsers } from "@/lib/hooks/useUsers";
 import { useSessions } from "@/lib/hooks/useSessions";
-import { EnsMemberships } from "@/components/console/EnsMemberships";
 import type { RoleName } from "@/lib/data";
 
 const TIER_ROLE: Record<string, RoleName> = {
@@ -34,6 +33,10 @@ export default function MembersPage() {
 
   const COLUMNS = ["Membership", "Role", "Address", "Devices", "Data out", "State"];
 
+  if (isLoading) {
+    return <div className="px-5 py-12 text-center font-mono text-xs text-ink-muted">Loading…</div>;
+  }
+
   return (
     <>
       <PageHeader
@@ -43,9 +46,7 @@ export default function MembersPage() {
         actions={<Button variant="solid">Onboard member</Button>}
       />
 
-      <div className="px-5 py-6 lg:px-8 space-y-6">
-        <EnsMemberships />
-
+      <div className="px-5 py-6 lg:px-8">
         <Panel as="section" className="overflow-hidden">
           <PanelHeader
             right={<span className="font-mono text-[0.6875rem] text-ink-muted">{activeSessions.length} online</span>}
@@ -53,17 +54,9 @@ export default function MembersPage() {
             All memberships
           </PanelHeader>
 
-          {isLoading ? (
-            <p className="px-4 py-10 text-center font-mono text-xs text-ink-muted">
-              Reading the enforcer…
-            </p>
-          ) : users.length === 0 ? (
+          {users.length === 0 ? (
             <div role="status" className="px-4 py-16 text-center">
-              <p className="text-sm text-ink">No sessions on the enforcer</p>
-              <p className="mx-auto mt-1.5 max-w-[44ch] text-sm text-ink-muted">
-                Identity above comes from ENS; this table shows who the branch enforcer has
-                actually admitted.
-              </p>
+              <p className="text-sm text-ink">No memberships yet</p>
             </div>
           ) : (
             <div className="overflow-x-auto">

@@ -111,51 +111,6 @@ That refusal is the thing EAC cannot express on its own, and it is enforced in t
 
 `ThreeLevelDeploymentTest` asserts all of it.
 
-## The completed layer — V2
-
-`BranchRegistrar` (v1) shipped the Branch and Membership levels. `BranchRegistrarV2` plus
-`OrgRegistrar` close the three gaps `docs/13-ens-design.md` specified but v1 left out, and replace
-the hardcoded five-role enum with an organization-editable catalogue.
-
-| | Address |
-|---|---|
-| OrgRegistrar | `0xA0F10DFd7022eBa1114ECe9C16149841a023Ecd7` |
-| BranchRegistrarV2 | `0xA1e540738e89430598f34f279ce39E3009CBfAB6` |
-| branchNode | `namehash("tokyo.ethglobal2.eth")` |
-
-**Member layer.** Onboarding enrols the person at the organization first, so one transaction mints
-both `marco.ethglobal2.eth` and `marco.tokyo.ethglobal2.eth`. The Member name is minted once ever
-and survives revocation of the Membership — that is what carries identity between branches.
-
-**Organization-scoped fallback.** `effectiveRole(account)` implements §5.4's order: a Membership at
-this branch wins; otherwise the org-wide role applies; otherwise nothing does. Because `_getRoles`
-derives authority from the *effective* role, an org-scoped volunteer can onboard at every branch
-without a per-branch grant.
-
-**Entitlements at onboarding.** A role carries its own records, written in the same transaction
-that mints the name — at the true ENS namehash, computed from an immutable `BRANCH_NODE`. A
-membership is therefore complete and resolvable the moment it exists. `revoke` clears them again.
-
-**Roles as EAC resources.** A role is `keccak256(name)` used as an EAC *resource*, not a role bit,
-so an organization is not capped at 32 roles. Authority is derived in the `_getRoles` hook rather
-than granted, so it is not capped at 15 holders either, and it follows the membership: promote and
-the power appears, demote and it is gone, in one transaction.
-
-### Verified live
-
-- `marco` onboarded as `volunteer` → Member name minted in the org registry in the same tx
-- The volunteer then signed an onboard themselves: `yuki` as `hacker`, with
-  `hasRoles(hackerResource, ROLE_MINT, volunteer) == true` while `roleCount == 0` — **authority with
-  no grant on record**
-- `yuki.tokyo.ethglobal2.eth` resolves through `UniversalResolverV2` as
-  `role=hacker · wifi.group=hacker · wifi.rate=5mbps · wifi.ceil=20mbps`
-- The same volunteer attempting `mentor` reverts `CannotMintRole` (`0x822e9d44`)
-
-### One deployment trap
-
-The registrar writes records now, so it needs `ROLE_SET_TEXT` on the resolver. Without it every
-`onboard` reverts `EACUnauthorizedAccountRoles` with bitmap `0x10`. `DeployV2.s.sol` grants it.
-
 ## Review findings, and what changed
 
 A two-axis review (standards + spec) ran against the first deployment. It found a real

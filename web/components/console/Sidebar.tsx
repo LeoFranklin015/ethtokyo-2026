@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
-import { useEnsBranches } from "@/lib/hooks/useEns";
 
 const SECTIONS = [
   {
@@ -23,7 +22,6 @@ const SECTIONS = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { branches } = useEnsBranches();
   const { data: status } = useProxyStatus();
   const branchLabel = process.env.NEXT_PUBLIC_BRANCH_LABEL ?? "branch";
 
@@ -40,7 +38,7 @@ export function Sidebar() {
 
       {/* Branch label — single branch, no switcher */}
       <div className="border-b border-rule px-4 py-3 lg:px-5">
-        <p className="label">Branches</p>
+        <p className="label">Branch</p>
         <p className="mt-2 font-mono text-xs text-ink">{branchLabel}</p>
       </div>
 

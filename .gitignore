@@ -1,10 +1,6 @@
 .superpowers/
 .DS_Store
 .orca/
-.venv/
-__pycache__/
-.pytest_cache/
-*.pyc
 
 # Secrets — never commit
 .env

@@ -341,19 +341,16 @@ def set_group_limit(gid, rid):
     data = request.get_json(silent=True) or {}
     per_dev = data.get("per_device_per_day")  # None = unlimited
     per_grp = data.get("group_per_day")
-    per_ens = data.get("per_ens_per_day")
     db.execute(
-        "INSERT INTO group_resource_limits(group_id,resource_id,per_device_per_day,group_per_day,per_ens_per_day) "
-        "VALUES(?,?,?,?,?) ON CONFLICT(group_id,resource_id) DO UPDATE SET "
-        "per_device_per_day=excluded.per_device_per_day, group_per_day=excluded.group_per_day, "
-        "per_ens_per_day=excluded.per_ens_per_day",
-        (gid, rid, per_dev, per_grp, per_ens)
+        "INSERT INTO group_resource_limits(group_id,resource_id,per_device_per_day,group_per_day) "
+        "VALUES(?,?,?,?) ON CONFLICT(group_id,resource_id) DO UPDATE SET "
+        "per_device_per_day=excluded.per_device_per_day, group_per_day=excluded.group_per_day",
+        (gid, rid, per_dev, per_grp)
     )
     db.commit()
     _audit("PUT", f"/admin/groups/{gid}/limits/{rid}", 200, body=data, db=db)
     return jsonify({"group_id": gid, "resource_id": rid,
-                    "per_device_per_day": per_dev, "group_per_day": per_grp,
-                    "per_ens_per_day": per_ens})
+                    "per_device_per_day": per_dev, "group_per_day": per_grp})
 
 
 @app.route("/admin/groups/<gid>/limits/<rid>", methods=["DELETE"])
@@ -481,10 +478,7 @@ def get_user(uid):
         "SELECT * FROM sessions WHERE user_id=? AND logged_out_at IS NULL AND revoked_at IS NULL "
         "ORDER BY logged_in_at DESC LIMIT 1", (uid,)
     ).fetchone()
-    usage = get_usage_for_ip(
-        session["ip"], session["group_id"],
-        session["ens_name"] if session and "ens_name" in session.keys() else None,
-    ) if session else {}
+    usage = get_usage_for_ip(session["ip"], session["group_id"]) if session else {}
     keys = user.keys()
     return jsonify({
         "id": user["id"], "username": user["username"],
@@ -826,7 +820,7 @@ def proxy(slug, subpath):
         return jsonify({"error": "access_denied", "detail": "your group does not have access to this resource"}), 403
 
     # Rate limit check + increment
-    limit_hit = check_and_increment(ip, group_id, resource["id"], session["ens_name"])
+    limit_hit = check_and_increment(ip, group_id, resource["id"])
     if limit_hit:
         record_event(db, session["id"], ip, group_id, resource["id"],
                      request.method, subpath, 429, "rate_limit_exceeded", 0, 0, 0)
@@ -853,10 +847,7 @@ def proxy(slug, subpath):
 @require_authed_ip
 def usage_me():
     session = g.session
-    usage = get_usage_for_ip(
-        session["ip"], session["group_id"],
-        session["ens_name"] if "ens_name" in session.keys() else None,
-    )
+    usage = get_usage_for_ip(session["ip"], session["group_id"])
     return jsonify({
         "ip": session["ip"], "group": session["group_name"],
         "date": _today(), "resources": usage,
@@ -1186,22 +1177,6 @@ def internal_group_by_tier(tier):
     return jsonify({"group_id": row["id"]})
 
 
-@app.route("/internal/ens-lookup/<name>")
-@require_local
-def internal_ens_lookup(name):
-    ens = (name or "").strip().lower()
-    db = get_db()
-    row = db.execute(
-        "SELECT u.id AS user_id, u.username AS ens_name, g.id AS group_id, g.network_tier "
-        "FROM users u JOIN groups g ON g.id = u.default_group_id "
-        "WHERE u.username = ? AND u.disabled = 0", (ens,)
-    ).fetchone()
-    if not row:
-        return jsonify({"error": "not_found"}), 404
-    return jsonify({"user_id": row["user_id"], "ens_name": row["ens_name"],
-                    "group_id": row["group_id"], "network_tier": row["network_tier"]})
-
-
 @app.route("/internal/session-created", methods=["POST"])
 @require_local
 def internal_session_created():
@@ -1226,15 +1201,6 @@ def internal_session_created():
             (data["group_id"], int(time.time()))
         )
         user_id = "portal-anon"
-
-    # Backfill ENS identity: if the portal omitted ens_name but the resolved
-    # user carries one, store it so the per-ENS shared-quota bucket keys on the
-    # user's real identity across all their devices (I3 — a NULL ens_name would
-    # otherwise leave the per-ENS cap unenforced).
-    if not ens_name:
-        urow = db.execute("SELECT ens_name FROM users WHERE id=?", (user_id,)).fetchone()
-        if urow and urow["ens_name"]:
-            ens_name = urow["ens_name"]
 
     db.execute(
         "INSERT INTO sessions(id,user_id,group_id,ip,network_tier,ens_name,wallet_address,logged_in_at) "

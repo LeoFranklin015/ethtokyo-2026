@@ -3,6 +3,7 @@ import subprocess
 import os
 import time
 import uuid
+import secrets
 import requests as _req
 import threading
 import ipaddress
@@ -10,6 +11,10 @@ import logging
 
 _log = logging.getLogger(__name__)
 _state_lock = threading.Lock()
+
+# Server-side nonce store: nonce -> unix timestamp of creation.
+# Nonces expire after 5 minutes and are deleted on successful verify.
+_wallet_nonces: dict[str, int] = {}
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -23,19 +28,35 @@ _GROUP_CACHE: dict[str, str] = {}
 # Override with ENSCA_GATEWAY_IP env var (default: 192.168.0.1 per dnsmasq.conf).
 GATEWAY_IP = os.environ.get("ENSCA_GATEWAY_IP", "192.168.0.1")
 PORTAL_URL = f"http://{GATEWAY_IP}:8080"
+
 # DNS server used for per-IP bypass rules.
 # Override with ENSCA_DNS_SERVER env var (default: 8.8.8.8).
 DNS_SERVER = os.environ.get("ENSCA_DNS_SERVER", "8.8.8.8")
-# AP-facing interface (client side) — used by the reaper's neighbor scan.
-# Override with ENSCA_AP_IFACE env var (default: enp10s0u1 per VM).
-AP_IFACE = os.environ.get("ENSCA_AP_IFACE", "enp10s0u1")
+
+# Tier credentials loaded from environment variables.
+# Each tier requires ENSCA_<TIER>_USER and ENSCA_<TIER>_PASS to be set.
+# Example: ENSCA_BASIC_USER=basic ENSCA_BASIC_PASS=s3cur3pass
+def _load_tiers() -> dict:
+    tiers = {}
+    for tier in ("basic", "staff", "vip"):
+        user = os.environ.get(f"ENSCA_{tier.upper()}_USER", "").strip()
+        pw   = os.environ.get(f"ENSCA_{tier.upper()}_PASS", "").strip()
+        if user and pw:
+            tiers[(user, pw)] = tier
+    if not tiers:
+        raise RuntimeError(
+            "No tier credentials configured. Set ENSCA_BASIC_USER/ENSCA_BASIC_PASS, "
+            "ENSCA_STAFF_USER/ENSCA_STAFF_PASS, and ENSCA_VIP_USER/ENSCA_VIP_PASS."
+        )
+    return tiers
+
+TIERS = _load_tiers()
 
 # iptables fwmark per tier — used for tc classification and cross-tier DROP
-TIER_MARK = {"basic": "10", "staff": "20", "vip": "30", "partner": "10", "hacker": "30"}
+TIER_MARK = {"basic": "10", "staff": "20", "vip": "30"}
 
 AUTHED_IPS: dict[str, str] = {}    # ip -> tier
 SESSION_IDS: dict[str, str] = {}   # ip -> session UUID (shared with proxy)
-ENS_NAMES: dict[str, str] = {}     # ip -> ENS name entered at portal login
 
 CAPTIVE_PROBE_PATHS = [
     "/hotspot-detect.html",
@@ -78,31 +99,17 @@ def _resolve_group(tier: str):
     return None
 
 
-def _lookup_ens(name):
-    ens = (name or "").strip().lower()
-    if not ens:
-        return None
-    try:
-        r = _req.get(f"{PROXY_INTERNAL}/internal/ens-lookup/{ens}", timeout=3)
-        if r.ok:
-            return r.json()
-    except Exception:
-        pass
-    return None
-
-
-def _notify_session_created(session_id: str, ip: str, tier: str, ens_name=None, user_id=None) -> None:
+def _notify_session_created(session_id: str, ip: str, tier: str) -> None:
     group_id = _resolve_group(tier)
     if not group_id:
         return
     try:
         r = _req.post(f"{PROXY_INTERNAL}/internal/session-created", json={
             "session_id": session_id,
-            "user_id": user_id or "portal-anon",   # proxy resolves to real user via ENS/wallet; falls back to portal-anon sentinel
+            "user_id": "portal-anon",   # proxy resolves to real user via ENS/wallet; falls back to portal-anon sentinel
             "group_id": group_id,
             "ip": ip,
             "network_tier": tier,
-            "ens_name": ens_name,
             "logged_in_at": int(time.time()),
         }, timeout=2)
         if not r.ok:
@@ -123,7 +130,7 @@ def _notify_session_ended(session_id: str) -> None:
         _log.warning("proxy session-ended notify failed: %s", e)
 
 
-def grant_access(ip: str, tier: str, ens_name=None, user_id=None) -> None:
+def grant_access(ip: str, tier: str) -> None:
     try:
         ipaddress.ip_address(ip)
     except ValueError:
@@ -144,19 +151,14 @@ def grant_access(ip: str, tier: str, ens_name=None, user_id=None) -> None:
             _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
                   "-s", ip, "-p", "udp", "--dport", "53",
                   "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
-            # HTTP :80 bypass — authed clients forward to the real internet.
-            # Sits ABOVE the baseline captive REDIRECT so their probes/browsing
-            # are not bounced back to the portal.
-            _run(["iptables", "-t", "nat", "-I", "PREROUTING", "1",
-                  "-s", ip, "-p", "tcp", "--dport", "80", "-j", "RETURN"])
-            _apply_ens_isolation(ip, action="I")
+            _apply_cross_tier_rules(ip, tier, action="I")
         except Exception:
             _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-j", "ACCEPT"])
             raise
         AUTHED_IPS[ip] = tier
         sid = str(uuid.uuid4())
         SESSION_IDS[ip] = sid
-        _notify_session_created(sid, ip, tier, ens_name, user_id)
+        _notify_session_created(sid, ip, tier)
 
 
 def revoke_access(ip: str) -> None:
@@ -176,56 +178,36 @@ def revoke_access(ip: str) -> None:
                  "-d", ip, "-j", "MARK", "--set-mark", mark])
         _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
                  "-s", ip, "-p", "udp", "--dport", "53",
-                 "-j", "DNAT", "--to-destination", f"{DNS_SERVER}:53"])
-        _run_ok(["iptables", "-t", "nat", "-D", "PREROUTING",
-                 "-s", ip, "-p", "tcp", "--dport", "80", "-j", "RETURN"])
-        _apply_ens_isolation(ip, action="D")
+                 "-j", "DNAT", "--to-destination", "8.8.8.8:53"])
+        _apply_cross_tier_rules(ip, tier, action="D")
         sid = SESSION_IDS.pop(ip, None)
-        ENS_NAMES.pop(ip, None)
         del AUTHED_IPS[ip]
         if sid:
             _notify_session_ended(sid)
 
 
-def _apply_ens_isolation(ip: str, action: str) -> None:
-    """Insert (I) or delete (D) DROP rules between ip and every authed IP on a DIFFERENT ENS name.
-
-    On insert, DROP rules are prepended (-I FORWARD 1) so they sit ABOVE the
-    per-IP `-s ip -j ACCEPT` rule; iptables is first-match, so an appended DROP
-    below the ACCEPT would never fire and isolation would silently fail.
-    """
-    my_name = ENS_NAMES.get(ip)
-    for other_ip in list(AUTHED_IPS.keys()):
-        if other_ip == ip:
+def _apply_cross_tier_rules(ip: str, tier: str, action: str) -> None:
+    """Insert (I) or delete (D) cross-tier DROP rules for ip."""
+    for other_ip, other_tier in list(AUTHED_IPS.items()):
+        if other_tier == tier or other_ip == ip:
             continue
-        if ENS_NAMES.get(other_ip) == my_name and my_name is not None:
-            continue  # same ENS user — allowed to talk
-        if action == "I":
-            _run_ok(["iptables", "-I", "FORWARD", "1", "-s", ip, "-d", other_ip, "-j", "DROP"])
-            _run_ok(["iptables", "-I", "FORWARD", "1", "-s", other_ip, "-d", ip, "-j", "DROP"])
-        else:
-            _run_ok(["iptables", "-D", "FORWARD", "-s", ip, "-d", other_ip, "-j", "DROP"])
-            _run_ok(["iptables", "-D", "FORWARD", "-s", other_ip, "-d", ip, "-j", "DROP"])
+        # Drop traffic between this IP and IPs on other tiers
+        _run_ok(["iptables", f"-{action}", "FORWARD",
+                 "-s", ip, "-d", other_ip, "-j", "DROP"])
+        _run_ok(["iptables", f"-{action}", "FORWARD",
+                 "-s", other_ip, "-d", ip, "-j", "DROP"])
 
 
 @app.before_request
 def check_authed():
     ip = client_ip()
-    # Internal endpoints self-gate on localhost; the captive redirect must not
-    # intercept them, or the dhcp-hook's revoke POST never reaches its handler.
-    # Enforce the loopback gate centrally so a future /internal/* route that
-    # forgets its own remote_addr check is not exposed to LAN clients.
-    if request.path.startswith("/internal/"):
-        if request.remote_addr in ("127.0.0.1", "::1"):
-            return None
-        return make_response("forbidden", 403)
     if ip in AUTHED_IPS:
         if request.path in CAPTIVE_PROBE_PATHS:
             return make_response("", 204)
         return None
     if request.path in CAPTIVE_PROBE_PATHS:
         return redirect(f"{PORTAL_URL}/", 302)
-    if request.path in ("/", "/login"):
+    if request.path in ("/", "/login", "/wallet-challenge", "/wallet-verify"):
         return None
     return redirect("http://192.168.0.1:8080/", 302)
 
@@ -237,19 +219,88 @@ def index():
 
 @app.route("/login", methods=["POST"])
 def login():
-    ens_name = request.form.get("ens_name", "").strip().lower()
+    username = request.form.get("username", "")
+    password = request.form.get("password", "")
     ip = client_ip()
-    ident = _lookup_ens(ens_name)
-    if not ident:
-        return render_template("login.html", error="ENS name not recognized")
-    # Re-login from the same device under a DIFFERENT ENS: grant_access
-    # early-returns for an already-authed IP, so revoke first to tear down the
-    # old identity's cross-user isolation and let grant rebuild it cleanly.
-    if ip in AUTHED_IPS and ENS_NAMES.get(ip) != ident["ens_name"]:
-        revoke_access(ip)
-    ENS_NAMES[ip] = ident["ens_name"]
-    grant_access(ip, ident["network_tier"], ens_name=ident["ens_name"], user_id=ident["user_id"])
-    return redirect(f"{PORTAL_URL}/connected", 302)
+    tier = TIERS.get((username, password))
+    if tier:
+        grant_access(ip, tier)
+        return redirect(f"{PORTAL_URL}/connected", 302)
+    return render_template("login.html", error="Invalid credentials")
+
+
+def _recover_address(msg: str, sig: str) -> str:
+    """Recover Ethereum address from an EIP-191 personal_sign signature."""
+    try:
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        message = encode_defunct(text=msg)
+        return Account.recover_message(message, signature=sig).lower()
+    except Exception:
+        return ""
+
+
+@app.route("/wallet-challenge", methods=["GET"])
+def wallet_challenge():
+    nonce = secrets.token_hex(16)
+    now = int(time.time())
+    _wallet_nonces[nonce] = now
+    # Expire nonces older than 5 minutes
+    expired = [k for k, ts in list(_wallet_nonces.items()) if now - ts > 300]
+    for k in expired:
+        del _wallet_nonces[k]
+    return jsonify({"nonce": nonce, "ts": now})
+
+
+@app.route("/wallet-verify", methods=["POST"])
+def wallet_verify():
+    data = request.get_json(force=True) or {}
+    nonce = data.get("nonce", "")
+    signature = data.get("signature", "")
+    wallet_address = data.get("wallet_address", "").lower()
+
+    if nonce not in _wallet_nonces:
+        return jsonify({"ok": False, "reason": "invalid_nonce"}), 400
+
+    if int(time.time()) - _wallet_nonces[nonce] > 300:
+        del _wallet_nonces[nonce]
+        return jsonify({"ok": False, "reason": "nonce_expired"}), 400
+
+    del _wallet_nonces[nonce]
+
+    # Recover signer address from EIP-191 signature
+    message = f"Sign in to ENSCA\nNonce: {nonce}"
+    recovered = _recover_address(message, signature)
+    if not recovered:
+        return jsonify({"ok": False, "reason": "sig_verify_unavailable"}), 503
+    if recovered != wallet_address:
+        return jsonify({"ok": False, "reason": "signature_invalid"}), 403
+
+    # Look up user by wallet address via proxy admin API
+    try:
+        r = _req.get(
+            f"http://127.0.0.1:8081/admin/users/by-wallet/{wallet_address}",
+            headers={"Authorization": f"Bearer {os.environ.get('ENSCA_PROXY_ADMIN_TOKEN', '')}"},
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return jsonify({"ok": False, "reason": "no_membership"}), 403
+        user = r.json()
+    except Exception as e:
+        return jsonify({"ok": False, "reason": f"proxy_error: {str(e)[:80]}"}), 502
+
+    ip = request.remote_addr
+    tier = user.get("group", {}).get("network_tier", "basic")
+    ens_name = user.get("ens_name") or wallet_address
+    grant_access(ip, tier)
+
+    return jsonify({
+        "ok": True,
+        "ens_name": ens_name,
+        "tier": tier,
+        "group_name": user.get("group", {}).get("name", tier),
+        "wallet_address": wallet_address,
+    })
 
 
 @app.route("/connected", methods=["GET"])
@@ -257,7 +308,7 @@ def connected():
     ip = client_ip()
     if ip not in AUTHED_IPS:
         return redirect(f"{PORTAL_URL}/", 302)
-    return render_template("success.html", ip=ip, tier=AUTHED_IPS[ip], ens_name=ENS_NAMES.get(ip, ""))
+    return render_template("success.html", ip=ip, tier=AUTHED_IPS[ip])
 
 
 @app.route("/logout", methods=["POST"])
@@ -280,63 +331,9 @@ def internal_revoke_ip():
     return make_response("ok", 200)
 
 
-def _stale_ips(last_seen, authed, now, ttl=20):
-    stale = set()
-    for ip in list(authed):
-        seen = last_seen.get(ip)
-        if seen is None:
-            continue  # grace: recorded on first sighting, not revoked before first miss
-        if now - seen > ttl:
-            stale.add(ip)
-    return stale
-
-
-def _neigh_ips(dev=None):
-    dev = dev or AP_IFACE
-    out = subprocess.run(["ip", "neigh", "show", "dev", dev],
-                         capture_output=True, text=True).stdout
-    live = set()
-    for line in out.splitlines():
-        parts = line.split()
-        if not parts:
-            continue
-        ip = parts[0]
-        if "REACHABLE" in line or "STALE" in line or "DELAY" in line or "PROBE" in line:
-            live.add(ip)
-    return live
-
-
-def _reaper_loop():
-    last_seen = {}
-    while True:
-        now = time.time()
-        live = _neigh_ips()
-        for ip in live:
-            last_seen[ip] = now
-        with _state_lock:
-            authed = set(AUTHED_IPS.keys())
-        for ip in authed:  # first sighting seeds last_seen so grace applies
-            last_seen.setdefault(ip, now)
-        for ip in _stale_ips(last_seen, authed, now):
-            revoke_access(ip)
-            last_seen.pop(ip, None)
-        time.sleep(10)
-
-
-def _bootstrap_captive_redirect() -> None:
-    """Install the baseline captive-portal HTTP trap: any AP-side client HTTP
-    (:80) is REDIRECTed to the portal on :8080. Combined with the dnsmasq
-    wildcard DNS hijack, this makes OS captive-portal probes reach the portal
-    and get a 302, which triggers the connect popup. Authed clients get a
-    per-IP :80 RETURN inserted above this by grant_access, so they browse the
-    real internet normally."""
-    _run_ok(["iptables", "-t", "nat", "-A", "PREROUTING",
-             "-i", AP_IFACE, "-p", "tcp", "--dport", "80",
-             "-j", "REDIRECT", "--to-ports", "8080"])
-
-
 def _flush_portal_rules():
     """Remove all portal-inserted rules on startup so stale state from a previous run is cleared."""
+    import subprocess
     # Flush all mangle FORWARD rules (portal marks)
     subprocess.run(["iptables", "-t", "mangle", "-F", "FORWARD"], check=False, capture_output=True)
     # Flush all nat PREROUTING rules (portal DNS redirects)
@@ -347,12 +344,9 @@ def _flush_portal_rules():
     # The portal will re-add correct rules when clients re-authenticate
     AUTHED_IPS.clear()
     SESSION_IDS.clear()
-    ENS_NAMES.clear()
     _log.info("portal startup: flushed mangle+nat chains, cleared in-memory state")
 
 
 if __name__ == "__main__":
     _flush_portal_rules()
-    _bootstrap_captive_redirect()
-    threading.Thread(target=_reaper_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=8080, debug=False)

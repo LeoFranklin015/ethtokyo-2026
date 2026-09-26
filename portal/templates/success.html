@@ -18,7 +18,6 @@
 <body>
   <div class="card">
     <h2>You're connected</h2>
-    {% if ens_name %}<p>Signed in as <strong>{{ ens_name }}</strong></p>{% endif %}
     <p>Tier: <strong>{{ tier }}</strong></p>
     <p>Access granted for {{ ip }}</p>
     <form method="POST" action="/logout">
