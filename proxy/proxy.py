@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 from flask import Flask, request, jsonify, g, Response, stream_with_context
 import requests as req_lib
 
+import wallet_allowlist
 from db import get_db, init_db, close_db
 from auth import require_admin, require_authed_ip, require_local, verify_admin_token
 from rate_limit import check_and_increment, get_usage_for_ip
@@ -18,6 +19,7 @@ from upstream import forward, record_event, _build_url, _inject_auth
 
 app = Flask(__name__)
 PORTAL_INTERNAL = "http://127.0.0.1:8080"
+WALLET_RPC_URL = os.environ.get("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 app.teardown_appcontext(close_db)
 
 
@@ -793,6 +795,31 @@ def revoke_session(sid):
 
 
 # ── proxy ─────────────────────────────────────────────────────────────────────
+
+def _handle_rpc_call(call):
+    rpc_id = call.get("id") if isinstance(call, dict) else None
+    method = call.get("method") if isinstance(call, dict) else None
+    if not method or not wallet_allowlist.is_read(method):
+        return {"jsonrpc": "2.0", "id": rpc_id,
+                "error": {"code": -32601, "message": "method not permitted (read-only)"}}
+    try:
+        resp = req_lib.request("POST", WALLET_RPC_URL, json=call, timeout=30, verify=True)
+        return resp.json()
+    except Exception as e:
+        return {"jsonrpc": "2.0", "id": rpc_id,
+                "error": {"code": -32000, "message": f"upstream error: {str(e)[:120]}"}}
+
+
+@app.route("/api/wallet/rpc", methods=["POST"])
+def wallet_rpc():
+    payload = request.get_json(silent=True)
+    if isinstance(payload, list):
+        return jsonify([_handle_rpc_call(c) for c in payload])
+    if isinstance(payload, dict):
+        return jsonify(_handle_rpc_call(payload))
+    return jsonify({"jsonrpc": "2.0", "id": None,
+                    "error": {"code": -32600, "message": "invalid request"}}), 400
+
 
 @app.route("/api/wallet/account")
 def wallet_account():
