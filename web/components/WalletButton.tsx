@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
+import { useAccount, useDisconnect, useSwitchChain } from "wagmi";
+import { useAppKit } from "@reown/appkit/react";
 import { sepolia } from "wagmi/chains";
 import { Button } from "@/components/ui/Button";
 
@@ -13,10 +14,14 @@ import { Button } from "@/components/ui/Button";
  * product where every write is signed by the visitor's own wallet and the contracts decide what
  * that wallet may do. Not showing it meant a refused transaction gave you no way to check the
  * most likely cause.
+ *
+ * Connecting is Reown AppKit's modal. The hand-rolled version offered `connectors[0]` and
+ * nothing else, which is always the injected one — so the WalletConnect connector was
+ * configured, registered, and unreachable, and a phone without an extension had no way in.
  */
 export function WalletButton({ compact = false }: { compact?: boolean }) {
   const { address, chainId, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
+  const { open: openModal } = useAppKit();
   const { disconnect } = useDisconnect();
   const { switchChain, isPending: switching } = useSwitchChain();
 
@@ -51,14 +56,9 @@ export function WalletButton({ compact = false }: { compact?: boolean }) {
   }
 
   if (!isConnected || !address) {
-    const injected = connectors[0];
     return (
-      <Button
-        variant={compact ? "outline" : "solid"}
-        onClick={() => injected && connect({ connector: injected })}
-        disabled={isPending || !injected}
-      >
-        {isPending ? "Connecting…" : "Connect wallet"}
+      <Button variant={compact ? "outline" : "solid"} onClick={() => void openModal()}>
+        Connect wallet
       </Button>
     );
   }

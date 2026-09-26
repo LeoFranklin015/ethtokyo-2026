@@ -3,6 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
+import type { Connector } from "wagmi";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { QrScanner } from "@/components/QrScanner";
 import { short } from "@/components/WalletButton";
@@ -105,7 +106,9 @@ export function PortalFlow() {
   // An injected connector is registered whether or not this webview has a wallet behind it, and
   // offering "Connect Injected" in a captive window that has none is the dead button this page
   // must not render. WalletConnect works without one, so it stays.
-  const usable = connectors.filter((c) => c.type !== "injected" || injectedWallet !== false);
+  const usable = (connectors as readonly Connector[]).filter(
+    (c) => c.type !== "injected" || injectedWallet !== false,
+  );
 
   const walletMatches =
     Boolean(badge) && isConnected && address?.toLowerCase() === badge?.wallet;
@@ -366,7 +369,7 @@ export function PortalFlow() {
                           refused, so there is nothing to lose by trying.
                         </p>
                         <div className="mt-5 flex flex-col gap-2">
-                          {usable.map((connector) => (
+                          {usable.map((connector: Connector) => (
                             <Button
                               key={connector.uid}
                               variant="solid"

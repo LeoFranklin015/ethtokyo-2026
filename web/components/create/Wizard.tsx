@@ -11,6 +11,7 @@ import { sepolia } from "wagmi/chains";
 import Link from "next/link";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
+import { WalletButton } from "@/components/WalletButton";
 import { SignalDither } from "@/components/dither/SignalDither";
 
 /**
@@ -159,7 +160,7 @@ function short(address: string) {
  */
 function ConnectStep({ onDone }: { onDone: () => void }) {
   const { address, isConnected, chainId } = useAccount();
-  const { connect, connectors, isPending, error } = useConnect();
+  const { error } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain, isPending: switching } = useSwitchChain();
 
@@ -176,23 +177,8 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
         </p>
 
         {!isConnected ? (
-          <div className="mt-5 space-y-2">
-            {connectors.map((c) => (
-              <Button
-                key={c.uid}
-                variant="solid"
-                onClick={() => connect({ connector: c })}
-                disabled={isPending}
-              >
-                {isPending ? "Connecting…" : c.name}
-              </Button>
-            ))}
-            {connectors.length === 0 ? (
-              <p className="text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
-                No connectors are configured. Set NEXT_PUBLIC_REOWN_PROJECT_ID to enable
-                WalletConnect, or install a browser wallet.
-              </p>
-            ) : null}
+          <div className="mt-5">
+            <WalletButton />
           </div>
         ) : (
           <div className="mt-5 space-y-3">
