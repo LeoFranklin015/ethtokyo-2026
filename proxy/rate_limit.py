@@ -118,6 +118,12 @@ def check_and_increment(ip: str, group_id: str, resource_id: str, ens_name=None)
 
     # Per-ENS-user shared bucket check + atomic increment (no device/group limit)
     per_ens = limits["per_ens_per_day"] if "per_ens_per_day" in limits.keys() else None
+    # Fail closed: a configured per-ENS cap must always apply. If the caller has
+    # no ENS identity to key the shared bucket on, deny rather than fall through
+    # to the no-limits tail (which would grant unlimited access).
+    if per_ens is not None and not ens_name:
+        return {"scope": "ens", "limit": per_ens, "used": per_ens,
+                "resets_at": _resets_at(), "detail": "ens_identity_required"}
     if ens_name and per_ens is not None:
         ens_row = db.execute(
             "INSERT INTO daily_ens_counters(date,ens_name,resource_id,count) VALUES(?,?,?,1) "
