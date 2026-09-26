@@ -213,8 +213,12 @@ def check_authed():
     ip = client_ip()
     # Internal endpoints self-gate on localhost; the captive redirect must not
     # intercept them, or the dhcp-hook's revoke POST never reaches its handler.
+    # Enforce the loopback gate centrally so a future /internal/* route that
+    # forgets its own remote_addr check is not exposed to LAN clients.
     if request.path.startswith("/internal/"):
-        return None
+        if request.remote_addr in ("127.0.0.1", "::1"):
+            return None
+        return make_response("forbidden", 403)
     if ip in AUTHED_IPS:
         if request.path in CAPTIVE_PROBE_PATHS:
             return make_response("", 204)
