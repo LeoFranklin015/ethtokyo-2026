@@ -88,3 +88,25 @@ export const registrarWriteAbi = [
   ], outputs: [{ type: "uint256" }] },
   { type: "function", name: "roleId", stateMutability: "pure", inputs: [{ name: "name", type: "string" }], outputs: [{ type: "bytes32" }] },
 ] as const;
+
+/** BranchFactory — opens a branch in one transaction. */
+export const branchFactoryAbi = [
+  { type: "function", name: "createBranch", stateMutability: "nonpayable", inputs: [
+    { name: "label", type: "string" },
+    { name: "expiry", type: "uint64" },
+    { name: "owner", type: "address" },
+  ], outputs: [{ name: "registry", type: "address" }, { name: "registrar", type: "address" }] },
+  { type: "function", name: "isAvailable", stateMutability: "view", inputs: [{ name: "label", type: "string" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "branchNode", stateMutability: "view", inputs: [{ name: "label", type: "string" }], outputs: [{ type: "bytes32" }] },
+  {
+    type: "event",
+    name: "BranchCreated",
+    inputs: [
+      { name: "label", type: "string", indexed: false },
+      { name: "node", type: "bytes32", indexed: true },
+      { name: "registry", type: "address", indexed: true },
+      { name: "registrar", type: "address", indexed: true },
+      { name: "owner", type: "address", indexed: false },
+    ],
+  },
+] as const;

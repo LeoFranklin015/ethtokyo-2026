@@ -16,7 +16,7 @@ import type { RoleInfo } from "@/lib/ens/read";
  * identity to other branches.
  */
 export function OnboardForm({ onDone }: { onDone?: () => void }) {
-  const { branches } = useEnsBranches();
+  const { branches, isLoading: branchesLoading } = useEnsBranches();
   const withRegistrar = (branches ?? []).filter((b) => b.registrar);
 
   const [registrar, setRegistrar] = useState("");
@@ -100,7 +100,9 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
             onChange={(e) => setRegistrar(e.target.value)}
             className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
           >
-            {withRegistrar.length === 0 ? <option value="">no branches yet</option> : null}
+            {withRegistrar.length === 0 ? (
+              <option value="">{branchesLoading ? "discovering…" : "no branches yet"}</option>
+            ) : null}
             {withRegistrar.map((b) => (
               <option key={b.name} value={b.registrar ?? ""}>
                 {b.label}

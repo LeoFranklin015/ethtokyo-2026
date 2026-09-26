@@ -12,6 +12,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 import {
+  branchFactoryAbi,
   erc20Abi,
   ethRegistrarAbi,
   registrarWriteAbi,
@@ -341,3 +342,45 @@ export async function labelAvailable(
 }
 
 export { namehash, resolverAbi };
+
+////////////////////////////////////////////////////////////////////////
+// Branches
+////////////////////////////////////////////////////////////////////////
+
+export type BranchInput = {
+  label: string;
+  /** Absolute unix seconds the branch closes at. */
+  expiry: number;
+  owner?: Address;
+};
+
+/**
+ * Open a branch.
+ *
+ * One transaction: the factory deploys the branch's registry and registrar, points the
+ * organization at it, sets the canonical parent back, grants the registrar its authority in three
+ * places, publishes the registrar for discovery, hands the branch to its owner and revokes itself.
+ * Doing it atomically is what stops a half-built branch existing at all.
+ */
+export async function createBranch(input: BranchInput): Promise<{ txHash: Hex; label: string }> {
+  const { account, client } = wallet();
+  const txHash = await send(
+    await client.writeContract({
+      address: ENS.branchFactory as Address,
+      abi: branchFactoryAbi,
+      functionName: "createBranch",
+      args: [input.label, BigInt(input.expiry), input.owner ?? account.address],
+    }),
+  );
+  return { txHash, label: input.label };
+}
+
+/** Is this branch label free under the organization? */
+export async function branchLabelAvailable(label: string): Promise<boolean> {
+  return publicClient.readContract({
+    address: ENS.branchFactory as Address,
+    abi: branchFactoryAbi,
+    functionName: "isAvailable",
+    args: [label],
+  });
+}
