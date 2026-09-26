@@ -23,12 +23,14 @@ function niceCeil(value: number): number {
   return Math.ceil(value / step) * step;
 }
 
-export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) {
+export function ThroughputChart({ data }: { data: Sample[] }) {
   const patternId = useId();
   const [active, setActive] = useState<number | null>(null);
 
-  const { max, points, areaPath, linePath, ticks, peakIndex } = useMemo(() => {
-    const max = niceCeil(Math.max(cap, ...data.map((d) => d.mbps)) * 1.05);
+  const { points, areaPath, linePath, ticks, peakIndex } = useMemo(() => {
+    // Scaled to the data alone. It used to be floored at a hardcoded "provisioned" capacity,
+    // so real traffic was drawn against an invented ceiling.
+    const max = niceCeil(Math.max(1, ...data.map((d) => d.mbps)) * 1.05);
     const x = (i: number) => PAD.left + (i / (data.length - 1)) * PLOT_W;
     const y = (v: number) => PAD.top + PLOT_H - (v / max) * PLOT_H;
 
@@ -36,17 +38,19 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
     const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`);
 
     return {
-      max,
       points,
       linePath: line.join(" "),
       areaPath: `${line.join(" ")} L${x(data.length - 1).toFixed(1)} ${(PAD.top + PLOT_H).toFixed(1)} L${PAD.left} ${(PAD.top + PLOT_H).toFixed(1)} Z`,
       ticks: [0, 0.5, 1].map((f) => ({ value: max * f, y: y(max * f) })),
       peakIndex: points.reduce((best, p, i) => (p.mbps > points[best].mbps ? i : best), 0),
     };
-  }, [cap, data]);
+  }, [data]);
 
-  const capY = PAD.top + PLOT_H - (cap / max) * PLOT_H;
   const cursor = active === null ? null : points[active];
+
+  // Two points is the minimum a line can be drawn from; below that every coordinate divides by
+  // zero and `points[peakIndex]` is undefined. The caller already checks, but this is cheap.
+  const tooThin = data.length < 2;
 
   function onMove(event: React.PointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -65,6 +69,14 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
     });
   }
 
+  if (tooThin) {
+    return (
+      <p className="px-2 py-10 text-center font-mono text-xs text-ink-muted">
+        Not enough samples yet.
+      </p>
+    );
+  }
+
   return (
     <figure className="m-0">
       <div className="relative">
@@ -73,7 +85,7 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
           className="block h-[232px] w-full touch-none"
           role="img"
           tabIndex={0}
-          aria-label={`Branch throughput over six hours, peaking at ${points[peakIndex].mbps} of ${cap} megabits per second provisioned`}
+          aria-label={`API proxy throughput over six hours, peaking at ${points[peakIndex].mbps} megabits per second`}
           onPointerMove={onMove}
           onPointerLeave={() => setActive(null)}
           onFocus={() => setActive(peakIndex)}
@@ -109,25 +121,6 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
               </text>
             </g>
           ))}
-
-          {/* Provisioned ceiling */}
-          <line
-            x1={PAD.left}
-            x2={W - PAD.right}
-            y1={capY}
-            y2={capY}
-            stroke="var(--ink-faint)"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-          />
-          <text
-            x={W - PAD.right}
-            y={capY - 6}
-            textAnchor="end"
-            className="fill-[var(--ink-muted)] font-mono text-[10px]"
-          >
-            {cap} provisioned
-          </text>
 
           <path d={areaPath} fill={`url(#${patternId})`} />
           <path
@@ -190,7 +183,7 @@ export function ThroughputChart({ data, cap }: { data: Sample[]; cap: number }) 
       {/* Table view: identity and values never depend on the mark alone. */}
       <figcaption className="sr-only">
         <table>
-          <caption>Branch throughput in Mbps by time</caption>
+          <caption>API proxy throughput in Mbps by time</caption>
           <thead>
             <tr>
               <th scope="col">Time</th>

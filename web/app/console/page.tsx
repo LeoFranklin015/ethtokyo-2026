@@ -4,126 +4,159 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/console/PageHeader";
 import { ThroughputChart } from "@/components/console/ThroughputChart";
 import { SignalDither } from "@/components/dither/SignalDither";
-import { Meter } from "@/components/ui/Meter";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useGroups } from "@/lib/hooks/useGroups";
 import { useSessions } from "@/lib/hooks/useSessions";
 import { useThroughput } from "@/lib/hooks/useThroughput";
 import { useUsers } from "@/lib/hooks/useUsers";
-import { ENFORCEMENT } from "@/lib/config";
+import { useEnsBranches } from "@/lib/hooks/useEns";
 
+/**
+ * The branch overview.
+ *
+ * Everything here is measured. An earlier version showed an invented VLAN and bandwidth pool per
+ * tier, a "throughput" computed by dividing a cumulative byte counter by an assumed 60-second
+ * window, a hardcoded denial count, and a fabricated cache age — and rendered all of it as zeros
+ * under a green "Live" dot whenever the enforcer was unreachable. A failed read now says so.
+ */
 export default function OverviewPage() {
-  const { data: groupsData, isLoading: groupsLoading } = useGroups();
-  const { data: sessionsData } = useSessions(true);
-  const { data: throughputData } = useThroughput();
-  const { data: usersData } = useUsers();
+  const groups = useGroups();
+  const active = useSessions(true);
+  const ended = useSessions(false);
+  const throughput = useThroughput();
+  const users = useUsers();
+  const { branches } = useEnsBranches();
 
-  const branchLabel = process.env.NEXT_PUBLIC_BRANCH_LABEL ?? "branch";
-  const branchEns = `${branchLabel}.${process.env.NEXT_PUBLIC_ORG_ENS ?? ""}`;
-  const branchVenue = process.env.NEXT_PUBLIC_BRANCH_VENUE ?? "";
-  const branchWindow = process.env.NEXT_PUBLIC_BRANCH_WINDOW ?? "";
+  // The branch is whatever ENS says it is. There is no env var for this, and the two that used
+  // to supply it rendered the literal string "branch." as the page title.
+  const branchEns = branches?.[0]?.name ?? null;
 
-  const groups = groupsData ?? [];
-  const sessions = sessionsData?.sessions ?? [];
-  const samples = throughputData?.samples ?? [];
-  const totalUsers = usersData?.total ?? 0;
-  const activeSessions = sessionsData?.total ?? 0;
-  const totalDevices = groups.reduce((s, g) => s + g.devices, 0);
-  const totalUsed = groups.reduce((s, g) => s + g.used, 0);
-  const totalPool = groups.reduce((s, g) => s + g.pool, 0);
-  const peak = samples.length ? Math.max(...samples.map(s => s.mbps)) : 0;
-
-  // The five-minute window has to advance on its own, so the clock is state, not a render-time read.
+  // The five-minute window has to advance on its own, so the clock is state, not a render read.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {
     const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 10_000);
     return () => clearInterval(t);
   }, []);
-  const joined5m = sessions.filter(s => s.logged_in_at >= now - 300).length;
-  const { data: recentLeft } = useSessions(false);
-  const left5m = (recentLeft?.sessions ?? []).filter(
-    s => s.logged_out_at && s.logged_out_at >= now - 300
+
+  const enforcerDown = groups.error ?? active.error ?? users.error;
+  const loading = groups.isLoading || active.isLoading || users.isLoading;
+
+  const sessions = active.data?.sessions ?? [];
+  const samples = throughput.data?.samples ?? [];
+  const joined5m = sessions.filter((s) => s.logged_in_at >= now - 300).length;
+  const left5m = (ended.data?.sessions ?? []).filter(
+    (s) => s.logged_out_at && s.logged_out_at >= now - 300,
   ).length;
 
-  const KPIS = [
-    { label: "Memberships", value: totalUsers.toLocaleString(), sub: "onboarded here" },
-    { label: "Admitted",    value: activeSessions.toLocaleString(), sub: `${totalDevices} devices` },
-    { label: "Throughput",  value: totalUsed.toLocaleString(), unit: "Mbps", sub: `peak ${peak.toFixed(0)}` },
-    { label: "Denials",     value: "—", sub: "last hour" },
-  ];
-
-  const recent = [...sessions]
-    .sort((a, b) => b.logged_in_at - a.logged_in_at)
-    .slice(0, 5);
-
-  if (groupsLoading) {
-    return <div className="px-5 py-12 text-center font-mono text-xs text-ink-muted">Loading…</div>;
-  }
+  const recent = [...sessions].sort((a, b) => b.logged_in_at - a.logged_in_at).slice(0, 5);
 
   return (
     <>
       <PageHeader
         eyebrow="Branch overview"
-        title={branchEns}
-        meta={`${branchVenue} · ${branchWindow}`}
-        actions={
-          <span className="inline-flex items-center gap-2 font-mono text-xs text-ink-muted">
-            <span aria-hidden className="size-1.5 rounded-full bg-signal" />
-            Live · polling 10s
-          </span>
-        }
+        title={branchEns ?? "…"}
+        meta={branchEns ? "Live from ENS and the branch enforcer" : undefined}
+        actions={<Freshness down={Boolean(enforcerDown)} loading={loading} />}
       />
 
-      <dl className="grid grid-cols-2 border-b border-rule sm:grid-cols-4">
-        {KPIS.map((kpi, i) => (
-          <div
-            key={kpi.label}
-            className={`px-5 py-4 lg:px-8 ${i < 2 ? "border-b border-rule sm:border-b-0" : ""} ${
-              i % 2 === 0 ? "border-r border-rule" : ""
-            } sm:border-r sm:last:border-r-0`}
-          >
-            <dt className="label">{kpi.label}</dt>
-            <dd>
-              <span className="mt-2.5 flex items-baseline gap-1.5">
-                <span className="font-mono text-[1.625rem] font-medium leading-none tabular-nums tracking-tight text-ink">
-                  {kpi.value}
-                </span>
-                {kpi.unit ? <span className="font-mono text-xs text-ink-muted">{kpi.unit}</span> : null}
-              </span>
-              <span className="mt-1.5 block text-xs text-ink-muted">{kpi.sub}</span>
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <div className="px-4 pb-16 pt-6 sm:px-6">
+        {enforcerDown ? (
+          <Panel as="section" className="mb-6">
+            <div className="px-4 py-5">
+              <p className="text-sm" style={{ color: "var(--alert)" }}>
+                The branch enforcer did not answer.
+              </p>
+              <p className="mt-1 max-w-[60ch] text-xs leading-relaxed text-ink-muted">
+                Session and membership figures are not shown rather than shown as zero — an
+                unreachable enforcer is not an empty branch. Anything sourced from ENS below is
+                unaffected.
+              </p>
+            </div>
+          </Panel>
+        ) : null}
 
-      <div className="px-5 py-6 lg:px-8">
-        <Panel as="section">
-          <PanelHeader right={<span className="font-mono text-[0.6875rem] text-ink-muted">last 6h · 10m samples</span>}>
-            Branch throughput
-          </PanelHeader>
-          <div className="px-2 pb-2 pt-3 sm:px-4">
-            <ThroughputChart data={samples} cap={totalPool} />
-          </div>
-        </Panel>
+        <div className="grid gap-px overflow-hidden rounded-sharp border border-rule bg-rule sm:grid-cols-3">
+          <Kpi
+            label="Memberships"
+            value={users.data?.total}
+            sub="onboarded at this branch"
+            failed={Boolean(users.error)}
+            loading={users.isLoading}
+          />
+          <Kpi
+            label="Admitted now"
+            value={active.data?.total}
+            sub="open sessions"
+            failed={Boolean(active.error)}
+            loading={active.isLoading}
+          />
+          <Kpi
+            label="Groups"
+            value={groups.data?.length}
+            sub="defined on the enforcer"
+            failed={Boolean(groups.error)}
+            loading={groups.isLoading}
+          />
+        </div>
+
+        {samples.length >= 2 ? (
+          <Panel as="section" className="mt-6">
+            <PanelHeader
+              right={
+                <span className="font-mono text-[0.6875rem] text-ink-muted">
+                  last 6h · 10m buckets
+                </span>
+              }
+            >
+              API proxy throughput
+            </PanelHeader>
+            <div className="px-2 pb-2 pt-3 sm:px-4">
+              {/* Named for what it measures: bytes the enforcer proxied to clients, not wifi. */}
+              <ThroughputChart data={samples} />
+            </div>
+          </Panel>
+        ) : null}
 
         <div className="mt-6 grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
           <Panel as="section">
-            <PanelHeader
-              right={<span className="font-mono text-[0.6875rem] text-ink-muted">{totalUsed} / {totalPool} Mbps</span>}
-            >
-              Group utilisation
-            </PanelHeader>
-            <div className="divide-y divide-rule">
-              {groups.map((group) => (
-                <Meter
-                  key={group.name}
-                  label={group.name}
-                  used={group.used}
-                  cap={group.pool}
-                  detail={`vlan ${group.vlan} · ${group.devices} devices`}
-                />
-              ))}
-            </div>
+            <PanelHeader>Groups on the enforcer</PanelHeader>
+            {groups.error ? (
+              <Failed what="group list" />
+            ) : groups.isLoading ? (
+              <Waiting />
+            ) : (groups.data ?? []).length === 0 ? (
+              <Empty>
+                The enforcer has no groups yet. A group defined in ENS admits nobody until it also
+                exists here.
+              </Empty>
+            ) : (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-rule">
+                    <th className="label px-4 py-2 font-normal">Group</th>
+                    <th className="label px-4 py-2 font-normal">Tier</th>
+                    <th className="label px-4 py-2 text-right font-normal">Members</th>
+                    <th className="label px-4 py-2 text-right font-normal">Admitted</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-rule">
+                  {(groups.data ?? []).map((g) => (
+                    <tr key={g.id}>
+                      <td className="px-4 py-2.5 font-mono text-xs text-ink">{g.name}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-ink-muted">
+                        {g.network_tier}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs tabular-nums text-ink-80">
+                        {g.member_count}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-xs tabular-nums text-ink-80">
+                        {g.active_session_count}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </Panel>
 
           <div className="flex flex-col gap-6">
@@ -131,55 +164,124 @@ export default function OverviewPage() {
               <PanelHeader>Perimeter</PanelHeader>
               <div className="flex items-stretch divide-x divide-rule">
                 <div className="relative w-[104px] shrink-0">
-                  <SignalDither motif="radar" cell={2} period={4.5} intensity={0.75} className="absolute inset-0" label="Radar sweep" />
+                  <SignalDither
+                    motif="radar"
+                    cell={2}
+                    period={4.5}
+                    intensity={0.75}
+                    className="absolute inset-0"
+                    label="Radar sweep"
+                  />
                 </div>
                 <dl className="flex-1 divide-y divide-rule">
-                  {[
-                    ["Present", String(activeSessions)],
-                    ["Joined 5m", String(joined5m)],
-                    ["Left 5m",   String(left5m)],
-                  ].map(([term, value]) => (
-                    <div key={term} className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]">
-                      <dt className="label">{term}</dt>
-                      <dd className="font-mono text-xs tabular-nums text-ink-80">{value}</dd>
-                    </div>
-                  ))}
+                  <Row term="Present" value={active.error ? null : (active.data?.total ?? null)} />
+                  <Row term="Joined 5m" value={active.error ? null : joined5m} />
+                  <Row term="Left 5m" value={ended.error ? null : left5m} />
                 </dl>
               </div>
             </Panel>
 
             <Panel as="section">
               <PanelHeader>Recent admissions</PanelHeader>
-              <ul className="divide-y divide-rule">
-                {recent.map((s) => {
-                  const label = s.ens_name?.split(".")[0] ?? s.username;
-                  const time = new Date(s.logged_in_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                  return (
+              {active.error ? (
+                <Failed what="session list" />
+              ) : active.isLoading ? (
+                <Waiting />
+              ) : recent.length === 0 ? (
+                <Empty>Nobody has been admitted yet.</Empty>
+              ) : (
+                <ul className="divide-y divide-rule">
+                  {recent.map((s) => (
                     <li key={s.id} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
                       <span className="truncate font-mono text-xs text-ink">
-                        {label}<span className="text-ink-muted">.{branchLabel}</span>
+                        {s.ens_name ?? s.username}
                       </span>
-                      <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">{time}</span>
+                      <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">
+                        {new Date(s.logged_in_at * 1000).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
                     </li>
-                  );
-                })}
-              </ul>
+                  ))}
+                </ul>
+              )}
             </Panel>
           </div>
         </div>
-
-        <Panel as="section" className="mt-6">
-          <PanelHeader>Enforcement</PanelHeader>
-          <dl className="grid sm:grid-cols-2 xl:grid-cols-3">
-            {ENFORCEMENT.map(([term, detail]) => (
-              <div key={term} className="flex items-baseline justify-between gap-4 border-b border-rule px-4 py-2.5 sm:border-r sm:last:border-r-0">
-                <dt className="label">{term}</dt>
-                <dd className="text-right font-mono text-xs text-ink-80">{detail}</dd>
-              </div>
-            ))}
-          </dl>
-        </Panel>
       </div>
     </>
   );
+}
+
+function Row({ term, value }: { term: string; value: number | null }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]">
+      <dt className="label">{term}</dt>
+      <dd className="font-mono text-xs tabular-nums text-ink-80">
+        {value === null ? <span className="text-ink-faint">unavailable</span> : String(value)}
+      </dd>
+    </div>
+  );
+}
+
+function Kpi({
+  label,
+  value,
+  sub,
+  failed,
+  loading,
+}: {
+  label: string;
+  value: number | undefined;
+  sub: string;
+  failed: boolean;
+  loading: boolean;
+}) {
+  return (
+    <div className="bg-paper px-4 py-5">
+      <span className="label">{label}</span>
+      <span className="mt-2 block font-mono text-2xl tabular-nums text-ink">
+        {failed ? (
+          <span className="text-base" style={{ color: "var(--alert)" }}>
+            unavailable
+          </span>
+        ) : loading || value === undefined ? (
+          <span className="text-base text-ink-faint">…</span>
+        ) : (
+          value.toLocaleString()
+        )}
+      </span>
+      <span className="mt-1 block text-xs text-ink-muted">
+        {failed ? "the enforcer did not answer" : sub}
+      </span>
+    </div>
+  );
+}
+
+/** Honest about what it knows: green only when the last read actually succeeded. */
+function Freshness({ down, loading }: { down: boolean; loading: boolean }) {
+  const colour = down ? "var(--alert)" : loading ? "var(--ink-faint)" : "var(--signal)";
+  return (
+    <span className="inline-flex items-center gap-2 font-mono text-xs text-ink-muted">
+      <span aria-hidden className="size-1.5 rounded-full" style={{ background: colour }} />
+      {down ? "Enforcer unreachable" : loading ? "Reading…" : "Auto-refresh · 10–60s"}
+    </span>
+  );
+}
+
+function Failed({ what }: { what: string }) {
+  return (
+    <p className="px-4 py-6 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
+      The {what} could not be read. No figure is shown rather than a stale one.
+    </p>
+  );
+}
+
+function Waiting() {
+  return <p className="px-4 py-6 font-mono text-xs text-ink-muted">Reading…</p>;
+}
+
+function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="px-4 py-6 text-xs leading-relaxed text-ink-muted">{children}</p>;
 }

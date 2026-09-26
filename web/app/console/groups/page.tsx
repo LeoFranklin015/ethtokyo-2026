@@ -21,9 +21,13 @@ export default function GroupsPage() {
   const [selected, setSelected] = useState<string>("");
   const registrar = selected || withRegistrar[0]?.registrar || "";
 
-  const { data, mutate, isLoading } = useSWR<{ groups: RoleInfo[] }>(
+  const { data, mutate, isLoading, error } = useSWR<{ groups: RoleInfo[] }>(
     registrar ? `groups:${registrar}` : null,
-    () => fetch(`/api/ens/groups?registrar=${registrar}`).then((r) => r.json()),
+    async () => {
+      const r = await fetch(`/api/ens/groups?registrar=${registrar}`);
+      if (!r.ok) throw new Error(`group catalogue unavailable (${r.status})`);
+      return r.json();
+    },
   );
   const groups = (data?.groups ?? []).filter((g) => g.active);
 
@@ -67,7 +71,16 @@ export default function GroupsPage() {
             Defined on-chain
           </PanelHeader>
 
-          {branchesLoading || (registrar && isLoading) ? (
+          {error ? (
+            <p
+              className="px-4 py-10 text-center text-xs leading-relaxed"
+              style={{ color: "var(--alert)" }}
+              role="status"
+            >
+              The group catalogue could not be read from the chain. It is not shown rather than
+              shown empty.
+            </p>
+          ) : branchesLoading || (registrar && isLoading) ? (
             <p className="px-4 py-10 text-center font-mono text-xs text-ink-muted">reading…</p>
           ) : !registrar ? (
             <div role="status" className="px-4 py-12 text-center">

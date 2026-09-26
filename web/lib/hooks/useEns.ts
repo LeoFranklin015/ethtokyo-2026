@@ -1,6 +1,6 @@
 "use client";
 import useSWR from "swr";
-import type { EnsBranch, EnsMembership } from "@/lib/ens/read";
+import type { EnsMembership } from "@/lib/ens/read";
 import type { IndexedBranch } from "@/lib/ens/indexer";
 
 
@@ -34,14 +34,6 @@ export function useEnsMemberships(branch?: string) {
 }
 
 /** The branch itself, plus the organization's on-chain role catalogue. */
-export function useEnsBranch() {
-  const { data, error, isLoading } = useSWR<EnsBranch>(
-    "ens-branch",
-    () => ensGet("branch"),
-    { refreshInterval: 60_000 },
-  );
-  return { branch: data, error, isLoading };
-}
 
 /** Branches under the organization, discovered from ENS rather than configured. */
 export function useEnsBranches() {

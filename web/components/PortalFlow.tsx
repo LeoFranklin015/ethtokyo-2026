@@ -1,5 +1,8 @@
 "use client";
 
+/** The slice of EIP-1193 this flow uses. viem's own type over-constrains `personal_sign`. */
+type WalletProvider = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
+
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useState } from "react";
 import { SignalDither } from "@/components/dither/SignalDither";
@@ -54,13 +57,13 @@ export function PortalFlow() {
     setError("");
     go("signing");
     try {
-      const eth = (window as any).ethereum;
+      const eth = (window as unknown as { ethereum?: WalletProvider }).ethereum;
       if (!eth) {
         throw new Error("No Ethereum wallet found. Install MetaMask or a compatible wallet.");
       }
 
       // Request accounts — prompts MetaMask if not already connected
-      const accounts: string[] = await eth.request({ method: "eth_requestAccounts" });
+      const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       const address = accounts[0]?.toLowerCase();
       if (!address) throw new Error("No account selected.");
 
@@ -73,12 +76,13 @@ export function PortalFlow() {
       const message = `Sign in to ENSCA\nNonce: ${nonce}`;
       let signature: string;
       try {
-        signature = await eth.request({
+        signature = (await eth.request({
           method: "personal_sign",
           params: [message, address],
-        });
-      } catch (err: any) {
-        if (err?.code === 4001) {
+        })) as string;
+      } catch (err) {
+        // 4001 is the wallet's "user rejected" code.
+        if ((err as { code?: number })?.code === 4001) {
           // User rejected the signature request in MetaMask
           go("denied");
           setError("Signature request was rejected.");
@@ -115,8 +119,8 @@ export function PortalFlow() {
         ["Wallet",     `${address.slice(0, 6)}…${address.slice(-4)}`],
       ]);
       go("connected");
-    } catch (err: any) {
-      setError(err?.message ?? String(err));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
       go("denied");
     }
   }

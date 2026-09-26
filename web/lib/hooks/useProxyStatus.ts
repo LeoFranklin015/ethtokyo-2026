@@ -9,7 +9,10 @@ type ProxyStatus = {
 export function useProxyStatus() {
   return useSWR<ProxyStatus>(
     "proxy-status",
-    () => fetch("/api/status").then((r) => r.json()),
+    () => fetch("/api/status").then(async (r) => {
+      if (!r.ok) throw new Error(`enforcer status ${r.status}`);
+      return r.json();
+    }),
     { refreshInterval: 15_000 }
   );
 }

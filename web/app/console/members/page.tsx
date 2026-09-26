@@ -1,20 +1,12 @@
 "use client";
 
 import { PageHeader } from "@/components/console/PageHeader";
-import { Button } from "@/components/ui/Button";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
-import { RoleChip } from "@/components/ui/RoleChip";
 import { useUsers } from "@/lib/hooks/useUsers";
 import { useSessions } from "@/lib/hooks/useSessions";
 import { EnsMemberships } from "@/components/console/EnsMemberships";
 import { OnboardForm } from "@/components/console/OnboardForm";
-import type { RoleName } from "@/lib/data";
-
-const TIER_ROLE: Record<string, RoleName> = {
-  basic: "hacker",
-  staff: "organizer",
-  vip: "mentor",
-};
+import { useEnsBranches } from "@/lib/hooks/useEns";
 
 function fmtBytes(b: number): string {
   if (b > 1_000_000) return `${(b / 1_000_000).toFixed(1)} MB`;
@@ -23,25 +15,29 @@ function fmtBytes(b: number): string {
 }
 
 export default function MembersPage() {
-  const branchLabel = process.env.NEXT_PUBLIC_BRANCH_LABEL ?? "branch";
-  const branchEns = `${branchLabel}.${process.env.NEXT_PUBLIC_ORG_ENS ?? ""}`;
+  // The branch comes from ENS. The two env vars that used to build this string were never
+  // defined, so every row rendered as "alice.branch".
+  const { branches } = useEnsBranches();
+  const branchEns = branches?.[0]?.name ?? "…";
 
-  const { data: usersData, isLoading } = useUsers();
+  const { data: usersData, isLoading, error } = useUsers();
   const { data: sessionsData } = useSessions(true);
 
   const users = usersData?.users ?? [];
   const activeSessions = sessionsData?.sessions ?? [];
   const sessionsByUser = new Map(activeSessions.map(s => [s.user_id, s]));
 
-  const COLUMNS = ["Membership", "Role", "Address", "Devices", "Data out", "State"];
+  // No Role column: the enforcer does not know the on-chain role, and the previous version
+  // invented one from `network_tier`, defaulting every offline member to "hacker". The real
+  // role is in the ENS table directly above this one.
+  const COLUMNS = ["Membership", "Address", "Sessions", "Proxied out", "State"];
 
   return (
     <>
       <PageHeader
         eyebrow="Branch"
         title="Memberships"
-        meta={`${users.length} at ${branchEns}`}
-        actions={<Button variant="solid">Onboard member</Button>}
+        meta={error ? undefined : `${usersData?.total ?? users.length} at ${branchEns}`}
       />
 
       <div className="px-5 py-6 lg:px-8 space-y-6">
@@ -58,13 +54,23 @@ export default function MembersPage() {
             All memberships
           </PanelHeader>
 
-          {isLoading ? (
+          {error ? (
+            <div role="status" className="px-4 py-16 text-center">
+              <p className="text-sm" style={{ color: "var(--alert)" }}>
+                The enforcer did not answer
+              </p>
+              <p className="mx-auto mt-1.5 max-w-[46ch] text-sm text-ink-muted">
+                This table is not shown rather than shown empty — an unreachable enforcer is not
+                a branch with nobody in it. The ENS memberships above are unaffected.
+              </p>
+            </div>
+          ) : isLoading ? (
             <p className="px-4 py-10 text-center font-mono text-xs text-ink-muted">
               Reading the enforcer…
             </p>
           ) : users.length === 0 ? (
             <div role="status" className="px-4 py-16 text-center">
-              <p className="text-sm text-ink">No sessions on the enforcer</p>
+              <p className="text-sm text-ink">Nobody admitted yet</p>
               <p className="mx-auto mt-1.5 max-w-[44ch] text-sm text-ink-muted">
                 Identity above comes from ENS; this table shows who the branch enforcer has
                 actually admitted.
@@ -88,16 +94,14 @@ export default function MembersPage() {
                     const label = u.ens_name?.split(".")[0] ?? u.username;
                     const addrFull = u.wallet_address ?? "";
                     const addrShort = addrFull ? `${addrFull.slice(0, 5)}…${addrFull.slice(-4)}` : "—";
-                    const tier = activeSessions.find(s => s.user_id === u.id)?.network_tier ?? "basic";
-                    const role: RoleName = TIER_ROLE[tier] ?? "hacker";
                     const bytesOut = session?.bytes_out ?? 0;
                     return (
                       <tr key={u.id} className="transition-colors hover:bg-ink/5">
                         <th scope="row" className="px-4 py-3 text-left font-normal">
-                          <span className="font-mono text-sm text-ink">{label}</span>
-                          <span className="font-mono text-sm text-ink-muted">.{branchLabel}</span>
+                          <span className="font-mono text-sm text-ink">
+                            {u.ens_name ?? label}
+                          </span>
                         </th>
-                        <td className="px-4 py-3"><RoleChip role={role} /></td>
                         <td className="px-4 py-3 font-mono text-xs tabular-nums text-ink-80">{addrShort}</td>
                         <td className="px-4 py-3 font-mono text-xs tabular-nums text-ink-80">
                           {activeSessions.filter(s => s.user_id === u.id).length}

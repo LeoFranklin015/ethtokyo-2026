@@ -27,13 +27,18 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [free, setFree] = useState<boolean | null>(null);
+  const [checkFailed, setCheckFailed] = useState(false);
 
   const branch = withRegistrar.find((b) => b.registrar === registrar) ?? withRegistrar[0];
   const target = branch?.registrar ?? "";
 
   const { data: groupData } = useSWR<{ groups: RoleInfo[] }>(
     target ? `groups:${target}` : null,
-    () => fetch(`/api/ens/groups?registrar=${target}`).then((r) => r.json()),
+    async () => {
+      const r = await fetch(`/api/ens/groups?registrar=${target}`);
+      if (!r.ok) throw new Error(`group list unavailable (${r.status})`);
+      return r.json();
+    },
   );
   const groups = (groupData?.groups ?? []).filter((g) => g.active);
   const selectedGroup = group || groups[0]?.name || "";
@@ -48,14 +53,26 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
         const res = await fetch(
           `/api/ens/available?label=${encodeURIComponent(value)}&registry=${branch.registry}`,
         );
+        // A 502 is the chain being unreachable, not a name being taken. Rendering it as "taken"
+        // would lock the operator out of onboarding for the duration of an RPC blip.
+        if (!res.ok) {
+          setFree(null);
+          setCheckFailed(true);
+          return;
+        }
         const body = await res.json();
+        setCheckFailed(false);
         setFree(body.valid ? body.available : false);
       } catch {
         setFree(null);
+        setCheckFailed(true);
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [label, branch]);
+    // `branch` itself is a fresh object on every SWR revalidation; depending on it re-fired
+    // this check every 60s on an untouched form. The registry address is what actually matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [label, branch?.registry]);
 
   const validAddress = /^0x[0-9a-fA-F]{40}$/.test(owner.trim());
   const canSubmit = Boolean(target && label && validAddress && selectedGroup && free && !busy);
@@ -115,6 +132,7 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
               onChange={(e) => {
                 setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
                 setFree(null);
+                setCheckFailed(false);
               }}
               placeholder="leo"
               autoComplete="off"
@@ -125,7 +143,11 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
             </span>
           </span>
           <span className="mt-1 block min-h-[1rem] font-mono text-[0.6875rem]" role="status">
-            {free === true ? (
+            {checkFailed ? (
+              <span style={{ color: "var(--alert)" }}>
+                could not check — the chain did not answer
+              </span>
+            ) : free === true ? (
               <span style={{ color: "var(--signal)" }}>available</span>
             ) : free === false ? (
               <span style={{ color: "var(--alert)" }}>already taken in this branch</span>
