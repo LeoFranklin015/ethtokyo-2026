@@ -20,7 +20,7 @@ import type { RoleInfo } from "@/lib/ens/read";
  * identity to other branches.
  */
 export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void }) {
-  const { branches, isLoading: branchesLoading } = useEnsBranches(org);
+  const { branches, isLoading: branchesLoading, error: branchesError } = useEnsBranches(org);
   const withRegistrar = (branches ?? []).filter((b) => b.registrar);
 
   const [registrar, setRegistrar] = useState("");
@@ -197,7 +197,13 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
             className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
           >
             {withRegistrar.length === 0 ? (
-              <option value="">{branchesLoading ? "discovering…" : "no perimeters yet"}</option>
+              <option value="">
+                {branchesError
+                  ? "could not read perimeters"
+                  : branchesLoading
+                    ? "discovering…"
+                    : "no perimeters yet"}
+              </option>
             ) : null}
             {withRegistrar.map((b) => (
               <option key={b.name} value={b.registrar ?? ""}>

@@ -38,7 +38,7 @@ const SECTIONS = [
 export function Sidebar() {
   const pathname = usePathname();
   const org = useOrg();
-  const { branches } = useEnsBranches(org);
+  const { branches, error: branchesError } = useEnsBranches(org);
   const { data: status, error: statusError, isLoading: statusLoading } = useProxyStatus();
   const activeLabel = pathname.startsWith("/console/branches/")
     ? pathname.split("/console/branches/")[1]?.split("?")[0]
@@ -78,7 +78,17 @@ export function Sidebar() {
           </Link>
         </div>
         <ul className="space-y-0.5">
-          {branches === undefined ? (
+          {/* `undefined` covers three different situations and used to render as one.
+              No organization selected means there is nothing to discover; a failed read
+              means we do not know; only the third is still loading. Saying
+              "discovering…" for the other two leaves the word on screen for good. */}
+          {!org ? (
+            <li className="px-2 font-mono text-xs text-ink-faint">no organization</li>
+          ) : branchesError ? (
+            <li className="px-2 font-mono text-xs" style={{ color: "var(--alert)" }}>
+              could not read
+            </li>
+          ) : branches === undefined ? (
             <li className="px-2 font-mono text-xs text-ink-faint">discovering…</li>
           ) : branches.length === 0 ? (
             <li className="px-2 font-mono text-xs text-ink-faint">none yet</li>
