@@ -435,18 +435,30 @@ export type ChainBranch = {
   registry: Address;
 };
 
-let chainBranchCache: { at: number; branches: ChainBranch[] } | null = null;
+const chainBranchCache = new Map<Address, { at: number; branches: ChainBranch[] }>();
 
-export async function chainBranches(): Promise<ChainBranch[]> {
+export async function chainBranches(scope?: {
+  factory: Address;
+  orgRegistry: Address;
+  orgResolver: Address;
+  organization: string;
+}): Promise<ChainBranch[]> {
+  const where = scope ?? {
+    factory: ENS.branchFactory as Address,
+    orgRegistry: ENS.orgRegistry as Address,
+    orgResolver: ENS.resolver as Address,
+    organization: ENS.organization,
+  };
+
   // Cached: this is reached from an unauthenticated endpoint, and the scan is O(blocks) with no
   // upper bound. Branches are created a handful of times in an organization's life.
-  if (chainBranchCache && Date.now() - chainBranchCache.at < 30_000) {
-    return chainBranchCache.branches;
-  }
+  // Keyed by factory: two organizations must not share a cached branch list.
+  const cached = chainBranchCache.get(where.factory);
+  if (cached && Date.now() - cached.at < 30_000) return cached.branches;
 
   // The factory keeps the list; no log scan, and no growing block range to be refused.
   const labels = (await client.readContract({
-    address: ENS.branchFactory as Address,
+    address: where.factory,
     abi: branchFactoryAbi,
     functionName: "allBranchLabels",
   })) as string[];
@@ -455,7 +467,7 @@ export async function chainBranches(): Promise<ChainBranch[]> {
   await Promise.all(
     labels.map(async (label) => {
       const registry = (await client.readContract({
-        address: ENS.orgRegistry as Address,
+        address: where.orgRegistry,
         abi: registryAbi,
         functionName: "getSubregistry",
         args: [label],
@@ -464,10 +476,10 @@ export async function chainBranches(): Promise<ChainBranch[]> {
 
       // The registrar is published as a text record precisely so it is discoverable.
       const published = (await client.readContract({
-        address: ENS.resolver as Address,
+        address: where.orgResolver,
         abi: resolverAbi,
         functionName: "text",
-        args: [namehash(`${label}.${ENS.organization}`), "ensca.registrar"],
+        args: [namehash(`${label}.${where.organization}`), "ensca.registrar"],
       })) as string;
       if (!/^0x[0-9a-fA-F]{40}$/.test(published)) return;
 
@@ -476,13 +488,13 @@ export async function chainBranches(): Promise<ChainBranch[]> {
   );
   const branches = [...byLabel]
     .map(([label, { registrar, registry }]) => ({
-      name: `${label}.${ENS.organization}`,
+      name: `${label}.${where.organization}`,
       label,
       registrar,
       registry,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  chainBranchCache = { at: Date.now(), branches };
+  chainBranchCache.set(where.factory, { at: Date.now(), branches });
   return branches;
 }

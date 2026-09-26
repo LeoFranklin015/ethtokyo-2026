@@ -1,4 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createPublicClient, http, type Address } from "viem";
+import { sepolia } from "viem/chains";
+import { orgFactoryAbi } from "@/lib/ens/abis";
+import { ENS, RPC_BATCH_SIZE, RPC_URL } from "@/lib/ens/config";
 import { getIndexedBranches, getIndexerStatus } from "@/lib/ens/indexer";
 import { chainBranches } from "@/lib/ens/read";
 
@@ -16,10 +20,54 @@ export const dynamic = "force-dynamic";
  * see it, could not define a group on it, and could not onboard anyone into it — for as long as
  * the indexer took to catch up. Every console screen that picks a branch reads this route.
  */
-export async function GET() {
+const client = createPublicClient({
+  chain: sepolia,
+  transport: http(RPC_URL, { batch: { batchSize: RPC_BATCH_SIZE, wait: 8 } }),
+});
+
+export async function GET(req: NextRequest) {
+  // `?org=acme` scopes the list to that organization's own contracts. Without it the answer is
+  // the configured organization's branches — which is wrong the moment somebody stands up
+  // their own, and is how a branch you had just created failed to appear in its own wizard.
+  const orgLabel = req.nextUrl.searchParams.get("org");
+  let scope;
+  if (orgLabel) {
+    try {
+      const found = (await client.readContract({
+        address: ENS.orgFactory as Address,
+        abi: orgFactoryAbi,
+        functionName: "organizationFor",
+        args: [orgLabel],
+      })) as { registry: Address; resolver: Address; branchFactory: Address };
+
+      if (found.branchFactory === "0x0000000000000000000000000000000000000000") {
+        return NextResponse.json(
+          { error: `no organization has been set up for ${orgLabel}.eth` },
+          { status: 404 },
+        );
+      }
+      scope = {
+        factory: found.branchFactory,
+        orgRegistry: found.registry,
+        orgResolver: found.resolver,
+        organization: `${orgLabel}.eth`,
+      };
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "could not read that organization" },
+        { status: 502 },
+      );
+    }
+  }
+
   const [indexed, fromChain, indexer] = await Promise.all([
-    getIndexedBranches().catch((error: unknown) => error as Error),
-    chainBranches().catch((error: unknown) => error as Error),
+    // The indexer only knows the configured organization's tree, so it is skipped when a
+    // different one is asked for rather than returning that one's branches by mistake.
+    (scope
+      ? Promise.resolve([] as Awaited<ReturnType<typeof getIndexedBranches>>)
+      : getIndexedBranches()
+    ).catch((error: unknown) => error as Error),
+    chainBranches(scope).catch((error: unknown) => error as Error),
     getIndexerStatus().catch(() => null),
   ]);
 

@@ -80,7 +80,11 @@ export function Wizard() {
         ) : null}
 
         {step === "groups" ? (
-          <GroupsStep registrar={registrar} onDone={() => setStep("done")} />
+          <GroupsStep
+            branchLabel={branchLabel}
+            registrar={registrar}
+            onDone={() => setStep("done")}
+          />
         ) : null}
 
         {step === "done" ? <DoneStep org={orgName} branch={branchLabel} /> : null}
@@ -636,31 +640,25 @@ const PRESETS = [
 ];
 
 function GroupsStep({
+  branchLabel,
   registrar,
   onDone,
 }: {
+  branchLabel: string | null;
   registrar: string | null;
   onDone: () => void;
 }) {
-  const [branches, setBranches] = useState<{ label: string; registrar: string | null }[]>([]);
-  const [target, setTarget] = useState(registrar ?? "");
+  // The branch you just opened, carried here from its own receipt.
+  //
+  // This used to fetch every branch in the *configured* organization and offer them in a
+  // dropdown — so after creating a branch under your own name you were shown somebody else's
+  // list and could not find it. There is nothing to choose: the previous step already returned
+  // the registrar, which is why it decodes `BranchCreated` rather than waiting for an indexer.
+  const target = registrar ?? "";
   const writes = useEnsWrites();
   const [created, setCreated] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/ens/branches")
-      .then((r) => r.json())
-      .then((d) => {
-        const withReg = (d.branches ?? []).filter(
-          (b: { registrar: string | null }) => b.registrar,
-        );
-        setBranches(withReg);
-        if (!target && withReg[0]) setTarget(withReg[0].registrar);
-      })
-      .catch(() => undefined);
-  }, [target]);
 
   async function add(preset: (typeof PRESETS)[number]) {
     setBusy(preset.name);
@@ -702,22 +700,25 @@ function GroupsStep({
           entitlements are written onto that person&rsquo;s name in the same transaction.
         </p>
 
-        {branches.length > 1 ? (
-          <label className="mt-5 block">
+        {target ? (
+          <div className="mt-5 rounded-sharp border border-rule px-4 py-3">
             <span className="label">Branch</span>
-            <select
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
-            >
-              {branches.map((b) => (
-                <option key={b.label} value={b.registrar ?? ""}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+            <p className="mt-1 font-mono text-sm text-ink">{branchLabel ?? "—"}</p>
+            <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">
+              registrar {target.slice(0, 10)}…{target.slice(-6)}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-sharp border border-rule px-4 py-3">
+            <p className="text-sm" style={{ color: "var(--alert)" }}>
+              No branch to define groups on.
+            </p>
+            <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+              Go back and open one — groups belong to a branch, so there is nowhere to put these
+              until one exists.
+            </p>
+          </div>
+        )}
 
         <ul className="mt-5 divide-y divide-rule border-y border-rule">
           {PRESETS.map((p) => (
