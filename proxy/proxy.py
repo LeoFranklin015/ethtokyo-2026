@@ -1224,6 +1224,15 @@ def internal_session_created():
         )
         user_id = "portal-anon"
 
+    # Backfill ENS identity: if the portal omitted ens_name but the resolved
+    # user carries one, store it so the per-ENS shared-quota bucket keys on the
+    # user's real identity across all their devices (I3 — a NULL ens_name would
+    # otherwise leave the per-ENS cap unenforced).
+    if not ens_name:
+        urow = db.execute("SELECT ens_name FROM users WHERE id=?", (user_id,)).fetchone()
+        if urow and urow["ens_name"]:
+            ens_name = urow["ens_name"]
+
     db.execute(
         "INSERT INTO sessions(id,user_id,group_id,ip,network_tier,ens_name,wallet_address,logged_in_at) "
         "VALUES(?,?,?,?,?,?,?,?)",
