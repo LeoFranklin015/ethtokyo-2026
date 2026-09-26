@@ -175,3 +175,153 @@ export async function getEntitlements(label: string): Promise<Record<string, str
     ENTITLEMENT_KEYS.map((key, i) => [key, values[i]]).filter(([, v]) => v !== ""),
   );
 }
+
+export type RoleSpec = {
+  name: OnChainRole;
+  ordinal: number;
+  /** Registry bitmap this role grants over the holder's own name. */
+  bitmap: bigint;
+  canSetResolver: boolean;
+  canSetSubregistry: boolean;
+  /** No role grants transfer, so every membership is soulbound. */
+  transferable: boolean;
+};
+
+const ROLE_SET_SUBREGISTRY = 1n << 20n;
+const ROLE_SET_RESOLVER = 1n << 24n;
+const ROLE_CAN_TRANSFER_ADMIN = (1n << 28n) << 128n;
+
+/** The role catalogue as the deployed registrar actually defines it. */
+export async function getRoleCatalogue(): Promise<RoleSpec[]> {
+  const bitmaps = await Promise.all(
+    ROLE_NAMES.map((_, ordinal) =>
+      publicClient.readContract({
+        address: DEPLOYMENT.branchRegistrar as Address,
+        abi: registrarAbi,
+        functionName: "registryBitmapFor",
+        args: [ordinal],
+      }),
+    ),
+  );
+
+  return ROLE_NAMES.map((name, ordinal) => {
+    const bitmap = bitmaps[ordinal];
+    return {
+      name,
+      ordinal,
+      bitmap,
+      canSetResolver: (bitmap & ROLE_SET_RESOLVER) !== 0n,
+      canSetSubregistry: (bitmap & ROLE_SET_SUBREGISTRY) !== 0n,
+      transferable: (bitmap & ROLE_CAN_TRANSFER_ADMIN) !== 0n,
+    };
+  });
+}
+
+/** Who holds each registrar permission, checked against the live contract. */
+export async function getPermissionHolders(accounts: Address[]) {
+  const roles = [
+    ["onboard", 1n << 0n],
+    ["promote", 1n << 4n],
+    ["revoke", 1n << 8n],
+  ] as const;
+
+  return Promise.all(
+    accounts.map(async (account) => {
+      const held = await Promise.all(
+        roles.map(([, bitmap]) =>
+          publicClient.readContract({
+            address: DEPLOYMENT.branchRegistrar as Address,
+            abi: registrarAbi,
+            functionName: "hasRootRoles",
+            args: [bitmap, account],
+          }),
+        ),
+      );
+      return {
+        account,
+        permissions: Object.fromEntries(roles.map(([name], i) => [name, held[i]])) as Record<
+          "onboard" | "promote" | "revoke",
+          boolean
+        >,
+      };
+    }),
+  );
+}
+
+export type BranchRow = {
+  label: string;
+  name: string;
+  registry: Address;
+  expiry: number;
+  open: boolean;
+  members: number;
+};
+
+/**
+ * Branches under the organization.
+ *
+ * A name in the org registry is a Branch precisely when it has a subregistry of its own — that is
+ * what distinguishes it from a Member name sitting at the same level.
+ */
+export async function getBranches(): Promise<BranchRow[]> {
+  const logs = await publicClient.getContractEvents({
+    address: DEPLOYMENT.orgRegistry as Address,
+    abi: registryAbi,
+    eventName: "LabelRegistered",
+    fromBlock: DEPLOYMENT.deployedAtBlock - 200n,
+    toBlock: "latest",
+  });
+
+  const labels = [...new Set(logs.map((l) => (l.args as { label?: string }).label).filter(Boolean))];
+
+  const rows = await Promise.all(
+    (labels as string[]).map(async (label) => {
+      const [subregistry, status] = await Promise.all([
+        publicClient.readContract({
+          address: DEPLOYMENT.orgRegistry as Address,
+          abi: registryAbi,
+          functionName: "getSubregistry",
+          args: [label],
+        }),
+        publicClient.readContract({
+          address: DEPLOYMENT.orgRegistry as Address,
+          abi: registryAbi,
+          functionName: "getStatus",
+          args: [labelHash(label)],
+        }),
+      ]);
+
+      // No subregistry means it is not a branch; status 2 is REGISTERED.
+      if (subregistry === "0x0000000000000000000000000000000000000000" || status !== 2) return null;
+
+      const expiry = await publicClient.readContract({
+        address: DEPLOYMENT.orgRegistry as Address,
+        abi: registryAbi,
+        functionName: "getExpiry",
+        args: [labelHash(label)],
+      });
+
+      const members = await publicClient
+        .getContractEvents({
+          address: DEPLOYMENT.branchRegistrar as Address,
+          abi: registrarAbi,
+          eventName: "Onboarded",
+          fromBlock: DEPLOYMENT.deployedAtBlock,
+          toBlock: "latest",
+        })
+        .then((l) => (subregistry === DEPLOYMENT.branchRegistry ? l.length : 0));
+
+      const expirySeconds = Number(expiry);
+      return {
+        label,
+        name: `${label}.${DEPLOYMENT.organization}`,
+        registry: subregistry,
+        expiry: expirySeconds,
+        open: expirySeconds * 1000 > Date.now(),
+        members,
+      } satisfies BranchRow;
+    }),
+  );
+
+  return rows.filter((row): row is BranchRow => row !== null);
+}
