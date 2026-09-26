@@ -5,6 +5,7 @@ import { registrarV2Abi } from "@/lib/ens/abis";
 import { RPC_BATCH_SIZE, RPC_URL } from "@/lib/ens/config";
 import { getRoles } from "@/lib/ens/read";
 import { branchForRegistrar } from "@/lib/ens/registrars";
+import { resolveOrg } from "@/lib/ens/org";
 import { enforcerGroupName, mirrorGroup, mirrorMember, mirrorRevoke } from "@/lib/enforcer/mirror";
 
 export const dynamic = "force-dynamic";
@@ -31,19 +32,28 @@ const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL, { b
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as {
     kind?: "group" | "member" | "revoke";
+    org?: string;
     registrar?: string;
     name?: string;
     label?: string;
     wallet?: string;
   };
 
-  if (!body.registrar) {
-    return NextResponse.json({ error: "registrar required" }, { status: 400 });
+  if (!body.registrar || !body.org) {
+    return NextResponse.json({ error: "org and registrar are required" }, { status: 400 });
+  }
+
+  const organization = await resolveOrg(body.org).catch(() => undefined);
+  if (organization === undefined) {
+    return NextResponse.json({ error: "could not read that organization" }, { status: 502 });
+  }
+  if (organization === null) {
+    return NextResponse.json({ error: "no such organization" }, { status: 404 });
   }
 
   let branch;
   try {
-    branch = await branchForRegistrar(body.registrar);
+    branch = await branchForRegistrar(body.registrar, organization);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "could not verify the registrar" },

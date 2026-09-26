@@ -24,8 +24,8 @@ const STARTER_ENTITLEMENTS: Row[] = [
  * group, and redefining a group changes what its existing members get without touching them
  * one by one.
  */
-export function GroupForm({ onDone }: { onDone?: () => void }) {
-  const { branches, isLoading: branchesLoading } = useEnsBranches();
+export function GroupForm({ org, onDone }: { org: string; onDone?: () => void }) {
+  const { branches, isLoading: branchesLoading } = useEnsBranches(org);
   const withRegistrar = (branches ?? []).filter((b) => b.registrar);
 
   const [registrar, setRegistrar] = useState("");

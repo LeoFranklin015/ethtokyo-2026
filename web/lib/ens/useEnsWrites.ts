@@ -4,7 +4,6 @@ import { useCallback, useState } from "react";
 import { usePublicClient, useWriteContract } from "wagmi";
 import { decodeEventLog, type Address, type Hex } from "viem";
 import { branchFactoryAbi, registrarWriteAbi } from "@/lib/ens/abis";
-import { ENS } from "@/lib/ens/config";
 
 /**
  * Every ENS write, signed by whoever is connected.
@@ -61,12 +60,12 @@ export function useEnsWrites() {
    * the flow has the registrar address immediately.
    */
   const createBranch = useCallback(
-    (label: string, expiry: bigint, owner: Address, factory?: Address) =>
+    // The organization's own factory, always. There is no default: falling back to a
+    // configured one is what made a branch land under somebody else's organization.
+    (label: string, expiry: bigint, owner: Address, factory: Address) =>
       run(async () => {
         const hash = await writeContractAsync({
-          // The organization's own factory. Falling back to the configured one is what made a
-          // branch land under somebody else's organization entirely.
-          address: (factory ?? ENS.branchFactory) as Address,
+          address: factory,
           abi: branchFactoryAbi,
           functionName: "createBranch",
           args: [label, expiry, owner],

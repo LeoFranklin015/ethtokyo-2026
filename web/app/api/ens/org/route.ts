@@ -1,25 +1,28 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { ENS } from "@/lib/ens/config";
+import { orgStatus } from "@/lib/ens/org";
 
 export const dynamic = "force-dynamic";
 
 /**
- * What organization this console is pointed at.
+ * What is `?name=acme.eth`?
  *
- * There is no signer to report any more. This route used to answer "can the server sign, and as
- * whom", and to accept a POST that bought an organization name with the server's own key and
- * money — which is why claiming a name sat behind a shared console token and told newcomers
- * "console authentication required" before they had done anything.
- *
- * An organization is a name somebody owns. They buy it from their own wallet
- * (`lib/ens/useOrgRegistration.ts`), so there is nothing of ours to protect and nobody to
- * authorise.
+ * Answers who owns it and whether it has been set up as an organization. This used to return a
+ * hardcoded organization name and the server's signing address — both of which are gone, along
+ * with the idea that this console serves one organization.
  */
-export async function GET() {
-  return NextResponse.json({
-    organization: ENS.organization,
-    chainId: 11155111,
-    registrar: ENS.ethRegistrar,
-    paymentToken: ENS.paymentToken,
-  });
+export async function GET(req: NextRequest) {
+  const name = req.nextUrl.searchParams.get("name");
+  if (!name) {
+    return NextResponse.json({ chainId: 11155111, orgFactory: ENS.orgFactory });
+  }
+
+  try {
+    return NextResponse.json(await orgStatus(name));
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "could not read that name" },
+      { status: 502 },
+    );
+  }
 }

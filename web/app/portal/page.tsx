@@ -6,7 +6,7 @@ export const metadata = { title: "Portal — ENSCA" };
 export default function PortalPage() {
   return (
     <>
-      <SiteHeader current="/portal" />
+      <SiteHeader />
       <main
         id="main"
         className="paper-grid flex flex-1 flex-col items-center justify-center px-5 py-12"

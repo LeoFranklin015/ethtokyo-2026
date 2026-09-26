@@ -18,8 +18,8 @@ import type { RoleInfo } from "@/lib/ens/read";
  * visit anywhere in the organization it also mints their Member name, which is what carries their
  * identity to other branches.
  */
-export function OnboardForm({ onDone }: { onDone?: () => void }) {
-  const { branches, isLoading: branchesLoading } = useEnsBranches();
+export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void }) {
+  const { branches, isLoading: branchesLoading } = useEnsBranches(org);
   const withRegistrar = (branches ?? []).filter((b) => b.registrar);
 
   const [registrar, setRegistrar] = useState("");
@@ -107,6 +107,7 @@ export function OnboardForm({ onDone }: { onDone?: () => void }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           kind: "member",
+          org,
           registrar: target,
           label,
           wallet: owner.trim(),

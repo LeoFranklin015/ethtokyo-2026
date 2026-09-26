@@ -8,7 +8,8 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { registrarV2Abi, registryAbi } from "./abis";
-import { ENS, RPC_BATCH_SIZE, RPC_URL } from "./config";
+import { RPC_BATCH_SIZE, RPC_URL } from "./config";
+import type { Organization } from "./org";
 
 const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL, { batch: { batchSize: RPC_BATCH_SIZE, wait: 8 } }) });
 
@@ -29,6 +30,7 @@ const client = createPublicClient({ chain: sepolia, transport: http(RPC_URL, { b
  */
 export async function branchForRegistrar(
   registrar: string,
+  org: Organization,
 ): Promise<{ name: string; label: string; registry: Address } | null> {
   if (!/^0x[0-9a-fA-F]{40}$/.test(registrar)) return null;
   const address = registrar as Address;
@@ -59,12 +61,12 @@ export async function branchForRegistrar(
   if (!/^[a-z0-9-]{1,32}$/.test(label)) return null;
 
   const claimed = await client.readContract({
-    address: ENS.orgRegistry as Address,
+    address: org.registry,
     abi: registryAbi,
     functionName: "getSubregistry",
     args: [label],
   });
   if (claimed.toLowerCase() !== (registry as string).toLowerCase()) return null;
 
-  return { name: `${label}.${ENS.organization}`, label, registry: registry as Address };
+  return { name: `${label}.${org.name}`, label, registry: registry as Address };
 }

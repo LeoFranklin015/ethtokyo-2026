@@ -98,10 +98,13 @@ export async function labelAvailable(branchRegistry: Address, label: string): Pr
   return status === 0;
 }
 
-/** Is `label` free as a branch under the organization? */
-export async function branchLabelAvailable(label: string): Promise<boolean> {
+/** Is `label` free as a branch under this organization's own factory? */
+export async function branchLabelAvailable(
+  branchFactory: Address,
+  label: string,
+): Promise<boolean> {
   return publicClient.readContract({
-    address: ENS.branchFactory as Address,
+    address: branchFactory,
     abi: branchFactoryAbi,
     functionName: "isAvailable",
     args: [label],

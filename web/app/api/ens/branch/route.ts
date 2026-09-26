@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { branchLabelAvailable } from "@/lib/ens/availability";
+import { orgFromRequest } from "@/lib/ens/route-org";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /** `?label=tokyo` → is that branch label free under the organization? */
 export async function GET(req: NextRequest) {
+  const { org, error } = await orgFromRequest(req.nextUrl);
+  if (error) return error;
+
   const label = (req.nextUrl.searchParams.get("label") ?? "").trim().toLowerCase();
   if (!/^[a-z0-9-]{1,32}$/.test(label)) {
     return NextResponse.json({ label, valid: false, available: false });
   }
   try {
-    return NextResponse.json({ label, valid: true, available: await branchLabelAvailable(label) });
+    return NextResponse.json({ label, valid: true, available: await branchLabelAvailable(org.branchFactory, label) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "lookup failed" },

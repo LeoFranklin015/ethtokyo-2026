@@ -2,7 +2,7 @@
 
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsMemberships } from "@/lib/hooks/useEns";
-import { ENS, explorer } from "@/lib/ens/config";
+import { explorer } from "@/lib/ens/config";
 
 const COLUMNS = ["Membership", "Branch", "Member name", "Role", "Own roles", "Entitlements"];
 
@@ -17,8 +17,8 @@ function short(address: string) {
  * now", this one answers "who holds a name and what does it grant". Same people, different source
  * of truth, and conflating them would hide which is which.
  */
-export function EnsMemberships() {
-  const { memberships, source, indexedBlock, error, isLoading } = useEnsMemberships();
+export function EnsMemberships({ org }: { org: string }) {
+  const { memberships, source, indexedBlock, error, isLoading } = useEnsMemberships(org);
 
   return (
     <Panel as="section" className="overflow-hidden">
@@ -39,7 +39,7 @@ export function EnsMemberships() {
                   : "direct contract reads"}
               </span>
             ) : null}
-            <span className="font-mono text-[0.6875rem] text-ink-muted">{ENS.organization}</span>
+            <span className="font-mono text-[0.6875rem] text-ink-muted">{org + ".eth"}</span>
           </span>
         }
       >

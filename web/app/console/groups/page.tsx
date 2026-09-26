@@ -2,6 +2,8 @@
 
 import useSWR from "swr";
 import { PageHeader } from "@/components/console/PageHeader";
+import { NoOrgSelected } from "@/components/console/OrgPicker";
+import { useOrg } from "@/lib/hooks/useOrg";
 import { GroupForm } from "@/components/console/GroupForm";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsBranches } from "@/lib/hooks/useEns";
@@ -16,7 +18,8 @@ import { useState } from "react";
  * organization can invent one the contract never heard of and it appears here immediately.
  */
 export default function GroupsPage() {
-  const { branches, isLoading: branchesLoading } = useEnsBranches();
+  const org = useOrg();
+  const { branches, isLoading: branchesLoading } = useEnsBranches(org);
   const withRegistrar = (branches ?? []).filter((b) => b.registrar);
   const [selected, setSelected] = useState<string>("");
   const registrar = selected || withRegistrar[0]?.registrar || "";
@@ -31,10 +34,14 @@ export default function GroupsPage() {
   );
   const groups = (data?.groups ?? []).filter((g) => g.active);
 
+  // Every figure below belongs to one organization. Without one there is nothing to read,
+  // and guessing which is how this console used to answer with somebody else's data.
+  if (!org) return <NoOrgSelected />;
+
   return (
     <>
       <PageHeader
-        eyebrow={ENS.organization}
+        eyebrow={`${org}.eth`}
         title="Groups"
         meta="Categories of people. A group mints no name — onboarding assigns one."
       />
@@ -126,7 +133,7 @@ export default function GroupsPage() {
           )}
         </Panel>
 
-        <GroupForm onDone={() => mutate()} />
+        <GroupForm org={org} onDone={() => mutate()} />
       </div>
     </>
   );

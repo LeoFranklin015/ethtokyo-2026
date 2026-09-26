@@ -2,7 +2,7 @@
 
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsBranches } from "@/lib/hooks/useEns";
-import { ENS, explorer } from "@/lib/ens/config";
+import { explorer } from "@/lib/ens/config";
 
 /**
  * Branches, discovered from ENS rather than configured.
@@ -12,19 +12,19 @@ import { ENS, explorer } from "@/lib/ens/config";
  * because a registrar is only an EAC role holder and is otherwise invisible. So a new branch shows
  * up here the moment it is registered; nothing in this app has to be redeployed.
  */
-export function EnsBranches() {
-  const { branches, indexedBlock, error, isLoading } = useEnsBranches();
+export function EnsBranches({ org }: { org: string }) {
+  const { branches, indexedBlock, error, isLoading } = useEnsBranches(org);
 
   return (
     <Panel as="section" className="overflow-hidden">
       <PanelHeader
         right={
           <span className="font-mono text-[0.6875rem] text-ink-muted">
-            {indexedBlock ? `ens indexer · block ${indexedBlock}` : ENS.organization}
+            {indexedBlock ? `ens indexer · block ${indexedBlock}` : org + ".eth"}
           </span>
         }
       >
-        Branches of {ENS.organization}
+        Branches of {org + ".eth"}
       </PanelHeader>
 
       {isLoading ? (

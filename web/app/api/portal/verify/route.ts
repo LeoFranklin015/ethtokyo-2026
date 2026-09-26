@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyMessage } from "viem";
 import type { Address } from "viem";
 import { resolveByWallet, resolveIdentity } from "@/lib/ens/read";
+import { resolveOrg } from "@/lib/ens/org";
 import { challengeMessage, consumeNonce } from "@/lib/portal/nonces";
 import { admit } from "@/lib/portal/admit";
 import { clientIp } from "../challenge/route";
@@ -75,7 +76,27 @@ export async function POST(req: NextRequest) {
   // ends up treating a public name as a password.
   let identity;
   try {
-    identity = ensName ? await resolveIdentity(ensName) : await resolveByWallet(wallet as Address);
+    if (ensName) {
+      identity = await resolveIdentity(ensName);
+    } else {
+      // No name given, so we search this branch's organization. A portal serves one branch, so
+      // that organization is configuration — there is nothing to guess and nothing to default.
+      const orgLabel = process.env.BRANCH_ORG?.trim();
+      if (!orgLabel) {
+        return NextResponse.json(
+          { ok: false, reason: "this portal has no organization configured" },
+          { status: 503 },
+        );
+      }
+      const org = await resolveOrg(orgLabel);
+      if (!org) {
+        return NextResponse.json(
+          { ok: false, reason: `no organization is set up for ${orgLabel}.eth` },
+          { status: 503 },
+        );
+      }
+      identity = await resolveByWallet(wallet as Address, org);
+    }
   } catch (error) {
     return NextResponse.json(
       {

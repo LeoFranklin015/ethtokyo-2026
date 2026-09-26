@@ -12,15 +12,20 @@ async function ensGet<T>(path: string): Promise<T> {
 }
 
 /** Memberships read from the branch registry, with their resolver entitlements. */
-export function useEnsMemberships(branch?: string) {
+export function useEnsMemberships(org: string | null, branch?: string) {
   const { data, error, isLoading } = useSWR<{
     memberships: EnsMembership[];
     total: number;
     source: "indexer" | "chain";
     indexedBlock: number | null;
   }>(
-    branch ? `ens-memberships:${branch}` : "ens-memberships",
-    () => ensGet(branch ? `memberships?branch=${encodeURIComponent(branch)}` : "memberships"),
+    // Keyed by organization as well as branch: two organizations must never share a cache
+    // entry, and a null key means "nothing selected yet" rather than "fetch the default".
+    org ? `ens-memberships:${org}:${branch ?? ""}` : null,
+    () =>
+      ensGet(
+        `memberships?org=${org}${branch ? `&branch=${encodeURIComponent(branch)}` : ""}`,
+      ),
     { refreshInterval: 30_000 },
   );
   return {
@@ -33,13 +38,13 @@ export function useEnsMemberships(branch?: string) {
   };
 }
 
-/** The branch itself, plus the organization's on-chain role catalogue. */
-
 /** Branches under the organization, discovered from ENS rather than configured. */
-export function useEnsBranches() {
+export function useEnsBranches(org: string | null) {
   const { data, error, isLoading } = useSWR<{
     branches: IndexedBranch[];
     indexedBlock: number | null;
-  }>("ens-branches", () => ensGet("branches"), { refreshInterval: 60_000 });
+  }>(org ? `ens-branches:${org}` : null, () => ensGet(`branches?org=${org}`), {
+    refreshInterval: 60_000,
+  });
   return { branches: data?.branches, indexedBlock: data?.indexedBlock, error, isLoading };
 }

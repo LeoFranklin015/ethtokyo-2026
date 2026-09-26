@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { WalletButton } from "@/components/WalletButton";
 
 const NAV = [
   { href: "/create", label: "Create org" },
@@ -6,7 +10,11 @@ const NAV = [
   { href: "/portal", label: "Portal" },
 ] as const;
 
-export function SiteHeader({ current }: { current?: string }) {
+export function SiteHeader() {
+  // Derived, not passed. Every page had to remember to declare which one it was, and the home
+  // page never did — so its own link was never marked current.
+  const current = usePathname();
+
   return (
     <header className="border-b border-rule">
       <div className="mx-auto flex h-14 w-full max-w-[1180px] items-center justify-between gap-6 px-5">
@@ -14,7 +22,8 @@ export function SiteHeader({ current }: { current?: string }) {
           <span className="font-mono text-sm font-medium tracking-[0.18em] text-ink">ENSCA</span>
         </Link>
 
-        <nav aria-label="Primary">
+        <div className="flex items-center gap-4">
+          <nav aria-label="Primary">
           <ul className="flex items-center gap-1">
             {NAV.map((item) => {
               const active = current === item.href;
@@ -32,8 +41,10 @@ export function SiteHeader({ current }: { current?: string }) {
                 </li>
               );
             })}
-          </ul>
-        </nav>
+            </ul>
+          </nav>
+          <WalletButton compact />
+        </div>
       </div>
     </header>
   );

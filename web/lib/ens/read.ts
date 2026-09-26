@@ -10,8 +10,9 @@ import {
 } from "viem";
 import { sepolia } from "viem/chains";
 import { branchFactoryAbi, orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
-import { ENS, ENTITLEMENT_KEYS, RPC_BATCH_SIZE, RPC_URL } from "./config";
+import { ENTITLEMENT_KEYS, RPC_BATCH_SIZE, RPC_URL } from "./config";
 import { getIndexedBranches, getIndexedMemberships } from "./indexer";
+import { orgForName, type Organization } from "./org";
 
 /**
  * Reads the ENSCA contracts directly. Server-side only, so viem never reaches the client bundle.
@@ -69,16 +70,6 @@ export type MembershipsResult = {
   source: MembershipSource;
 };
 
-export type EnsBranch = {
-  organization: string;
-  branch: string;
-  expiry: number;
-  open: boolean;
-  registry: Address;
-  registrar: Address;
-  resolver: Address;
-  roles: RoleInfo[];
-};
 
 /**
  * Role names, recovered from `RoleDefined` logs.
@@ -118,7 +109,7 @@ async function roleNames(registrar: Address): Promise<Map<string, string>> {
   return names;
 }
 
-export async function getRoles(registrar: Address = ENS.branchRegistrar as Address): Promise<RoleInfo[]> {
+export async function getRoles(registrar: Address): Promise<RoleInfo[]> {
   const names = await roleNames(registrar);
 
   return Promise.all(
@@ -152,30 +143,6 @@ export async function getRoles(registrar: Address = ENS.branchRegistrar as Addre
   );
 }
 
-export async function getBranch(): Promise<EnsBranch> {
-  const [expiry, roles] = await Promise.all([
-    client.readContract({
-      address: ENS.orgRegistry as Address,
-      abi: registryAbi,
-      functionName: "getExpiry",
-      args: [labelHash(ENS.branchLabel)],
-    }),
-    getRoles(),
-  ]);
-
-  const expirySeconds = Number(expiry);
-  return {
-    organization: ENS.organization,
-    branch: ENS.branch,
-    expiry: expirySeconds,
-    open: expirySeconds * 1000 > Date.now(),
-    registry: ENS.branchRegistry as Address,
-    registrar: ENS.branchRegistrar as Address,
-    resolver: ENS.resolver as Address,
-    roles,
-  };
-}
-
 /**
  * Live memberships in the branch.
  *
@@ -183,21 +150,32 @@ export async function getBranch(): Promise<EnsBranch> {
  * drops out. This is what an indexer would do; ENS's own Sepolia v2 instance is down, and reading
  * logs keeps the console honest about on-chain state regardless.
  */
-export async function getMemberships(branchLabel?: string): Promise<MembershipsResult> {
+export async function getMemberships(
+  organization: string,
+  branchLabel?: string,
+  orgRegistrar?: Address,
+): Promise<MembershipsResult> {
   // No fallback. There used to be one and it ignored `branchLabel` entirely — asking for Osaka
   // during an indexer outage returned Tokyo's members, stamped "tokyo", with HTTP 200. A
   // confident wrong answer is worse than the 502 the caller now gets and can report.
-  return { memberships: await fromIndexer(branchLabel), source: "indexer" };
+  return {
+    memberships: await fromIndexer(organization, branchLabel, orgRegistrar),
+    source: "indexer",
+  };
 }
 
 /**
  * One GraphQL round trip for names, owners and entitlements; contract reads only for the parts
  * that live in our own contracts and no ENS indexer can know.
  */
-async function fromIndexer(branchLabel?: string): Promise<EnsMembership[]> {
+async function fromIndexer(
+  organization: string,
+  branchLabel?: string,
+  orgRegistrar?: Address,
+): Promise<EnsMembership[]> {
   const [indexed, branches] = await Promise.all([
-    getIndexedMemberships(branchLabel),
-    getIndexedBranches(),
+    getIndexedMemberships(organization, branchLabel),
+    getIndexedBranches(organization),
   ]);
 
   const byLabel = new Map(branches.map((b) => [b.label, b]));
@@ -244,12 +222,14 @@ async function fromIndexer(branchLabel?: string): Promise<EnsMembership[]> {
           functionName: "roles",
           args: [resource, owner as Address],
         }),
-        client.readContract({
-          address: ENS.orgRegistrar as Address,
-          abi: orgRegistrarAbi,
-          functionName: "labelOf",
-          args: [owner as Address],
-        }),
+        orgRegistrar
+          ? client.readContract({
+              address: orgRegistrar,
+              abi: orgRegistrarAbi,
+              functionName: "labelOf",
+              args: [owner as Address],
+            })
+          : Promise.resolve(""),
       ]);
 
       return {
@@ -258,7 +238,7 @@ async function fromIndexer(branchLabel?: string): Promise<EnsMembership[]> {
         // A role id is keccak256(name); only that branch's RoleDefined event has the readable name.
         role: names.get(roleId.toLowerCase()) ?? "unknown",
         ownRoles: ownRoles.toString(),
-        memberName: memberLabel ? `${memberLabel}.${ENS.organization}` : null,
+        memberName: memberLabel ? `${memberLabel}.${organization}` : null,
         entitlements,
       } satisfies EnsMembership;
     }),
@@ -291,17 +271,18 @@ export type ResolvedIdentity = {
  */
 export async function resolveIdentity(name: string): Promise<ResolvedIdentity | null> {
   const lower = name.trim().toLowerCase().replace(/\.$/, "");
-  const suffix = `.${ENS.organization}`;
-  if (!lower.endsWith(suffix)) return null;
 
-  const parts = lower.slice(0, -suffix.length).split(".");
-  // <label>.<branch>.<org> — anything else is not a membership.
-  if (parts.length !== 2) return null;
-  const [label, branchLabel] = parts;
+  // Which organization is this? Derived from the name, not compared against a configured one —
+  // that comparison is what made the admission path refuse every name belonging to anybody
+  // else's organization, which is every organization but ours.
+  const resolved = await orgForName(lower);
+  if (!resolved) return null;
+  const { org, branchLabel, label } = resolved;
+  const suffix = `.${org.name}`;
 
   // A branch is a name in the org registry that carries a subregistry.
   const branchRegistry = await client.readContract({
-    address: ENS.orgRegistry as Address,
+    address: org.registry,
     abi: registryAbi,
     functionName: "getSubregistry",
     args: [branchLabel],
@@ -325,7 +306,7 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
       args: [labelHash(label)],
     }),
     client.readContract({
-      address: ENS.resolver as Address,
+      address: org.resolver,
       abi: resolverAbi,
       functionName: "text",
       args: [branchNode, "ensca.registrar"],
@@ -336,7 +317,7 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
   const values = await Promise.all(
     ENTITLEMENT_KEYS.map((key) =>
       client.readContract({
-        address: ENS.resolver as Address,
+        address: org.resolver,
         abi: resolverAbi,
         functionName: "text",
         args: [node, key],
@@ -391,8 +372,11 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
  * to the door, and an indexer that has not caught up would deny them. Logs are visible in the
  * same block the branch is created in.
  */
-export async function resolveByWallet(wallet: Address): Promise<ResolvedIdentity | null> {
-  const branches = await chainBranches();
+export async function resolveByWallet(
+  wallet: Address,
+  org: Organization,
+): Promise<ResolvedIdentity | null> {
+  const branches = await chainBranches(org);
   if (branches.length === 0) {
     throw new Error("no branches could be read; cannot rule out a membership");
   }
@@ -437,17 +421,12 @@ export type ChainBranch = {
 
 const chainBranchCache = new Map<Address, { at: number; branches: ChainBranch[] }>();
 
-export async function chainBranches(scope?: {
-  factory: Address;
-  orgRegistry: Address;
-  orgResolver: Address;
-  organization: string;
-}): Promise<ChainBranch[]> {
-  const where = scope ?? {
-    factory: ENS.branchFactory as Address,
-    orgRegistry: ENS.orgRegistry as Address,
-    orgResolver: ENS.resolver as Address,
-    organization: ENS.organization,
+export async function chainBranches(org: Organization): Promise<ChainBranch[]> {
+  const where = {
+    factory: org.branchFactory,
+    orgRegistry: org.registry,
+    orgResolver: org.resolver,
+    organization: org.name,
   };
 
   // Cached: this is reached from an unauthenticated endpoint, and the scan is O(blocks) with no

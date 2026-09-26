@@ -11,6 +11,8 @@ import { useSessions } from "@/lib/hooks/useSessions";
 import { useThroughput } from "@/lib/hooks/useThroughput";
 import { useUsers } from "@/lib/hooks/useUsers";
 import { useEnsBranches } from "@/lib/hooks/useEns";
+import { useOrg } from "@/lib/hooks/useOrg";
+import { OrgPicker } from "@/components/console/OrgPicker";
 
 /**
  * The branch overview.
@@ -21,12 +23,13 @@ import { useEnsBranches } from "@/lib/hooks/useEns";
  * under a green "Live" dot whenever the enforcer was unreachable. A failed read now says so.
  */
 export default function OverviewPage() {
+  const org = useOrg();
   const groups = useGroups();
   const active = useSessions(true);
   const ended = useSessions(false);
   const throughput = useThroughput();
   const users = useUsers();
-  const { branches } = useEnsBranches();
+  const { branches } = useEnsBranches(org);
 
   // One enforcer serves one branch, so the branch is configuration. Picking `branches[0]`
   // instead meant the alphabetically-first branch's name sat above figures that are
@@ -56,11 +59,23 @@ export default function OverviewPage() {
 
   const recent = [...sessions].sort((a, b) => b.logged_in_at - a.logged_in_at).slice(0, 5);
 
+  // Nothing selected: the console's first question is which organization, not which branch.
+  if (!org) {
+    return (
+      <>
+        <PageHeader eyebrow="Console" title="Choose an organization" />
+        <div className="px-4 py-8 sm:px-6">
+          <OrgPicker />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
-        eyebrow="Branch overview"
-        title={branchEns ?? "This enforcer"}
+        eyebrow={`${org}.eth`}
+        title={branchEns ?? `${org}.eth`}
         meta={
           branchEns
             ? "Live from ENS and the branch enforcer"

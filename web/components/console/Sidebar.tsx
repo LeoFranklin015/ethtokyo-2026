@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { SignalDither } from "@/components/dither/SignalDither";
 import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
 import { useEnsBranches } from "@/lib/hooks/useEns";
-import { ENS } from "@/lib/ens/config";
+import { useOrg, withOrg } from "@/lib/hooks/useOrg";
+import { WalletButton } from "@/components/WalletButton";
 
 const SECTIONS = [
   {
@@ -26,7 +27,8 @@ const SECTIONS = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { branches } = useEnsBranches();
+  const org = useOrg();
+  const { branches } = useEnsBranches(org);
   const { data: status, error: statusError, isLoading: statusLoading } = useProxyStatus();
 
   // Three states, not two. "Not yet answered" rendered as "unreachable" meant the first paint
@@ -46,7 +48,7 @@ export function Sidebar() {
         <Link href="/" className="flex items-center">
           <span className="font-mono text-sm font-medium tracking-[0.18em] text-ink">ENSCA</span>
         </Link>
-        <p className="mt-1 truncate font-mono text-[0.6875rem] text-ink-muted">{ENS.organization}</p>
+        <p className="mt-1 truncate font-mono text-[0.6875rem] text-ink-muted">{org ? `${org}.eth` : "no organization"}</p>
       </div>
 
       {/* Branches, discovered from ENS rather than configured */}
@@ -81,7 +83,7 @@ export function Sidebar() {
                 return (
                   <li key={item.href}>
                     <Link
-                      href={item.href}
+                      href={withOrg(item.href, org)}
                       aria-current={active ? "page" : undefined}
                       className={`flex min-h-11 items-center gap-2.5 rounded-sharp px-2 text-sm transition-colors ${
                         active ? "bg-ink/8 font-medium text-ink" : "text-ink-muted hover:bg-ink/5 hover:text-ink"
@@ -112,6 +114,17 @@ export function Sidebar() {
             <span aria-hidden className="size-1.5 rounded-full" style={{ background: enforcer.colour }} />
             {enforcer.label}
           </p>
+        </div>
+        <div className="border-t border-rule px-5 py-3">
+          <WalletButton compact />
+        </div>
+        <div className="border-t border-rule px-5 py-2.5">
+          <Link
+            href="/console"
+            className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+          >
+            Switch organization
+          </Link>
         </div>
         <div className="border-t border-rule px-5 py-2.5">
           <Link

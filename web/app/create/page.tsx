@@ -6,7 +6,7 @@ export const metadata = { title: "Create an organization — ENSCA" };
 export default function CreatePage() {
   return (
     <>
-      <SiteHeader current="/create" />
+      <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-[1180px] flex-1 px-5 py-10 lg:px-8">
         <header className="mb-8 max-w-[52ch]">
           <p className="label">Set up</p>

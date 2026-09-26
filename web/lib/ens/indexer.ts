@@ -1,5 +1,5 @@
 import "server-only";
-import { ENS, ENTITLEMENT_KEYS } from "./config";
+import { ENTITLEMENT_KEYS } from "./config";
 
 /**
  * The ENS staging indexer for ENSv2.
@@ -78,9 +78,9 @@ function entitlementsFrom(resolver: Resolved): Record<string, string> {
  * One request covers the whole tree — branches and their memberships — rather than one per branch,
  * which is what keeps this cheap as an organization grows.
  */
-async function orgTree(): Promise<IndexedDomain[]> {
+async function orgTree(organization: string): Promise<IndexedDomain[]> {
   const data = await gql<{ domains: IndexedDomain[] }>(`{
-    domains(where: { name_ends_with: ${JSON.stringify(`.${ENS.organization}`)} }) {
+    domains(where: { name_ends_with: ${JSON.stringify(`.${organization}`)} }) {
       name
       owner { id }
       subregistry { address labelCount }
@@ -91,9 +91,9 @@ async function orgTree(): Promise<IndexedDomain[]> {
 }
 
 /** Branches: names under the organization that carry a registry of their own. */
-export async function getIndexedBranches(): Promise<IndexedBranch[]> {
-  const suffix = `.${ENS.organization}`;
-  return orgTree()
+export async function getIndexedBranches(organization: string): Promise<IndexedBranch[]> {
+  const suffix = `.${organization}`;
+  return orgTree(organization)
     .then((domains) =>
       domains
         .filter((d) => d.subregistry !== null)
@@ -114,8 +114,11 @@ export async function getIndexedBranches(): Promise<IndexedBranch[]> {
  * A membership is a name two levels below the organization; a Member name is one level below. The
  * depth is what tells them apart, so no per-branch query is needed.
  */
-export async function getIndexedMemberships(branchLabel?: string): Promise<IndexedMembership[]> {
-  const domains = await orgTree();
+export async function getIndexedMemberships(
+  organization: string,
+  branchLabel?: string,
+): Promise<IndexedMembership[]> {
+  const domains = await orgTree(organization);
   const branchLabels = new Set(
     domains.filter((d) => d.subregistry !== null).map((d) => d.name.split(".")[0]),
   );
@@ -125,15 +128,16 @@ export async function getIndexedMemberships(branchLabel?: string): Promise<Index
     if (!d.owner || d.subregistry) continue;
 
     const parts = d.name.split(".");
-    // <member>.<branch>.<org>.eth — an org-level Member name is one part shorter.
-    if (parts.length !== 4) continue;
+    // <member>.<branch>.<org> — an org-level Member name is one part shorter. Derived from the
+    // organization's own depth rather than assuming it is two labels.
+    if (parts.length !== organization.split(".").length + 2) continue;
 
     const [label, branch] = parts;
     if (!branchLabels.has(branch)) continue;
     if (branchLabel && branch !== branchLabel) continue;
 
     rows.push({
-      branch: `${branch}.${ENS.organization}`,
+      branch: `${branch}.${organization}`,
       branchLabel: branch,
       label,
       name: d.name,

@@ -1,6 +1,8 @@
 "use client";
 
 import { PageHeader } from "@/components/console/PageHeader";
+import { NoOrgSelected } from "@/components/console/OrgPicker";
+import { useOrg } from "@/lib/hooks/useOrg";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useUsers } from "@/lib/hooks/useUsers";
 import { useSessions } from "@/lib/hooks/useSessions";
@@ -14,6 +16,7 @@ function fmtBytes(b: number): string {
 }
 
 export default function MembersPage() {
+  const org = useOrg();
   // One enforcer serves one branch, so the branch is configuration — not "whichever branch
   // sorts first", which is what this used to be while the counts below are enforcer-wide.
   const branchEns = process.env.NEXT_PUBLIC_BRANCH_ENS?.trim() || null;
@@ -30,6 +33,10 @@ export default function MembersPage() {
   // role is in the ENS table directly above this one.
   const COLUMNS = ["Membership", "Address", "Sessions", "Proxied out", "State"];
 
+  // Every figure below belongs to one organization. Without one there is nothing to read,
+  // and guessing which is how this console used to answer with somebody else's data.
+  if (!org) return <NoOrgSelected />;
+
   return (
     <>
       <PageHeader
@@ -40,10 +47,10 @@ export default function MembersPage() {
 
       <div className="px-5 py-6 lg:px-8 space-y-6">
         <div className="max-w-[560px]">
-          <OnboardForm />
+          <OnboardForm org={org} />
         </div>
 
-        <EnsMemberships />
+        <EnsMemberships org={org} />
 
         <Panel as="section" className="overflow-hidden">
           <PanelHeader
