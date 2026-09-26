@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignalDither } from "@/components/dither/SignalDither";
-import { BRANCHES } from "@/lib/data";
+import { DEPLOYMENT } from "@/lib/ens/config";
 
 const SECTIONS = [
   {
@@ -34,20 +34,13 @@ export function Sidebar() {
 
       {/* Branch switcher */}
       <div className="border-b border-rule px-4 py-3 lg:px-5">
-        <label htmlFor="branch-switcher" className="label">
-          Branch
-        </label>
-        <select
+        <p className="label">Branch</p>
+        <p
           id="branch-switcher"
-          defaultValue={BRANCHES[0].label}
-          className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
+          className="mt-2 flex h-11 items-center rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
         >
-          {BRANCHES.map((b) => (
-            <option key={b.ens} value={b.label}>
-              {b.label}
-            </option>
-          ))}
-        </select>
+          {DEPLOYMENT.branchLabel}
+        </p>
       </div>
 
       {/* Navigation */}

@@ -1,34 +1,67 @@
 import { PageHeader } from "@/components/console/PageHeader";
-import { ThroughputChart } from "@/components/console/ThroughputChart";
 import { SignalDither } from "@/components/dither/SignalDither";
-import { Meter } from "@/components/ui/Meter";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { SourceTag } from "@/components/ui/SourceTag";
-import { GROUPS, THROUGHPUT } from "@/lib/data";
+import { Unavailable } from "@/components/ui/Unavailable";
 import { getBranch, getMemberships } from "@/lib/ens/branch";
 import { explorer } from "@/lib/ens/config";
+import {
+  bytesByGroup,
+  enforcerConfigured,
+  formatBytes,
+  getSessions,
+  getStatus,
+} from "@/lib/enforcer/client";
 
 export const metadata = { title: "Overview — ENSCA console" };
-export const revalidate = 30;
-
-const totalUsed = GROUPS.reduce((sum, g) => sum + g.used, 0);
-const totalPool = GROUPS.reduce((sum, g) => sum + g.pool, 0);
-const peak = Math.max(...THROUGHPUT.map((s) => s.mbps));
+export const revalidate = 15;
 
 function formatWindow(expiry: number): string {
   const days = Math.max(0, Math.round((expiry * 1000 - Date.now()) / 86_400_000));
   return `${days} days left`;
 }
 
-export default async function OverviewPage() {
-  const [branch, memberships] = await Promise.all([getBranch(), getMemberships()]);
+const ENFORCER_HINT =
+  "Set ENFORCER_URL and ENFORCER_TOKEN to the branch enforcer's admin API. Until then this panel stays empty rather than showing a number nobody measured.";
 
-  const online = memberships.length;
+export default async function OverviewPage() {
+  const [branch, memberships, status, sessions] = await Promise.all([
+    getBranch(),
+    getMemberships(),
+    getStatus(),
+    getSessions(),
+  ]);
+
+  const groups = sessions ? bytesByGroup(sessions) : null;
+  const totalBytes = sessions
+    ? sessions.reduce((sum, s) => sum + s.bytes_in + s.bytes_out, 0)
+    : null;
+
   const kpis = [
-    { label: "Memberships", value: String(memberships.length), sub: "in the branch registry", source: "chain" as const },
-    { label: "Admitted", value: String(online), sub: "holding a live name", source: "chain" as const },
-    { label: "Throughput", value: totalUsed.toLocaleString(), unit: "Mbps", sub: `peak ${peak}`, source: "enforcer" as const },
-    { label: "Groups", value: String(GROUPS.length), sub: "isolated VLANs", source: "enforcer" as const },
+    {
+      label: "Memberships",
+      value: String(memberships.length),
+      sub: "in the branch registry",
+      source: "chain" as const,
+    },
+    {
+      label: "Active sessions",
+      value: status ? String(status.active_sessions) : null,
+      sub: "devices admitted now",
+      source: "enforcer" as const,
+    },
+    {
+      label: "Traffic",
+      value: totalBytes === null ? null : formatBytes(totalBytes),
+      sub: "across live sessions",
+      source: "enforcer" as const,
+    },
+    {
+      label: "Groups",
+      value: groups ? String(groups.length) : null,
+      sub: "carrying live traffic",
+      source: "enforcer" as const,
+    },
   ];
 
   return (
@@ -62,102 +95,124 @@ export default async function OverviewPage() {
               <SourceTag source={kpi.source} />
             </dt>
             <dd>
-              <span className="mt-2.5 flex items-baseline gap-1.5">
-                <span className="font-mono text-[1.625rem] font-medium leading-none tabular-nums tracking-tight text-ink">
-                  {kpi.value}
-                </span>
-                {kpi.unit ? <span className="font-mono text-xs text-ink-muted">{kpi.unit}</span> : null}
+              <span className="mt-2.5 block font-mono text-[1.625rem] font-medium leading-none tabular-nums tracking-tight text-ink">
+                {kpi.value ?? <span className="text-ink-faint">—</span>}
               </span>
-              <span className="mt-1.5 block text-xs text-ink-muted">{kpi.sub}</span>
+              <span className="mt-1.5 block text-xs text-ink-muted">
+                {kpi.value === null ? "enforcer unreachable" : kpi.sub}
+              </span>
             </dd>
           </div>
         ))}
       </dl>
 
-      <div className="px-5 py-6 lg:px-8">
+      <div className="grid gap-6 px-5 py-6 lg:px-8 xl:grid-cols-[1.25fr_0.75fr]">
         <Panel as="section">
-          <PanelHeader right={<SourceTag source="enforcer" />}>Branch throughput</PanelHeader>
-          <div className="px-2 pb-2 pt-3 sm:px-4">
-            <ThroughputChart data={THROUGHPUT} cap={totalPool} />
-          </div>
+          <PanelHeader
+            right={
+              groups ? (
+                <span className="font-mono text-[0.6875rem] text-ink-muted">
+                  {sessions?.length ?? 0} live sessions
+                </span>
+              ) : (
+                <SourceTag source="enforcer" />
+              )
+            }
+          >
+            Traffic by group
+          </PanelHeader>
+
+          {groups === null ? (
+            <Unavailable
+              what={enforcerConfigured() ? "Enforcer unreachable" : "Enforcer not configured"}
+              hint={ENFORCER_HINT}
+            />
+          ) : groups.length === 0 ? (
+            <Unavailable
+              what="No live sessions"
+              hint="Nobody is currently admitted to the branch network."
+            />
+          ) : (
+            <ul className="divide-y divide-rule">
+              {groups.map((g) => (
+                <li key={g.name} className="flex items-baseline justify-between gap-4 px-4 py-3">
+                  <span className="font-mono text-xs text-ink">{g.name}</span>
+                  <span className="flex items-baseline gap-4 font-mono text-xs tabular-nums text-ink-muted">
+                    <span>{g.devices} devices</span>
+                    <span className="text-ink-80">
+                      ↓ {formatBytes(g.bytesIn)} · ↑ {formatBytes(g.bytesOut)}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </Panel>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+        <div className="flex flex-col gap-6">
           <Panel as="section">
-            <PanelHeader right={<SourceTag source="enforcer" />}>Group utilisation</PanelHeader>
-            <div className="divide-y divide-rule">
-              {GROUPS.map((group) => (
-                <Meter
-                  key={group.name}
-                  label={group.name}
-                  used={group.used}
-                  cap={group.pool}
-                  detail={`vlan ${group.vlan} · ${group.devices} devices`}
-                />
+            <PanelHeader right={<SourceTag source="chain" />}>Registry</PanelHeader>
+            <dl className="divide-y divide-rule">
+              {[
+                ["Organization", branch.organization, ""],
+                ["Branch registry", `${branch.registry.slice(0, 10)}…`, branch.registry],
+                ["Registrar", `${branch.registrar.slice(0, 10)}…`, branch.registrar],
+                ["Resolver", `${branch.resolver.slice(0, 10)}…`, branch.resolver],
+                ["Emancipated", branch.emancipated ? "yes" : "no — org retains control", ""],
+              ].map(([term, detail, href]) => (
+                <div key={term} className="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                  <dt className="label">{term}</dt>
+                  <dd className="text-right font-mono text-xs text-ink-80">
+                    {href ? (
+                      <a
+                        href={explorer(href)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline decoration-rule underline-offset-2 hover:text-ink"
+                      >
+                        {detail}
+                      </a>
+                    ) : (
+                      detail
+                    )}
+                  </dd>
+                </div>
               ))}
-            </div>
+            </dl>
           </Panel>
 
-          <div className="flex flex-col gap-6">
-            <Panel as="section">
-              <PanelHeader right={<SourceTag source="chain" />}>Registry</PanelHeader>
-              <dl className="divide-y divide-rule">
+          <Panel as="section">
+            <PanelHeader right={<SourceTag source="enforcer" />}>Perimeter</PanelHeader>
+            <div className="flex items-stretch divide-x divide-rule">
+              <div className="relative w-[104px] shrink-0">
+                <SignalDither
+                  motif="radar"
+                  cell={2}
+                  period={4.5}
+                  intensity={0.75}
+                  className="absolute inset-0"
+                  label="Radar sweep indicating presence detection"
+                />
+              </div>
+              <dl className="flex-1 divide-y divide-rule">
                 {[
-                  ["Organization", branch.organization, ""],
-                  ["Branch registry", `${branch.registry.slice(0, 10)}…`, branch.registry],
-                  ["Registrar", `${branch.registrar.slice(0, 10)}…`, branch.registrar],
-                  ["Resolver", `${branch.resolver.slice(0, 10)}…`, branch.resolver],
-                  ["Emancipated", branch.emancipated ? "yes" : "no — org retains control", ""],
-                ].map(([term, detail, href]) => (
-                  <div key={term} className="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                  ["Present", status ? String(status.active_sessions) : null],
+                  ["Resources", status ? String(status.resources_enabled) : null],
+                  ["Database", status?.db ?? null],
+                ].map(([term, value]) => (
+                  <div
+                    key={term}
+                    className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]"
+                  >
                     <dt className="label">{term}</dt>
-                    <dd className="text-right font-mono text-xs text-ink-80">
-                      {href ? (
-                        <a
-                          href={explorer(href)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="underline decoration-rule underline-offset-2 hover:text-ink"
-                        >
-                          {detail}
-                        </a>
-                      ) : (
-                        detail
-                      )}
+                    <dd className="font-mono text-xs tabular-nums text-ink-80">
+                      {value ?? <span className="text-ink-faint">—</span>}
                     </dd>
                   </div>
                 ))}
               </dl>
-            </Panel>
-
-            <Panel as="section">
-              <PanelHeader right={<SourceTag source="enforcer" />}>Perimeter</PanelHeader>
-              <div className="flex items-stretch divide-x divide-rule">
-                <div className="relative w-[104px] shrink-0">
-                  <SignalDither
-                    motif="radar"
-                    cell={2}
-                    period={4.5}
-                    intensity={0.75}
-                    className="absolute inset-0"
-                    label="Radar sweep indicating live presence detection"
-                  />
-                </div>
-                <dl className="flex-1 divide-y divide-rule">
-                  {[
-                    ["Present", String(online)],
-                    ["Joined 5m", "0"],
-                    ["Left 5m", "0"],
-                  ].map(([term, value]) => (
-                    <div key={term} className="flex items-baseline justify-between gap-3 px-4 py-[0.6875rem]">
-                      <dt className="label">{term}</dt>
-                      <dd className="font-mono text-xs tabular-nums text-ink-80">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            </Panel>
-          </div>
+            </div>
+          </Panel>
         </div>
       </div>
     </>
