@@ -192,6 +192,7 @@
       <!-- Step 2 -->
       <section id="step-wallet" hidden>
         <h1 id="wallet-title">Connect the badge&rsquo;s wallet</h1>
+        <div id="badge-avatar" hidden></div>
         <dl id="badge-facts"></dl>
         <div id="wallet-body"></div>
       </section>
@@ -337,7 +338,7 @@
   function short(a) { return a.slice(0, 6) + "…" + a.slice(-4); }
 
   var STEPS = ["badge", "wallet", "sign", "online"];
-  var state = { step: "badge", badge: null, account: null, attempt: 0 };
+  var state = { step: "badge", badge: null, account: null, attempt: 0, badgeRawUrl: null };
 
   function setStep(step) {
     state.step = step;
@@ -444,7 +445,7 @@
           var id = parseMemberId(raw);
           if (id) {
             stopCamera();
-            confirmScan(id);
+            confirmScan(id, raw);
           } else {
             // A QR that decodes to something else is a different state from no QR at all: the
             // guest is pointing at the wrong code and needs telling, not leaving to wait.
@@ -470,7 +471,8 @@
     });
   }
 
-  function confirmScan(id) {
+  function confirmScan(id, rawUrl) {
+    state.badgeRawUrl = rawUrl || null;
     $("scanned-id").textContent = id;
     show($("scan-live"), false);
     show($("scan-trouble"), false);
@@ -494,8 +496,10 @@
   $("scanner-close-bg").addEventListener("click", closeScanner);
   $("scan-again").addEventListener("click", startCamera);
   $("scan-accept").addEventListener("click", function () {
+    var rawUrl = state.badgeRawUrl;
+    state.badgeRawUrl = null;
     closeScanner();
-    lookUpBadge($("scanned-id").textContent);
+    lookUpBadge($("scanned-id").textContent, rawUrl);
   });
   $("manual-open").addEventListener("click", openManual);
   $("manual-id").addEventListener("input", function () {
@@ -505,20 +509,23 @@
   $("manual-use").addEventListener("click", function () {
     var id = $("manual-id").value;
     if (!MEMBER_ID.test(id)) return;
+    state.badgeRawUrl = null;
     closeScanner();
-    lookUpBadge(id);
+    lookUpBadge(id, null);
   });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && !$("scanner").hidden) closeScanner();
   });
 
   /* ── The badge ──────────────────────────────────────────────────────── */
-  function lookUpBadge(id) {
+  function lookUpBadge(id, rawUrl) {
     trouble(null);
     $("open-scanner").disabled = true;
     $("open-scanner").textContent = "Checking…";
 
-    fetch("/api/badge?id=" + encodeURIComponent(id), { cache: "no-store" }).then(function (res) {
+    var apiUrl = "/api/badge?id=" + encodeURIComponent(id);
+    if (rawUrl) apiUrl += "&url=" + encodeURIComponent(rawUrl);
+    fetch(apiUrl, { cache: "no-store" }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (body) {
         if (res.status === 404) {
           trouble(
@@ -573,9 +580,26 @@
   function renderWallet() {
     var badge = state.badge;
     var facts = [];
-    if (badge.displayName) facts.push(["Member", badge.displayName]);
+    var memberName = badge.scraperName || badge.displayName || null;
+    if (memberName) facts.push(["Member", memberName]);
     facts.push(["Badge", badge.id], ["Membership", badge.name], ["Registered to", short(badge.wallet)]);
     rows($("badge-facts"), facts);
+
+    // Show ETHGlobal profile avatar if the scraper returned one
+    var avatarWrap = $("badge-avatar");
+    if (avatarWrap) {
+      if (badge.scraperImage) {
+        avatarWrap.innerHTML = "";
+        var img = document.createElement("img");
+        img.src = badge.scraperImage;
+        img.alt = memberName || "";
+        img.style.cssText = "width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid var(--rule,#ddd);display:block;margin:0 auto 1rem";
+        avatarWrap.appendChild(img);
+        avatarWrap.hidden = false;
+      } else {
+        avatarWrap.hidden = true;
+      }
+    }
 
     $("wallet-title").textContent = "Connect your wallet";
     var body = $("wallet-body");

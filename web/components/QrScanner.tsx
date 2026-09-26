@@ -37,7 +37,7 @@ export function QrScanner({
   confirmNote = "This becomes their name on-chain. Minting it is not easily undone, so check it against the badge in front of you.",
   confirmLabel = "Use this id",
 }: {
-  onScanned: (id: string) => void;
+  onScanned: (id: string, rawUrl?: string) => void;
   onClose: () => void;
   confirmTitle?: string;
   confirmNote?: ReactNode;
@@ -49,6 +49,7 @@ export function QrScanner({
 
   const [trouble, setTrouble] = useState<Trouble | null>(null);
   const [scanned, setScanned] = useState<string | null>(null);
+  const [scannedRaw, setScannedRaw] = useState<string | null>(null);
   // A QR that decodes to something that is not an id is a different state from no QR at all:
   // the operator is pointing at the wrong code and needs to be told, not left waiting.
   const [rejected, setRejected] = useState<string | null>(null);
@@ -159,6 +160,7 @@ export function QrScanner({
               stopCamera();
               setRejected(null);
               setScanned(id);
+              setScannedRaw(raw);
             } else {
               setRejected(raw);
             }
@@ -212,13 +214,14 @@ export function QrScanner({
               </p>
             ) : null}
             <div className="mt-5 flex flex-wrap gap-2">
-              <Button variant="solid" onClick={() => onScanned(scanned)}>
+              <Button variant="solid" onClick={() => onScanned(scanned, scannedRaw ?? undefined)}>
                 {confirmLabel}
               </Button>
               <Button
                 variant="ghost"
                 onClick={() => {
                   setScanned(null);
+                  setScannedRaw(null);
                   setAttempt((n) => n + 1);
                 }}
               >
@@ -279,7 +282,7 @@ export function QrScanner({
                   <Button
                     variant="solid"
                     className="shrink-0"
-                    onClick={() => onScanned(manualId)}
+                    onClick={() => onScanned(manualId, undefined)}
                     disabled={!manualValid}
                   >
                     Use

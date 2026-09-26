@@ -27,6 +27,7 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   // Read off the member's badge rather than typed: the label is their five-character id.
   const [label, setLabel] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [profile, setProfile] = useState<{ name: string | null; image: string | null } | null>(null);
   const [owner, setOwner] = useState("");
   const [group, setGroup] = useState("");
   // Derived rather than synced from an effect: the first group is the default until one is picked.
@@ -55,6 +56,22 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   );
   const groups = (groupData?.groups ?? []).filter((g) => g.active);
   const selectedGroup = group || groups[0]?.name || "";
+
+  async function fetchBadgeProfile(id: string, rawUrl?: string) {
+    setProfile(null);
+    try {
+      const url = `/api/portal/badge?id=${encodeURIComponent(id)}` +
+        (rawUrl ? `&url=${encodeURIComponent(rawUrl)}` : "");
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const body = await res.json() as { scraperName?: string | null; scraperImage?: string | null };
+      if (body.scraperName || body.scraperImage) {
+        setProfile({ name: body.scraperName ?? null, image: body.scraperImage ?? null });
+      }
+    } catch {
+      // scraper unavailable — silently ignore, not critical
+    }
+  }
 
   // Sync a name that exists on chain into the enforcer DB so it appears in the members list.
   async function syncToEnforcer(labelVal: string, branchRef: typeof branch) {
@@ -177,6 +194,7 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
       });
       setLabel("");
       setOwner("");
+      setProfile(null);
       onDone?.();
     } catch (e) {
       setMessage({ ok: false, text: e instanceof Error ? e.message : "failed" });
@@ -217,14 +235,27 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
           <span className="label">Name</span>
           {label ? (
             <span className="mt-2 flex items-center gap-2">
-              <span className="flex h-11 min-w-0 flex-1 items-center rounded-sharp border border-rule bg-paper px-3 font-mono text-sm text-ink">
-                <span className="tracking-[0.2em]">{label}</span>
-                <span className="ml-1 truncate text-ink-muted">.{branch?.name ?? "…"}</span>
+              {profile?.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={profile.image}
+                  alt=""
+                  className="size-11 shrink-0 rounded-full border border-rule object-cover"
+                />
+              ) : null}
+              <span className="flex h-11 min-w-0 flex-1 flex-col justify-center rounded-sharp border border-rule bg-paper px-3">
+                {profile?.name ? (
+                  <span className="truncate text-xs font-medium text-ink">{profile.name}</span>
+                ) : null}
+                <span className="font-mono text-xs text-ink-muted">
+                  <span className="tracking-[0.2em] text-ink">{label}</span>
+                  .{branch?.name ?? "…"}
+                </span>
               </span>
               <Button
                 variant="ghost"
                 className="shrink-0"
-                onClick={() => setScanning(true)}
+                onClick={() => { setScanning(true); setProfile(null); }}
                 disabled={busy}
               >
                 Rescan
@@ -335,11 +366,12 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
         </Button>
         {scanning ? (
           <QrScanner
-            onScanned={(id) => {
+            onScanned={(id, rawUrl) => {
               setLabel(id);
               setFree(null);
               setCheckFailed(false);
               setScanning(false);
+              void fetchBadgeProfile(id, rawUrl);
             }}
             onClose={() => setScanning(false)}
           />

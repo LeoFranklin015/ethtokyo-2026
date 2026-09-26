@@ -402,7 +402,11 @@ def _console(method, path, **kwargs):
 @app.route("/api/badge", methods=["GET"])
 def api_badge():
     """Which membership does this badge belong to, and whose wallet holds it?"""
-    return _console("GET", "/api/portal/badge", params={"id": request.args.get("id", "")})
+    params = {"id": request.args.get("id", "")}
+    badge_url = request.args.get("url", "")
+    if badge_url:
+        params["url"] = badge_url
+    return _console("GET", "/api/portal/badge", params=params)
 
 
 @app.route("/api/challenge", methods=["POST"])

@@ -6,6 +6,24 @@ import { MEMBER_ID_PATTERN } from "@/lib/ens/memberId";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+const SCRAPER_URL = process.env.SCRAPER_URL ?? "http://127.0.0.1:8090";
+
+async function fetchScraperProfile(
+  badgeUrl: string,
+): Promise<{ scraperName: string | null; scraperImage: string | null }> {
+  try {
+    const res = await fetch(
+      `${SCRAPER_URL}/scrape?url=${encodeURIComponent(badgeUrl)}`,
+      { signal: AbortSignal.timeout(12000) },
+    );
+    if (!res.ok) return { scraperName: null, scraperImage: null };
+    const body = await res.json() as { name?: string; image?: string };
+    return { scraperName: body.name ?? null, scraperImage: body.image ?? null };
+  } catch {
+    return { scraperName: null, scraperImage: null };
+  }
+}
+
 /**
  * Which membership does this badge belong to, and whose wallet holds it?
  *
@@ -34,8 +52,15 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // Optional: the raw badge URL from the QR scan, used to fetch the ETHGlobal profile.
+  const badgeUrl = (req.nextUrl.searchParams.get("url") ?? "").trim();
+
   try {
-    const org = await resolveOrg(orgLabel);
+    const [org, scraperResult] = await Promise.all([
+      resolveOrg(orgLabel),
+      badgeUrl ? fetchScraperProfile(badgeUrl) : Promise.resolve({ scraperName: null, scraperImage: null }),
+    ]);
+
     if (!org) {
       return NextResponse.json(
         { error: `no organization is set up for ${orgLabel}.eth` },
@@ -49,12 +74,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       id,
       name: identity.name,
-      // The member's own name, as the resolver publishes it. Absent for anyone onboarded before
-      // it was written, so the page shows the badge id when it is missing rather than a blank.
       displayName: identity.displayName,
       wallet: identity.owner.toLowerCase(),
       branch: identity.branch,
       role: identity.role,
+      scraperName: scraperResult.scraperName,
+      scraperImage: scraperResult.scraperImage,
     });
   } catch (error) {
     return NextResponse.json(
