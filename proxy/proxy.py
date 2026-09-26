@@ -478,7 +478,10 @@ def get_user(uid):
         "SELECT * FROM sessions WHERE user_id=? AND logged_out_at IS NULL AND revoked_at IS NULL "
         "ORDER BY logged_in_at DESC LIMIT 1", (uid,)
     ).fetchone()
-    usage = get_usage_for_ip(session["ip"], session["group_id"]) if session else {}
+    usage = get_usage_for_ip(
+        session["ip"], session["group_id"],
+        session["ens_name"] if session and "ens_name" in session.keys() else None,
+    ) if session else {}
     keys = user.keys()
     return jsonify({
         "id": user["id"], "username": user["username"],
@@ -847,7 +850,10 @@ def proxy(slug, subpath):
 @require_authed_ip
 def usage_me():
     session = g.session
-    usage = get_usage_for_ip(session["ip"], session["group_id"])
+    usage = get_usage_for_ip(
+        session["ip"], session["group_id"],
+        session["ens_name"] if "ens_name" in session.keys() else None,
+    )
     return jsonify({
         "ip": session["ip"], "group": session["group_name"],
         "date": _today(), "resources": usage,
