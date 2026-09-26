@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { SignalDither } from "@/components/dither/SignalDither";
-import { BRANCHES } from "@/lib/data";
+import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
 
 const SECTIONS = [
   {
@@ -22,6 +22,10 @@ const SECTIONS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { data: status } = useProxyStatus();
+  const branchLabel = process.env.NEXT_PUBLIC_BRANCH_LABEL ?? "branch";
+
+  const online = !!status && status.status === "ok";
 
   return (
     <div className="flex h-full flex-col">
@@ -32,22 +36,10 @@ export function Sidebar() {
         </Link>
       </div>
 
-      {/* Branch switcher */}
+      {/* Branch label — single branch, no switcher */}
       <div className="border-b border-rule px-4 py-3 lg:px-5">
-        <label htmlFor="branch-switcher" className="label">
-          Branch
-        </label>
-        <select
-          id="branch-switcher"
-          defaultValue={BRANCHES[0].label}
-          className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
-        >
-          {BRANCHES.map((b) => (
-            <option key={b.ens} value={b.label}>
-              {b.label}
-            </option>
-          ))}
-        </select>
+        <p className="label">Branch</p>
+        <p className="mt-2 font-mono text-xs text-ink">{branchLabel}</p>
       </div>
 
       {/* Navigation */}
@@ -64,9 +56,7 @@ export function Sidebar() {
                       href={item.href}
                       aria-current={active ? "page" : undefined}
                       className={`flex min-h-11 items-center gap-2.5 rounded-sharp px-2 text-sm transition-colors ${
-                        active
-                          ? "bg-ink/8 font-medium text-ink"
-                          : "text-ink-muted hover:bg-ink/5 hover:text-ink"
+                        active ? "bg-ink/8 font-medium text-ink" : "text-ink-muted hover:bg-ink/5 hover:text-ink"
                       }`}
                     >
                       <span
@@ -84,23 +74,17 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Enforcer status, with an ambient trace */}
+      {/* Enforcer status */}
       <div className="hidden border-t border-rule lg:block">
         <div className="relative h-12">
-          <SignalDither
-            motif="waveform"
-            cell={2}
-            period={5}
-            intensity={0.45}
-            className="absolute inset-0"
-          />
+          <SignalDither motif="waveform" cell={2} period={5} intensity={0.45} className="absolute inset-0" />
         </div>
         <div className="border-t border-rule px-5 py-3">
           <p className="flex items-center gap-2 font-mono text-[0.6875rem] text-ink-muted">
-            <span aria-hidden className="size-1.5 rounded-full bg-signal" />
-            Enforcer online
+            <span aria-hidden className="size-1.5 rounded-full" style={{ background: online ? "var(--signal)" : "var(--alert)" }} />
+            {online ? "Proxy online" : "Proxy unreachable"}
           </p>
-          <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">cached 12s ago</p>
+          {status && <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">{status.active_sessions} active sessions</p>}
         </div>
       </div>
     </div>
