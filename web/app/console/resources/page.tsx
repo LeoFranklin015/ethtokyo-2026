@@ -35,7 +35,7 @@ export default function ResourcesPage() {
       <PageHeader
         eyebrow="Enforcer"
         title="Resources"
-        meta="Upstreams this branch proxies to"
+        meta="Upstreams this perimeter proxies to"
         actions={
           <Button variant="solid" onClick={() => setAdding((a) => !a)}>
             {adding ? "Cancel" : "Add a resource"}

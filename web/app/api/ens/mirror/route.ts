@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       });
       if (!spec[3]) {
         return NextResponse.json(
-          { error: "no active group of that name on that branch" },
+          { error: "no active group of that name on that perimeter" },
           { status: 404 },
         );
       }
@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
       });
       if (membership === 0n) {
         return NextResponse.json(
-          { error: "that wallet holds no membership on that branch" },
+          { error: "that wallet holds no membership on that perimeter" },
           { status: 404 },
         );
       }

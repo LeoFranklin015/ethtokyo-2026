@@ -614,7 +614,7 @@ Served by the console, not the proxy. Reads the **contracts directly** for this 
 the indexer, and never the whole membership list.
 
 That is deliberate. Searching a list and coming up empty is indistinguishable from "no such
-membership", so an indexer outage or a branch missing from a fallback would answer `404` and be
+membership", so an indexer outage or a perimeter missing from a fallback would answer `404` and be
 read as a deny — silently locking people off the network. Resolving one name against the chain has
 no partial-answer state: it either finds a live membership or the chain says there is none, and a
 failed read throws so the route answers `502` and the caller falls back.

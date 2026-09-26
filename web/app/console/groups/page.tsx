@@ -54,7 +54,7 @@ export default function GroupsPage() {
                 <select
                   value={registrar}
                   onChange={(e) => setSelected(e.target.value)}
-                  aria-label="Branch"
+                  aria-label="Perimeter"
                   className="h-7 rounded-sharp border border-rule bg-paper px-1.5 font-mono text-[0.6875rem] text-ink"
                 >
                   {withRegistrar.map((b) => (
@@ -91,16 +91,16 @@ export default function GroupsPage() {
             <p className="px-4 py-10 text-center font-mono text-xs text-ink-muted">reading…</p>
           ) : !registrar ? (
             <div role="status" className="px-4 py-12 text-center">
-              <p className="text-sm text-ink">No branch to configure</p>
+              <p className="text-sm text-ink">No perimeter to configure</p>
               <p className="mx-auto mt-1.5 max-w-[42ch] text-sm text-ink-muted">
-                Groups belong to a branch. Open one first and it will appear here.
+                Groups belong to a perimeter. Open one first and it will appear here.
               </p>
             </div>
           ) : groups.length === 0 ? (
             <div role="status" className="px-4 py-12 text-center">
               <p className="text-sm text-ink">No groups yet</p>
               <p className="mx-auto mt-1.5 max-w-[42ch] text-sm text-ink-muted">
-                Define one on the right. Until a branch has at least one group, nobody can be
+                Define one on the right. Until a perimeter has at least one group, nobody can be
                 onboarded into it.
               </p>
             </div>

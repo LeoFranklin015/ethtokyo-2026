@@ -16,11 +16,11 @@ How the domain model maps to ENS. Target: **ENSv2 + Enhanced Access Control (EAC
               ┌─────────────────┼─────────────────┐
               ▼                 ▼                  ▼
         leo.acme.eth      tokyo.acme.eth     osaka.acme.eth
-          (Member)          (Branch)           (Branch)
+          (Member)        (Perimeter)        (Perimeter)
                                 │  has own subregistry
                     ┌───────────┴─────────────┐
                     │ tokyo.acme.eth          │
-                    │      BRANCH REGISTRY    │
+                    │   PERIMETER REGISTRY    │
                     └───────────┬─────────────┘
               ┌─────────────────┼─────────────────┐
               ▼                 ▼                  ▼
@@ -31,11 +31,11 @@ How the domain model maps to ENS. Target: **ENSv2 + Enhanced Access Control (EAC
 | Domain term | ENSv2 construct |
 |---|---|
 | Organization | registry anchored at `.eth` name |
-| Branch | name in org registry with its own subregistry |
+| Perimeter | name in org registry with its own subregistry |
 | Member | name in org registry, no subregistry |
-| Membership | name in Branch registry |
+| Membership | name in Perimeter registry |
 
-**Branch expiry = Branch window.** A hackathon registers Memberships with expiry = event end; they lapse automatically.
+**Perimeter expiry = Perimeter window.** A hackathon registers Memberships with expiry = event end; they lapse automatically.
 
 ---
 
@@ -101,7 +101,7 @@ Two-level HTB: parent class per group, child class per Membership.
 
 `ROLE_REGISTRAR` is binary — hold it and you can mint any name with any bitmap. ENSv2 intends registrars to hold the business logic:
 
-- `BranchRegistrar` holds `ROLE_REGISTRAR` + `ROLE_RENEW` on the Branch registry root.
+- `BranchRegistrar` holds `ROLE_REGISTRAR` + `ROLE_RENEW` on the Perimeter registry root.
 - Humans hold `ROLE_ONBOARD` on the registrar.
 - Registrar enforces: a plain onboarder may only mint Hacker roles; `ROLE_PROMOTE` needed for anything higher.
 
@@ -151,7 +151,7 @@ device joins WiFi → captive portal → wallet connect → sign challenge
 |---|---|---|
 | 1 | Portal: password form → wallet connect + EIP-191 challenge | — |
 | 2 | Portal resolves Role via ENS, maps Entitlements → existing tc classes | Role catalogue deployed |
-| 3 | Console: Organization, Branch, Role, Onboarding screens | Step 2 done |
+| 3 | Console: Organization, Perimeter, Role, Onboarding screens | Step 2 done |
 | 4 | `BranchRegistrar` on Sepolia; onboarding writes on-chain | ENSv2 Sepolia stable |
 | 5 | Mainnet | ENSv2 mainnet release |
 
@@ -168,6 +168,6 @@ canonicalId = tokenId ^ uint32(tokenId)
 
 **Index both contracts.** Registrar + registry both emit events. Address → Membership lookup is built from that index.
 
-**Cache at the Enforcer.** Branch gateway must serve WiFi when upstream is flaky. Cache Entitlements per Membership, fail closed only on explicit revocation.
+**Cache at the Enforcer.** Perimeter gateway must serve WiFi when upstream is flaky. Cache Entitlements per Membership, fail closed only on explicit revocation.
 
-**15-holder cap.** 15 holders per role per resource. Grant branch-wide roles at `ROOT_RESOURCE` so the cap applies to staff counts, not Member counts.
+**15-holder cap.** 15 holders per role per resource. Grant perimeter-wide roles at `ROOT_RESOURCE` so the cap applies to staff counts, not Member counts.

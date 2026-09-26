@@ -13,7 +13,7 @@ export default function BranchesPage() {
     <>
       <PageHeader
         eyebrow="Organization"
-        title="Branches"
+        title="Perimeters"
         meta={`Names under ${`${org}.eth`} that carry a registry of their own`}
       />
       <div className="px-5 py-6 lg:px-8">

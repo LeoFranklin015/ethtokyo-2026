@@ -30,7 +30,7 @@ const STEPS: { id: StepId; title: string; blurb: string }[] = [
   { id: "connect", title: "Wallet", blurb: "Connect the wallet that will own the organization." },
   { id: "name", title: "Name", blurb: "The .eth name the organization is built on." },
   { id: "setup", title: "Set up", blurb: "Deploy the contracts that live under that name." },
-  { id: "branch", title: "Branch", blurb: "Open a location. It gets its own registry." },
+  { id: "branch", title: "Perimeter", blurb: "Open a location. It gets its own registry." },
   { id: "groups", title: "Groups", blurb: "Define the categories people are onboarded into." },
   { id: "done", title: "Open", blurb: "Start admitting people." },
 ];
@@ -177,8 +177,9 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
       <div className="px-5 py-6">
         <h2 className="text-lg tracking-[-0.01em] text-ink">Connect a wallet</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
-          This wallet owns the organization. It holds the .eth name, root of every branch registry
-          beneath it, and the authority to open branches later. Nothing here spends from it — the
+          This wallet owns the organization. It holds the .eth name, root of every perimeter
+          registry beneath it, and the authority to open perimeters later. Nothing here spends
+          from it — the
           console signs and pays for registration.
         </p>
 
@@ -207,7 +208,7 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
             {wrongChain ? (
               <div className="space-y-2">
                 <p className="text-xs leading-relaxed" style={{ color: "var(--alert)" }}>
-                  This wallet is on another network. Every ENSCA contract is deployed on Sepolia.
+                  This wallet is on another network. Every Radius contract is deployed on Sepolia.
                 </p>
                 <Button
                   variant="solid"
@@ -255,7 +256,7 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
       <div className="px-5 py-6">
         <h2 className="text-lg tracking-[-0.01em] text-ink">Choose the organization name</h2>
         <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
-          This name is the trust root. Every branch is registered beneath it and every membership
+          This name is the trust root. Every perimeter is registered beneath it and every membership
           resolves through it, so it has to be a name you own. Search for one here; if it is free,
           the ENS app registers it — that is its job, and it does the commit-and-reveal dance
           properly.
@@ -419,7 +420,7 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
           Set <span className="font-mono">{orgName}</span> up as an organization
         </h2>
         <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
-          This deploys the contracts that live under your name — a registry for branches, a
+          This deploys the contracts that live under your name — a registry for perimeters, a
           resolver for records, and the registrars that mint memberships. They are yours: this
           console keeps no key and no role over any of them.
         </p>
@@ -453,7 +454,7 @@ function SetupStep({ orgName, onDone }: { orgName: string; onDone: (org: OrgAddr
                     ["registry", setup.state.org.registry],
                     ["resolver", setup.state.org.resolver],
                     ["member registrar", setup.state.org.orgRegistrar],
-                    ["branch factory", setup.state.org.branchFactory],
+                    ["perimeter factory", setup.state.org.branchFactory],
                   ] as const
                 ).map(([term, value]) => (
                   <div key={term} className="flex items-baseline justify-between gap-3">
@@ -586,10 +587,10 @@ function BranchStep({
   return (
     <Panel as="section">
       <div className="px-5 py-6">
-        <h2 className="text-lg tracking-[-0.01em] text-ink">Open the first branch</h2>
+        <h2 className="text-lg tracking-[-0.01em] text-ink">Open the first perimeter</h2>
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
-          A branch is a location — an event, an office, a site. It gets a registry of its own, so
-          memberships live inside it rather than at the organization level.
+          A perimeter is a location — an event, an office, a site. It gets a registry of its own,
+          so memberships live inside it rather than at the organization level.
         </p>
 
         <div className="mt-5 flex items-center gap-2">
@@ -601,7 +602,7 @@ function BranchStep({
               setCheckFailed(false);
             }}
             placeholder="tokyo"
-            aria-label="Branch name"
+            aria-label="Perimeter name"
             autoComplete="off"
             className="h-12 min-w-0 flex-1 rounded-sharp border border-rule bg-paper px-3 font-mono text-base text-ink placeholder:text-ink-faint"
           />
@@ -614,7 +615,7 @@ function BranchStep({
             </p>
           ) : free === false ? (
             <p className="font-mono text-xs" style={{ color: "var(--alert)" }}>
-              that branch already exists
+              that perimeter already exists
             </p>
           ) : checkFailed ? (
             <p className="font-mono text-xs text-ink-muted">
@@ -624,9 +625,9 @@ function BranchStep({
         </div>
 
         <p className="mt-4 text-xs leading-relaxed text-ink-muted">
-          One transaction deploys the branch&rsquo;s registry and registrar, links them to the
+          One transaction deploys the perimeter&rsquo;s registry and registrar, links them to the
           organization in both directions, grants the registrar its authority, and publishes it so
-          the branch is discoverable from ENS alone.
+          the perimeter is discoverable from ENS alone.
         </p>
 
         {error ? (
@@ -641,7 +642,7 @@ function BranchStep({
             onClick={create}
             disabled={busy || !label.trim() || free === false || !factory}
           >
-            {busy ? "Opening…" : "Open branch"}
+            {busy ? "Opening…" : "Open perimeter"}
           </Button>
           <Button variant="ghost" onClick={onSkip}>
             Skip
@@ -874,7 +875,7 @@ function GroupsStep({
 
         {target ? (
           <div className="mt-5 rounded-sharp border border-rule px-4 py-3">
-            <span className="label">Branch</span>
+            <span className="label">Perimeter</span>
             <p className="mt-1 font-mono text-sm text-ink">{branchLabel ?? "—"}</p>
             <p className="mt-1 break-all font-mono text-[0.6875rem] text-ink-muted">
               registrar {target.slice(0, 10)}…{target.slice(-6)}
@@ -883,11 +884,11 @@ function GroupsStep({
         ) : (
           <div className="mt-5 rounded-sharp border border-rule px-4 py-3">
             <p className="text-sm" style={{ color: "var(--alert)" }}>
-              No branch to define groups on.
+              No perimeter to define groups on.
             </p>
             <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
-              Go back and open one — groups belong to a branch, so there is nowhere to put these
-              until one exists.
+              Go back and open one — groups belong to a perimeter, so there is nowhere to put
+              these until one exists.
             </p>
           </div>
         )}
@@ -997,7 +998,8 @@ function GroupsStep({
           )}
           <p className="mt-2 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
             These fill the form below so you can see and change what gets published. The rates
-            are suggestions — what they mean is the branch enforcer&rsquo;s decision, not ENS&rsquo;s.
+            are suggestions — what they mean is the perimeter enforcer&rsquo;s decision, not
+            ENS&rsquo;s.
           </p>
         </div>
 
@@ -1168,7 +1170,7 @@ function GroupsStep({
         </div>
         {defined.length === 0 ? (
           <p className="mt-2 text-xs text-ink-muted">
-            Define at least one — a branch with no groups can admit nobody.
+            Define at least one — a perimeter with no groups can admit nobody.
           </p>
         ) : null}
       </div>
@@ -1209,7 +1211,7 @@ function DoneStep({ org, branch }: { org: string | null; branch: string | null }
         <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
           {branch
             ? `Onboard someone into ${branch} and their name, role and entitlements are written in one transaction — then the network admits them.`
-            : "Open a branch and onboard someone, and their name, role and entitlements are written in one transaction."}
+            : "Open a perimeter and onboard someone, and their name, role and entitlements are written in one transaction."}
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
           <ButtonLink href={withOrg("/console/people", org?.replace(/\.eth$/, "") ?? null)} variant="solid">

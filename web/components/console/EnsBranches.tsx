@@ -33,15 +33,15 @@ export function EnsBranches({ org }: { org: string }) {
           </span>
         }
       >
-        Branches of {org + ".eth"}
+        Perimeters of {org + ".eth"}
       </PanelHeader>
 
       {fromChain.length > 0 ? (
         <p className="border-b border-rule px-4 py-2.5 text-xs leading-relaxed text-ink-muted">
           <span className="font-mono text-ink">{fromChain.length}</span> of{" "}
           <span className="font-mono text-ink">{branches?.length ?? 0}</span>{" "}
-          {fromChain.length === 1 ? "branch is" : "branches are"} shown from the chain because the
-          ENS indexer has not reached {fromChain.length === 1 ? "it" : "them"} yet
+          {fromChain.length === 1 ? "perimeter is" : "perimeters are"} shown from the chain
+          because the ENS indexer has not reached {fromChain.length === 1 ? "it" : "them"} yet
           {indexedBlock ? ` (it is at block ${indexedBlock})` : ""}. They are registered — the
           graph is simply behind, and member counts stay blank until it catches up.
         </p>
@@ -49,7 +49,7 @@ export function EnsBranches({ org }: { org: string }) {
 
       {isLoading ? (
         <p className="px-4 py-10 text-center font-mono text-xs text-ink-muted">
-          Discovering branches…
+          Discovering perimeters…
         </p>
       ) : error ? (
         <div role="status" className="px-4 py-10 text-center">
@@ -59,10 +59,10 @@ export function EnsBranches({ org }: { org: string }) {
         </div>
       ) : !branches || branches.length === 0 ? (
         <div role="status" className="px-4 py-10 text-center">
-          <p className="text-sm text-ink">No branches yet</p>
+          <p className="text-sm text-ink">No perimeters yet</p>
           <p className="mx-auto mt-1.5 max-w-[46ch] text-sm text-ink-muted">
-            A branch is a name in the organization registry with a subregistry of its own. Without
-            one it is just a Member name at the organization level.
+            A perimeter is a name in the organization registry with a subregistry of its own.
+            Without one it is just a Member name at the organization level.
           </p>
         </div>
       ) : (
@@ -106,7 +106,7 @@ export function EnsBranches({ org }: { org: string }) {
                     ) : (
                       <span
                         className="font-mono text-xs text-ink-muted"
-                        title="No ensca.registrar record, so this branch's roles cannot be read."
+                        title="No ensca.registrar record, so this perimeter's roles cannot be read."
                       >
                         not published
                       </span>

@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   // which a caller cannot tell from an organization with no branches.
   if (!indexedOk && !chainOk) {
     return NextResponse.json(
-      { error: (indexed as Error).message || "no branch source could be read" },
+      { error: (indexed as Error).message || "no perimeter source could be read" },
       { status: 502 },
     );
   }

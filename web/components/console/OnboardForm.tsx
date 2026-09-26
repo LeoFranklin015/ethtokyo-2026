@@ -150,14 +150,14 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
       <PanelHeader>Onboard a member</PanelHeader>
       <div className="space-y-4 px-4 py-5">
         <label className="block">
-          <span className="label">Branch</span>
+          <span className="label">Perimeter</span>
           <select
             value={target}
             onChange={(e) => setRegistrar(e.target.value)}
             className="mt-2 h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
           >
             {withRegistrar.length === 0 ? (
-              <option value="">{branchesLoading ? "discovering…" : "no branches yet"}</option>
+              <option value="">{branchesLoading ? "discovering…" : "no perimeters yet"}</option>
             ) : null}
             {withRegistrar.map((b) => (
               <option key={b.name} value={b.registrar ?? ""}>
@@ -199,7 +199,7 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
             ) : free === true ? (
               <span style={{ color: "var(--signal)" }}>available</span>
             ) : free === false ? (
-              <span style={{ color: "var(--alert)" }}>already taken in this branch</span>
+              <span style={{ color: "var(--alert)" }}>already taken in this perimeter</span>
             ) : nameBlocked ? (
               <span style={{ color: "var(--alert)" }}>
                 already an organization name — this badge cannot be minted
@@ -282,7 +282,7 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
 
         {!address ? (
           <p className="text-xs text-ink-muted">
-            Connect a wallet that may onboard into this group — branch staff, or a member of a
+            Connect a wallet that may onboard into this group — perimeter staff, or a member of a
             group the organization marked as able to onboard others.
           </p>
         ) : null}

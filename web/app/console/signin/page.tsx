@@ -61,9 +61,9 @@ function SignIn() {
         <Panel as="section" className="max-w-[500px]">
           <div className="space-y-5 px-5 py-6">
             <p className="max-w-[52ch] text-sm leading-relaxed text-ink-muted">
-              Reading an organization needs nothing — it is all public. Changing what its branch
-              enforcer does needs a signature from the wallet that holds the name, because that
-              wallet is who the chain says runs it.
+              Reading an organization needs nothing — it is all public. Changing what its
+              perimeter enforcer does needs a signature from the wallet that holds the name,
+              because that wallet is who the chain says runs it.
             </p>
 
             {session ? (

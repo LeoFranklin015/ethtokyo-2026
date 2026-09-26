@@ -89,7 +89,7 @@ async function request<T>(
 /** What an operator should read. The enforcer's codes are terse and a few are misleading. */
 function describe(status: number, code: string | null, path: string): string {
   if (status === 401) return "NOT_SIGNED_IN";
-  if (status === 502 || status === 503) return "The branch enforcer did not answer.";
+  if (status === 502 || status === 503) return "The perimeter enforcer did not answer.";
 
   switch (code) {
     case "name_taken":

@@ -1,7 +1,7 @@
 import { Wizard } from "@/components/create/Wizard";
 import { SiteHeader } from "@/components/SiteHeader";
 
-export const metadata = { title: "Create an organization — ENSCA" };
+export const metadata = { title: "Create an organization — Radius" };
 
 export default function CreatePage() {
   return (
@@ -14,8 +14,9 @@ export default function CreatePage() {
             Create an organization
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-            Each step in the only order it can happen: the organization owns a name, a branch
-            lives under it, groups are defined by the branch, and people are onboarded into groups.
+            Each step in the only order it can happen: the organization owns a name, a perimeter
+            lives under it, groups are defined by the perimeter, and people are onboarded into
+            groups.
           </p>
         </header>
         <Wizard />

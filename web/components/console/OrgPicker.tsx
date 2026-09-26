@@ -57,7 +57,7 @@ export function OrgPicker() {
           <h2 className="text-lg tracking-[-0.01em] text-ink">Your organizations</h2>
           <p className="mt-2 max-w-[52ch] text-sm leading-relaxed text-ink-muted">
             Each one is a <span className="font-mono">.eth</span> name you hold, with its own
-            registry, resolver and branch factory underneath it.
+            registry, resolver and perimeter factory underneath it.
           </p>
 
           {error ? (
@@ -216,7 +216,7 @@ export function NoOrgSelected() {
       <div className="px-5 py-6">
         <h2 className="text-lg tracking-[-0.01em] text-ink">No organization selected</h2>
         <p className="mt-2 max-w-[50ch] text-sm leading-relaxed text-ink-muted">
-          This page reads one organization&rsquo;s branches, groups and members. Pick which.
+          This page reads one organization&rsquo;s perimeters, groups and members. Pick which.
         </p>
         <div className="mt-5">
           <ButtonLink href="/console" variant="solid">

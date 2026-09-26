@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS daily_ens_counters (
 );
 ```
 
-Thread `ens_name` end-to-end (single chosen path, no branches):
+Thread `ens_name` end-to-end (single chosen path, no perimeters):
 - Portal `_notify_session_created` payload gains `ens_name`.
 - **Upsert a real users row per ENS name** (username=ens_name, password_hash='',
   default_group_id=mapped group) so `sessions.user_id` IS the ENS identity — no

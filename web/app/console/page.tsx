@@ -78,9 +78,9 @@ export default function OverviewPage() {
         title={branchEns ?? `${org}.eth`}
         meta={
           branchEns
-            ? "Live from ENS and the branch enforcer"
+            ? "Live from ENS and the perimeter enforcer"
             : branchCount !== null
-              ? `Set NEXT_PUBLIC_BRANCH_ENS to name this branch — ${branchCount} exist in ENS`
+              ? `Set NEXT_PUBLIC_BRANCH_ENS to name this perimeter — ${branchCount} exist in ENS`
               : undefined
         }
         actions={<Freshness down={Boolean(enforcerDown)} loading={loading} />}
@@ -107,11 +107,11 @@ export default function OverviewPage() {
           <Panel as="section" className="mb-6">
             <div className="px-4 py-5">
               <p className="text-sm" style={{ color: "var(--alert)" }}>
-                The branch enforcer did not answer.
+                The perimeter enforcer did not answer.
               </p>
               <p className="mt-1 max-w-[60ch] text-xs leading-relaxed text-ink-muted">
                 Session and membership figures are not shown rather than shown as zero — an
-                unreachable enforcer is not an empty branch. Anything sourced from ENS below is
+                unreachable enforcer is not an empty perimeter. Anything sourced from ENS below is
                 unaffected.
               </p>
             </div>
@@ -212,7 +212,7 @@ export default function OverviewPage() {
 
           <div className="flex flex-col gap-6">
             <Panel as="section">
-              <PanelHeader>Perimeter</PanelHeader>
+              <PanelHeader>On the network</PanelHeader>
               <div className="flex items-stretch divide-x divide-rule">
                 <div className="relative w-[104px] shrink-0">
                   <SignalDither

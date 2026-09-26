@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace every fixture and hardcoded value in the ENSCA web control plane with live data from the proxy API, add missing proxy endpoints that the UI requires, and wire the portal's wallet-connect flow end-to-end — with zero mocks remaining anywhere.
+**Goal:** Replace every fixture and hardcoded value in the Radius web control plane with live data from the proxy API, add missing proxy endpoints that the UI requires, and wire the portal's wallet-connect flow end-to-end — with zero mocks remaining anywhere.
 
 **Architecture:** The web app (`web/`) calls a Next.js route handler layer (`web/app/api/admin/`) which proxies to the Flask proxy at port 8081 with a server-side admin token; console pages use SWR client hooks that call those route handlers with auto-polling; the portal page uses `window.ethereum` + a new portal challenge endpoint for real wallet-connect auth.
 
@@ -1030,7 +1030,7 @@ export default function MembersPage() {
 
 - [ ] **Step 3: Rewrite console/branches/page.tsx**
 
-The branches concept maps to "this single proxy instance". Show one card:
+The perimeters concept maps to "this single proxy instance". Show one card:
 ```typescript
 "use client";
 
@@ -1664,7 +1664,7 @@ cd /Users/I740422/projects/ensca/web && npm run dev
 Check each URL and mark OK:
 - [ ] http://localhost:3000/console — KPIs load, chart renders (empty if no traffic), sidebar shows proxy status
 - [ ] http://localhost:3000/console/members — table shows real users, online count live
-- [ ] http://localhost:3000/console/branches — shows single branch with live member/online counts
+- [ ] http://localhost:3000/console/branches — shows single perimeter with live member/online counts
 - [ ] http://localhost:3000/console/roles — static table, no errors
 - [ ] http://localhost:3000/portal — portal flow renders with correct SSID from env
 
@@ -1685,7 +1685,7 @@ git push
 **Spec coverage:**
 - UI inventory (8 pages) — every page addressed in Tasks 5–6 ✓
 - All 14 mock locations from Section C addressed ✓
-- GAP-1 (branches) → Task 5 step 3 ✓
+- GAP-1 (perimeters) → Task 5 step 3 ✓
 - GAP-2 (roles) → Task 3 config.ts ✓
 - GAP-3 (group pool/vlan) → static config map in useGroups.ts ✓
 - GAP-4 (timeseries) → Task 1 step 3 ✓

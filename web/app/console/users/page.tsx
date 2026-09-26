@@ -64,8 +64,8 @@ export default function UsersPage() {
         title="Users"
         meta={
           total === undefined
-            ? `People in ${org}.eth on this branch`
-            : `${total} in ${org}.eth on this branch`
+            ? `People in ${org}.eth on this perimeter`
+            : `${total} in ${org}.eth on this perimeter`
         }
         actions={
           <Button variant="solid" onClick={() => setAdding((a) => !a)} disabled={!groups?.length}>
@@ -143,7 +143,7 @@ export default function UsersPage() {
             <p className="px-4 py-8 text-sm text-ink-muted">
               {groupFilter || disabledFilter
                 ? "Nobody matches those filters."
-                : `Nobody from ${org}.eth yet. Members admitted under a branch of this organization appear here automatically.`}
+                : `Nobody from ${org}.eth yet. Members admitted under a perimeter of this organization appear here automatically.`}
             </p>
           ) : (
             <ul className="divide-y divide-rule">

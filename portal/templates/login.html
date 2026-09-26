@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>ENSCA — Connect</title>
+  <title>Radius — Connect</title>
   <!--
     The page a guest actually lands on, served by the branch host with no internet behind it.
 
@@ -53,7 +53,12 @@
       color: var(--ink);
       -webkit-font-smoothing: antialiased;
     }
-    .wordmark { font-family: var(--mono); font-size: 0.875rem; font-weight: 500; letter-spacing: 0.18em; }
+    .wordmark {
+      display: flex; align-items: center; gap: 0.375rem;
+      font-family: var(--mono); font-size: 0.875rem; font-weight: 500; letter-spacing: 0.18em;
+    }
+    /* Inline, because an unadmitted device can reach no host but this one. */
+    .wordmark svg { flex: none; transform: translateY(-0.5px); }
     .panel {
       width: 100%;
       max-width: 420px;
@@ -143,7 +148,16 @@
   </style>
 </head>
 <body>
-  <p class="wordmark">ENSCA</p>
+  <p class="wordmark">
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+         stroke-linecap="round" aria-hidden="true" focusable="false">
+      <path d="M1.35 5.75A9.4 9.4 0 0 1 14.65 5.75" stroke-width="1.35"/>
+      <path d="M3.47 7.87A6.4 6.4 0 0 1 12.53 7.87" stroke-width="1.35"/>
+      <path d="M5.6 10A3.4 3.4 0 0 1 10.4 10" stroke-width="1.35"/>
+      <path d="M8 12.4h0.01" stroke-width="1.9"/>
+    </svg>
+    <span>Radius</span>
+  </p>
 
   <main class="panel">
     <div class="panel-head">
@@ -167,7 +181,7 @@
         <div class="trouble" style="margin-top: 0; padding-top: 0; border-top: 0;">
           <p class="label">Sign-in is unavailable here</p>
           <p>
-            This branch has no console address set, so a badge cannot be checked. Ask an organizer
+            This perimeter has no console address set, so a badge cannot be checked. Ask an organizer
             to set <span class="mono">ENSCA_CONSOLE_URL</span> on the portal host.
           </p>
         </div>
@@ -209,7 +223,7 @@
         <p class="label"><span class="dot" aria-hidden="true"></span> Admitted</p>
         <h1 style="margin-top: 0.75rem;">You are online</h1>
         <p>
-          Your wallet signed for this badge and the branch opened the network for this device.
+          Your wallet signed for this badge and the perimeter opened the network for this device.
         </p>
         <dl id="grant"></dl>
         <div class="actions">
@@ -238,7 +252,7 @@
         <div class="divider">
           <p class="label">Fallback</p>
           <p class="note">
-            This branch also accepts a typed name. It proves nothing on its own and is enabled
+            This perimeter also accepts a typed name. It proves nothing on its own and is enabled
             only because the console cannot be reached from here.
           </p>
           <form method="POST" action="/login">
@@ -528,7 +542,7 @@
         if (res.status === 502 || res.status === 504) {
           trouble(
             "That badge could not be checked",
-            "The branch could not reach what it needs to check your badge, so this is not a " +
+            "The perimeter could not reach what it needs to check your badge, so this is not a " +
             "refusal. Wait a moment and scan again."
           );
           return;
@@ -607,7 +621,7 @@
     $("wallet-title").textContent = "Sign to get online";
     body.appendChild(paragraph(
       "Connected as " + short(state.account) + ", which is the wallet on this badge. Sign the " +
-      "challenge to prove you hold it and the branch will let this device through."
+      "challenge to prove you hold it and the perimeter will let this device through."
     ));
     body.appendChild(actions([
       button("Sign and get online", "", signIn),
@@ -756,7 +770,7 @@
         " Ask an organizer to check your membership at the desk.");
     } else if (status === 502 || status === 504) {
       trouble("Your membership could not be checked",
-        "The branch could not reach what it needs to check you, so this is not a refusal and " +
+        "The perimeter could not reach what it needs to check you, so this is not a refusal and " +
         "you have not been turned away. Try again in a moment.");
     } else if (status === 503) {
       trouble("This portal is not set up",
@@ -775,17 +789,17 @@
   function notAdmitted(kind, detail) {
     if (kind === "unreachable" || kind === "no-address") {
       trouble("The network gate did not answer",
-        "Your membership checks out, so this is not a refusal — the branch enforcer is " +
+        "Your membership checks out, so this is not a refusal — the perimeter enforcer is " +
         "unreachable from this device" + (detail ? " (" + detail + ")" : "") +
         ". Try again; if it keeps happening, tell an organizer the portal daemon is down.");
     } else if (kind === "unconfigured") {
       trouble("This portal has no enforcer",
-        "Your membership checks out, but this portal is not wired to a branch that can open the " +
-        "network. An organizer has to fix this.");
+        "Your membership checks out, but this portal is not wired to a perimeter that can open " +
+        "the network. An organizer has to fix this.");
     } else {
-      trouble("The branch refused this device",
+      trouble("The perimeter refused this device",
         "Your membership checks out, but the enforcer would not open the network" +
-        (detail ? ": " + detail : "") + ". Ask an organizer what this branch allows your group.");
+        (detail ? ": " + detail : "") + ". Ask an organizer what this perimeter allows your group.");
     }
   }
 

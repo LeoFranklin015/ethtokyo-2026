@@ -155,7 +155,7 @@ export default function AccessPage() {
         </Panel>
 
         <p className="max-w-[62ch] text-xs leading-relaxed text-ink-muted">
-          Resources belong to one branch enforcer, which has no organization column — they are
+          Resources belong to one perimeter enforcer, which has no organization column — they are
           that deployment&rsquo;s, and every organization it serves shares them. The groups listed
           are only those {org}.eth has people in, worked out from their names. The chain decides
           which group somebody is in; this decides what that group can reach.

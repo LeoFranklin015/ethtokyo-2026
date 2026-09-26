@@ -1,4 +1,4 @@
-# ENSCA contracts — ENSv2 end-to-end
+# Radius contracts — ENSv2 end-to-end
 
 `BranchRegistrar`, the contract that turns the domain model in
 [`../docs/00-domain-model.md`](../docs/00-domain-model.md) into on-chain authority, plus the scripts
@@ -13,7 +13,7 @@ that drive a full lifecycle on Sepolia.
 
 ```
 1. Register  ethglobal2.eth            ETHRegistrar, commit → wait 60s → register (USDC)
-2. Deploy    branch registry           VerifiableFactory.deployProxy(UserRegistryImpl, salt, init)
+2. Deploy    perimeter registry        VerifiableFactory.deployProxy(UserRegistryImpl, salt, init)
 3. Attach    ETHRegistry.setSubregistry(labelhash("ethglobal2"), branchRegistry)
 4. Deploy    BranchRegistrar(branchRegistry, resolver, expiry)
 5. Authorise branchRegistry.grantRootRoles(ROLE_REGISTRAR | ROLE_RENEW, registrar)
@@ -21,7 +21,7 @@ that drive a full lifecycle on Sepolia.
 7. Verify    reads back through the registry and the ENS indexer
 ```
 
-Steps 1–5 are one-time branch setup. Step 6 is what a check-in desk calls per attendee.
+Steps 1–5 are one-time perimeter setup. Step 6 is what a check-in desk calls per attendee.
 
 ## Authority model
 
@@ -78,26 +78,26 @@ Three levels, as the domain model requires: `<member>.<branch>.<org>.eth`.
 
 ```
 ethglobal2.eth              Organization   org registry   0xEb716b3f…94517
-└── tokyo.ethglobal2.eth    Branch         branch registry 0x306DE2Ec…48660
+└── tokyo.ethglobal2.eth    Perimeter      perimeter registry 0x306DE2Ec…48660
     └── kenji.tokyo.ethglobal2.eth   Membership, role hacker
 ```
 
 | | |
 |---|---|
 | Org registry | `0xEb716b3fB749f357be2B74a10647675D11a94517` |
-| Branch registry | `0x306DE2Ec8c8B5FE668d31be152b6436481448660` |
-| Branch registrar | `0xb0487c88Eaea357aDa85540FB1E8bEfAD2868D52` |
+| Perimeter registry | `0x306DE2Ec8c8B5FE668d31be152b6436481448660` |
+| Perimeter registrar | `0xb0487c88Eaea357aDa85540FB1E8bEfAD2868D52` |
 | Resolver | `0x9D8f1376aED12F6F7Ba041285Cce833AcED13092` |
 | Volunteer | `0xD3b01908f30Cf733d45869d0ed5Dd9160BB514d9` — holds `ROLE_ONBOARD` only |
 | Superseded registrar | `0x9D9F2264528Cd1F5c76c1d94aCaC251e9eF4a05A` — disarmed, reentrancy |
 
-> The first deployment collapsed Organization and Branch into one name, so memberships sat directly
+> The first deployment collapsed Organization and Perimeter into one name, so memberships sat directly
 > under `ethglobal2.eth` as `leo.ethglobal2.eth`. That is two levels, not three. `tokyo` now sits
 > between them with a registry of its own, and memberships are minted there.
 
 ### The volunteer path, executed on-chain
 
-`0xD3b0…14d9` holds `ROLE_ONBOARD` on the branch registrar and nothing else — no `ROLE_PROMOTE`,
+`0xD3b0…14d9` holds `ROLE_ONBOARD` on the perimeter registrar and nothing else — no `ROLE_PROMOTE`,
 no `ROLE_REVOKE`. Signing with that wallet:
 
 - `onboard("kenji", 0x…bEEF, Hacker)` → **succeeded**, tx `0xaa9d3eda…c6afa1`
@@ -113,7 +113,7 @@ That refusal is the thing EAC cannot express on its own, and it is enforced in t
 
 ## The completed layer — V2
 
-`BranchRegistrar` (v1) shipped the Branch and Membership levels. `BranchRegistrarV2` plus
+`BranchRegistrar` (v1) shipped the Perimeter and Membership levels. `BranchRegistrarV2` plus
 `OrgRegistrar` close the three gaps `docs/13-ens-design.md` specified but v1 left out, and replace
 the hardcoded five-role enum with an organization-editable catalogue.
 
@@ -125,12 +125,12 @@ the hardcoded five-role enum with an organization-editable catalogue.
 
 **Member layer.** Onboarding enrols the person at the organization first, so one transaction mints
 both `marco.ethglobal2.eth` and `marco.tokyo.ethglobal2.eth`. The Member name is minted once ever
-and survives revocation of the Membership — that is what carries identity between branches.
+and survives revocation of the Membership — that is what carries identity between perimeters.
 
 **Organization-scoped fallback.** `effectiveRole(account)` implements §5.4's order: a Membership at
-this branch wins; otherwise the org-wide role applies; otherwise nothing does. Because `_getRoles`
-derives authority from the *effective* role, an org-scoped volunteer can onboard at every branch
-without a per-branch grant.
+this perimeter wins; otherwise the org-wide role applies; otherwise nothing does. Because `_getRoles`
+derives authority from the *effective* role, an org-scoped volunteer can onboard at every perimeter
+without a per-perimeter grant.
 
 **Entitlements at onboarding.** A role carries its own records, written in the same transaction
 that mints the name — at the true ENS namehash, computed from an immutable `BRANCH_NODE`. A
@@ -189,7 +189,7 @@ membership was condemned to die at `BRANCH_EXPIRY`.
 commitment reconstructable and the registration front-runnable.
 
 Still open, deliberately: there is **no Member layer and no org-scoped role fallback** on-chain
-(`docs/13` §1 and §5 describe both) — this deployment covers the Branch and Membership layers only.
+(`docs/13` §1 and §5 describe both) — this deployment covers the Perimeter and Membership layers only.
 `revoke` also leaves the resolver's text records in place; they are unreachable through ENS once the
 name is gone, but they are not erased.
 
@@ -211,11 +211,11 @@ roles to be granted on an already-registered name — admin roles are registrati
 an owner escalating their own permissions. A membership that held one could therefore never be
 demoted out of it, so `registryBitmapFor` grants none.
 
-**The branch registry is not emancipated.** `promote` and `revoke` need `ROLE_UNREGISTER`,
+**The perimeter registry is not emancipated.** `promote` and `revoke` need `ROLE_UNREGISTER`,
 `ROLE_SET_RESOLVER_ADMIN` and `ROLE_SET_SUBREGISTRY_ADMIN` on `ROOT_RESOURCE`, and three of those
 are ENS's "dangerous" roles, so `isEmancipated()` is false. That is the correct trade for an event
-branch — the organization must be able to revoke — but it means members are trusting the org, not
-just the chain. A branch that wants emancipation gives up `promote`/`revoke` and must reissue
+perimeter — the organization must be able to revoke — but it means members are trusting the org, not
+just the chain. A perimeter that wants emancipation gives up `promote`/`revoke` and must reissue
 instead.
 
 ## Running

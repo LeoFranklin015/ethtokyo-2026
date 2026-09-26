@@ -50,9 +50,9 @@ if (!hasRoles(keyResource(key), ROLE_EDIT_RECORD, msg.sender)) revert CannotEdit
 RESOLVER.setText(node, key, value);   // node never checked against `resource`
 ```
 
-The registrar held **root** `ROLE_SET_TEXT` on a resolver shared by every branch, so a member with
+The registrar held **root** `ROLE_SET_TEXT` on a resolver shared by every perimeter, so a member with
 one self-editable key could write that key at any node the resolver served: another member's name,
-a sibling branch, the organization node, or the `ensca.registrar` discovery record the console
+a sibling perimeter, the organization node, or the `ensca.registrar` discovery record the console
 trusts to find registrars. The docstring above it claimed the registrar "adds the per-name
 dimension the resolver lacks". The resolver did not lack it; we were not using it.
 
@@ -70,7 +70,7 @@ dimension the resolver lacks". The resolver did not lack it; we were not using i
 
 ## 2. The roles
 
-### On the branch registrar (`BranchRegistrarV2`)
+### On the perimeter registrar (`BranchRegistrarV2`)
 
 | Constant | Bit | Scope | Means |
 |---|---|---|---|
@@ -82,7 +82,7 @@ dimension the resolver lacks". The resolver did not lack it; we were not using i
 Each has an `_ADMIN` counterpart at `role << 128`, which means "may grant or revoke this role".
 
 `ROLE_REVOKE` is new. It used to be `ROLE_EDIT_RECORD`, which meant that anyone trusted to fix a
-typo in an attendee's avatar could also burn every name in the branch. Fixing a record and ending a
+typo in an attendee's avatar could also burn every name in the perimeter. Fixing a record and ending a
 membership are not the same privilege, and the record role is the one an organization hands out
 widely.
 
@@ -90,16 +90,16 @@ widely.
 
 | Constant | Bit | Means |
 |---|---|---|
-| `ROLE_ENROL` | `1 << 0` | may mint a Member name (held by each branch registrar) |
-| `ROLE_SET_ORG_ROLE` | `1 << 4` | may set an org-wide role that applies at every branch |
+| `ROLE_ENROL` | `1 << 0` | may mint a Member name (held by each perimeter registrar) |
+| `ROLE_SET_ORG_ROLE` | `1 << 4` | may set an org-wide role that applies at every perimeter |
 
 ### Borrowed from ENSv2
 
 | Constant | Bit | Held by | For |
 |---|---|---|---|
-| `RegistryRolesLib.ROLE_REGISTRAR` | `1 << 0` | branch registrar | `register` |
-| `RegistryRolesLib.ROLE_UNREGISTER` | `1 << 12` | branch registrar | `revoke` |
-| `RegistryRolesLib.ROLE_RENEW` | `1 << 16` | branch registrar | (granted, currently unused — see §6) |
+| `RegistryRolesLib.ROLE_REGISTRAR` | `1 << 0` | perimeter registrar | `register` |
+| `RegistryRolesLib.ROLE_UNREGISTER` | `1 << 12` | perimeter registrar | `revoke` |
+| `RegistryRolesLib.ROLE_RENEW` | `1 << 16` | perimeter registrar | (granted, currently unused — see §6) |
 | `PermissionedResolverLib.ROLE_SET_TEXT` | `1 << 4` | registrar (root), members (per name+key) | writing text |
 | `PermissionedResolverLib.ROLE_SET_TEXT_ADMIN` | `1 << 132` | registrar | delegating the above |
 
@@ -126,15 +126,15 @@ so the cap is never approached — and the resolver, not this contract, is the e
 
 ## 3. The permission matrix
 
-A worked example: a branch defines `mentor` (may curate their own `avatar` and `ssh.pubkey`) and
+A worked example: a perimeter defines `mentor` (may curate their own `avatar` and `ssh.pubkey`) and
 `hacker` (may write nothing). Both sit at the same level of the name tree.
 
 ### Records
 
-| Actor | own listed key | own unlisted key | another member's name | branch node / `ensca.registrar` |
+| Actor | own listed key | own unlisted key | another member's name | perimeter node / `ensca.registrar` |
 |---|---|---|---|---|
 | Organization owner (root) | — (not onboarded) | — | **via `setRecord`** | **allowed** |
-| Branch owner (root) | — (not onboarded) | — | **via `setRecord`** | **allowed** |
+| Perimeter owner (root) | — (not onboarded) | — | **via `setRecord`** | **allowed** |
 | Mentor | **ALLOWED** | DENIED | DENIED | DENIED |
 | Hacker | n/a (lists none) | DENIED | DENIED | DENIED |
 | Outsider | DENIED | DENIED | DENIED | DENIED |
@@ -153,7 +153,7 @@ account)` — role 16 is `ROLE_SET_TEXT`. The registrar is not in the path.
 | Actor | `createBranch` | `defineRole` / `retireRole` | `onboard` (open role) | `onboard` (closed role) | `revoke` |
 |---|---|---|---|---|---|
 | Org owner | **ALLOWED** | DENIED | DENIED | DENIED | DENIED |
-| Branch owner | DENIED | **ALLOWED** | **ALLOWED** | **ALLOWED** | **ALLOWED** |
+| Perimeter owner | DENIED | **ALLOWED** | **ALLOWED** | **ALLOWED** | **ALLOWED** |
 | Member of a `canOnboard` role | DENIED | DENIED | **ALLOWED** (derived) | DENIED | DENIED |
 | Member of any other role | DENIED | DENIED | DENIED | DENIED | DENIED |
 | Named delegate for one role | DENIED | DENIED | that role only | that role only | DENIED |
@@ -163,7 +163,7 @@ account)` — role 16 is `ROLE_SET_TEXT`. The registrar is not in the path.
 
 The last row is also new: `effectiveRole` returns nothing once `block.timestamp >= BRANCH_EXPIRY`.
 Previously `membershipOf` was cleared only by `revoke`, so last year's organizer kept minting
-forever into a branch that had closed.
+forever into a perimeter that had closed.
 
 ### Other restrictions now enforced
 
@@ -174,7 +174,7 @@ forever into a branch that had closed.
   never be revoked.
 - **Dangerous registry roles.** `defineRole` refuses `FORBIDDEN_REGISTRY_ROLES` —
   `ROLE_CAN_TRANSFER_ADMIN`, `ROLE_SET_SUBREGISTRY_ADMIN`, `ROLE_SET_RESOLVER_ADMIN`. Memberships
-  are soulbound and may not re-point their own name out of the branch's control.
+  are soulbound and may not re-point their own name out of the perimeter's control.
 - **Key withdrawal.** `defineRole` clears the previous `editableKeys` before writing the new set.
   Removing a key used to leave it writable by every existing holder forever.
 
@@ -205,7 +205,7 @@ this contract.
 Deployed fresh and exercised end to end, three times — twice to find problems, once to confirm.
 
 Final deployment: organization `ethglobal2.eth`, factory
-`0x4C96E37b679427d362BDE6dFdF123A10f80caA0B`, branch `live-final.ethglobal2.eth`, registry
+`0x4C96E37b679427d362BDE6dFdF123A10f80caA0B`, perimeter `live-final.ethglobal2.eth`, registry
 `0xb582c492…b982`, registrar `0x42717939…b11c`.
 
 **The name is right.** `cast namehash live-final.ethglobal2.eth` equals the registrar's own
@@ -219,7 +219,7 @@ deployment whose stored DNS name and stored node describe different things.
 | mentor2 | own `avatar` | ALLOWED | ALLOWED |
 | mentor2 | own `wifi.rate` | DENIED | DENIED |
 | mentor2 | **hacker1's `avatar`** | DENIED | DENIED |
-| mentor2 | branch `ensca.registrar` | DENIED | DENIED |
+| mentor2 | perimeter `ensca.registrar` | DENIED | DENIED |
 | hacker1 | own `avatar` | DENIED | DENIED |
 
 **A real member write landed** on the earlier run — tx `0xd284b040…bde9`, signed by the member's
@@ -233,7 +233,7 @@ reverted: EACUnauthorizedAccountRoles(
 
 Role 16 is `ROLE_SET_TEXT`; the resource is `resource(mentor2Node, partHash("avatar"))`.
 
-**A role that could escape the branch is refused.** `defineRole` with `ROLE_SET_RESOLVER`
+**A role that could escape the perimeter is refused.** `defineRole` with `ROLE_SET_RESOLVER`
 (`1 << 24`) reverts `ForbiddenRegistryRoles` — verified live.
 
 **The dropped-key case, which an adversarial review found and which the first fix got wrong:**
@@ -267,25 +267,25 @@ replayed nonce     → 401 "unknown, expired, or already used"
 - **`ROLE_RENEW` is granted and unusable.** `REQUIRED_REGISTRY_ROLES` includes it but V2 exposes no
   `renew`, so memberships cannot be extended past `BRANCH_EXPIRY`. Either add the entrypoint or drop
   the role.
-- **The shared resolver is a blast radius.** All branches write into one `PermissionedResolver`, and
-  each branch registrar holds root `ROLE_SET_TEXT` on it, so a compromised *registrar* (not member)
-  could still write across branches. ENS's own guidance is to give each trust boundary its own
-  resolver instance; per-branch resolvers would close this.
-- **`OrgRegistrar.ROLE_ENROL` saturates at ~14 branches.** Each `createBranch` grants it to the new
+- **The shared resolver is a blast radius.** All perimeters write into one `PermissionedResolver`, and
+  each perimeter registrar holds root `ROLE_SET_TEXT` on it, so a compromised *registrar* (not member)
+  could still write across perimeters. ENS's own guidance is to give each trust boundary its own
+  resolver instance; per-perimeter resolvers would close this.
+- **`OrgRegistrar.ROLE_ENROL` saturates at ~14 perimeters.** Each `createBranch` grants it to the new
   registrar at `ROOT_RESOURCE`, and EAC caps assignees per resource at 15. Same for `ROLE_SET_TEXT`
-  on the resolver. Scope these per-branch, or revoke on close.
+  on the resolver. Scope these per-perimeter, or revoke on close.
 - **`releaseMembership` is unpermissioned.** It only acts when the registry already disagrees, but
   it deserves a second look.
 - **The org label namespace is global and one-shot.** `onboard`'s `memberLabel` is minted into
-  the organization registry by any onboarder at any branch, and `OrgRegistrar` has no unregister
-  path. Hit for real during the live run: re-using `mentor2` as a member label on a second branch
+  the organization registry by any onboarder at any perimeter, and `OrgRegistrar` has no unregister
+  path. Hit for real during the live run: re-using `mentor2` as a member label on a second perimeter
   reverted `LabelUnavailable`. So a malicious onboarder can permanently burn an org label —
-  including one reserved for a future branch, which then makes `createBranch` for it impossible.
+  including one reserved for a future perimeter, which then makes `createBranch` for it impossible.
 - **A revoked member who holds an org-wide role gets it back.** `revoke` clears `membershipOf`,
   after which `effectiveRole` falls through to `ORG.orgRole(account)`. That is the documented
-  §5.4 fallback, but it means a branch cannot fully eject someone the organization has blessed.
-- **`BRANCH_EXPIRY` is immutable, so a branch cannot be extended.** Past it, `effectiveRole`
+  §5.4 fallback, but it means a perimeter cannot fully eject someone the organization has blessed.
+- **`BRANCH_EXPIRY` is immutable, so a perimeter cannot be extended.** Past it, `effectiveRole`
   returns nothing *and* `onboard` cannot register (the registry rejects a past expiry), so a
-  branch is permanently closed even if its ENS names are renewed.
+  perimeter is permanently closed even if its ENS names are renewed.
 - **The old V1 `BranchRegistrar` and its fork test still exist** and still pin V1 addresses. They
   should be deleted; `DeployV2`/`DeployFactory`/`AddBranch`/`SeedRoles` are the live scripts.

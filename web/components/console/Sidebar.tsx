@@ -7,6 +7,7 @@ import { useProxyStatus } from "@/lib/hooks/useProxyStatus";
 import { useEnsBranches } from "@/lib/hooks/useEns";
 import { useOrg, withOrg } from "@/lib/hooks/useOrg";
 import { WalletButton } from "@/components/WalletButton";
+import { WifiMark } from "@/components/WifiMark";
 import { useConsoleSession } from "@/lib/hooks/useConsoleSession";
 
 const SECTIONS = [
@@ -21,7 +22,7 @@ const SECTIONS = [
     heading: "Configure",
     items: [
       { href: "/console/groups", label: "Groups" },
-      { href: "/console/branches", label: "Branches" },
+      { href: "/console/branches", label: "Perimeters" },
     ],
   },
   {
@@ -60,15 +61,16 @@ export function Sidebar() {
     <div className="flex h-full flex-col">
       {/* Org identity */}
       <div className="border-b border-rule px-4 py-4 lg:px-5">
-        <Link href="/" className="flex items-center">
-          <span className="font-mono text-sm font-medium tracking-[0.18em] text-ink">ENSCA</span>
+        <Link href="/" className="flex items-center gap-1.5 text-ink">
+          <WifiMark className="shrink-0" />
+          <span className="font-mono text-sm font-medium tracking-[0.18em]">Radius</span>
         </Link>
         <p className="mt-1 truncate font-mono text-[0.6875rem] text-ink-muted">{org ? `${org}.eth` : "no organization"}</p>
       </div>
 
       {/* Branches, discovered from ENS rather than configured */}
       <div className="border-b border-rule px-4 py-3 lg:px-5">
-        <p className="label">Branches</p>
+        <p className="label">Perimeters</p>
         <ul className="mt-2 space-y-1">
           {branches === undefined ? (
             <li className="font-mono text-xs text-ink-muted">discovering…</li>

@@ -32,7 +32,7 @@ export async function admit(ip: string, ensName: string): Promise<Admission> {
     return {
       ok: false,
       kind: "unconfigured",
-      reason: "no branch portal is configured for this console",
+      reason: "no perimeter portal is configured for this console",
     };
   }
   if (!ip || ip === "unknown") {
@@ -52,7 +52,7 @@ export async function admit(ip: string, ensName: string): Promise<Admission> {
     return {
       ok: false,
       kind: "refused",
-      reason: body.error ?? `the branch enforcer said ${res.status}`,
+      reason: body.error ?? `the perimeter enforcer said ${res.status}`,
     };
   } catch (error) {
     return {

@@ -75,7 +75,7 @@ export function challenge(params: {
   issuedAt: string;
 }): string {
   return [
-    "ENSCA console",
+    "Radius console",
     "",
     `Organization: ${params.org}.eth`,
     `Address: ${params.address}`,

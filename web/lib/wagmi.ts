@@ -22,7 +22,7 @@ export const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID ?? "";
 export const chain = wagmiSepolia;
 
 const metadata = {
-  name: "ENSCA",
+  name: "Radius",
   description: "An ENS subname is the credential for physical infrastructure",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   icons: [],

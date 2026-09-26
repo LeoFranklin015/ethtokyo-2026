@@ -1,4 +1,4 @@
-# ENSCA — The Idea
+# Radius — The Idea
 
 ## The Problem
 
@@ -10,7 +10,7 @@ The identity layer already exists. Every attendee has an ENS name and a wallet. 
 
 ## The Fix
 
-ENSCA makes your ENS subname the credential for every piece of infrastructure at the event.
+Radius makes your ENS subname the credential for every piece of infrastructure at the event.
 
 At check-in, you get minted a subname under the event domain:
 
@@ -44,7 +44,7 @@ The captive portal and proxy service talk to each other: login creates a session
 
 ## What It Replaces (eventual target)
 
-| Before ENSCA | After ENSCA |
+| Before Radius | After Radius |
 |---|---|
 | Shared WiFi password | ENS subname + wallet signature |
 | Same network for everyone | Role-based VLAN per identity |

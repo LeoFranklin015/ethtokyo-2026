@@ -1,4 +1,4 @@
-# ENSCA — WiFi & Network Layer
+# Radius — WiFi & Network Layer
 
 ## Current Implementation (ETHTokyo 2026 Demo)
 

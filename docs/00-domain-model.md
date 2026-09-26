@@ -12,13 +12,13 @@ This document fixes vocabulary. All docs, schema, routes, and labels use these t
 
 Root entity. Operates one or more physical locations. Owns an ENS name (future); currently represented by the control plane admin.
 
-### Branch
+### Perimeter
 
 A physical location. May be permanent (an office) or time-bounded (a hackathon). Where infrastructure lives and where people show up. Currently: the ETHTokyo 2026 demo venue (Fedora VM + AX80).
 
 ### Group
 
-A named access tier within a Branch. Today: `basic`, `staff`, `vip`. Groups define:
+A named access tier within a Perimeter. Today: `basic`, `staff`, `vip`. Groups define:
 - Network tier (fwmark, tc HTB class, bandwidth cap)
 - Which resources members can access (rows in `group_resource_limits`)
 - Per-device and per-group daily usage limits per resource

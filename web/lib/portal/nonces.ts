@@ -57,5 +57,5 @@ export function consumeNonce(nonce: string, ip: string): boolean {
 
 /** The exact string the wallet is asked to sign. Must match the client byte for byte. */
 export function challengeMessage(nonce: string): string {
-  return `Sign in to ENSCA\nNonce: ${nonce}`;
+  return `Sign in to Radius\nNonce: ${nonce}`;
 }

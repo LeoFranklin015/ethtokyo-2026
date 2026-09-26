@@ -1,4 +1,4 @@
-# ENSCA — Build Plan
+# Radius — Build Plan
 
 ## Phase 1 — Core Identity + WiFi (Demo-ready) ✓
 

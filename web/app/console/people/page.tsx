@@ -233,7 +233,7 @@ export default function PeoplePage() {
                 <>
                   Nobody below is being called unregistered on the strength of that — the chain
                   column reads <span className="font-mono">not read</span> until the index catches
-                  up. Branches and organizations are unaffected; those are read from the chain
+                  up. Perimeters and organizations are unaffected; those are read from the chain
                   directly.
                 </>
               )}
@@ -261,14 +261,14 @@ export default function PeoplePage() {
               <p className="mx-auto mt-1.5 max-w-[46ch] text-sm text-ink-muted">
                 {onlyDisagreements
                   ? "Every membership the chain knows has a row on the enforcer, and the reverse."
-                  : "Onboarding mints a name under a branch registrar and mirrors it to the enforcer in the same step."}
+                  : "Onboarding mints a name under a perimeter registrar and mirrors it to the enforcer in the same step."}
               </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] border-collapse text-left">
                 <caption className="sr-only">
-                  People in {org}.eth, with what the chain and the branch enforcer each say
+                  People in {org}.eth, with what the chain and the perimeter enforcer each say
                 </caption>
                 <thead>
                   <tr className="border-b border-rule">
@@ -354,7 +354,7 @@ export default function PeoplePage() {
                                 title={
                                   registrar
                                     ? "Re-reads the chain, then writes the enforcer row."
-                                    : "That branch publishes no registrar, so the chain cannot be re-read."
+                                    : "That perimeter publishes no registrar, so the chain cannot be re-read."
                                 }
                                 onClick={() => void retryMirror(p)}
                               >
@@ -561,7 +561,7 @@ function SourceNotices({
     <div role="status" className="space-y-2">
       {chainError ? (
         <Notice>
-          The branch registry did not answer, so the on-chain half of this list is missing. Rows
+          The perimeter registry did not answer, so the on-chain half of this list is missing. Rows
           below come from the enforcer alone and no one is marked as unmirrored.
         </Notice>
       ) : null}
@@ -578,7 +578,7 @@ function SourceNotices({
             </>
           ) : (
             <>
-              The branch enforcer did not answer, so its half of this list is missing. Rows below
+              The perimeter enforcer did not answer, so its half of this list is missing. Rows below
               come from the chain alone — nobody here is known to be missing a mirror.
             </>
           )}

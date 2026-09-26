@@ -16,7 +16,7 @@ import { getIndexedBranches, getIndexedMemberships, getIndexerStatus } from "./i
 import { orgForName, resolveOrg, type Organization } from "./org";
 
 /**
- * Reads the ENSCA contracts directly. Server-side only, so viem never reaches the client bundle.
+ * Reads the Radius contracts directly. Server-side only, so viem never reaches the client bundle.
  *
  * This is the identity half of the console: the registry is the source of truth for who holds a
  * membership and the resolver for what it grants. The proxy remains the source of truth for
@@ -460,6 +460,8 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
       functionName: "getOwner",
       args: [labelHash(label)],
     }),
+    // `ensca.registrar` keeps the product's former name: the key is already written on chain for
+    // every perimeter that exists, and a new key would make all of them unreadable.
     client.readContract({
       address: org.resolver,
       abi: resolverAbi,

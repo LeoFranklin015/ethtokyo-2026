@@ -16,9 +16,9 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ENSCA — identity-gated infrastructure",
+  title: "Radius — identity-gated infrastructure",
   description:
-    "Your ENS subname is the credential for the network. Organizations, branches, roles and entitlements, read straight from ENS.",
+    "Your ENS subname is the credential for the network. Organizations, perimeters, roles and entitlements, read straight from ENS.",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

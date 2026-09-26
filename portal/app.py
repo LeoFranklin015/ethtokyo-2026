@@ -43,7 +43,7 @@ CONSOLE_URL = os.environ.get("ENSCA_CONSOLE_URL", "").strip().rstrip("/")
 # nothing is admitted.
 CONSOLE_TOKEN = os.environ.get("ENSCA_CONSOLE_TOKEN", "").strip()
 # Shown on the captive page so a guest can tell which network they are joining.
-SSID = os.environ.get("ENSCA_SSID", "the branch network")
+SSID = os.environ.get("ENSCA_SSID", "the perimeter network")
 PORTAL_URL = f"http://{GATEWAY_IP}:8080"
 # DNS server used for per-IP bypass rules.
 # Override with ENSCA_DNS_SERVER env var (default: 8.8.8.8).
@@ -320,7 +320,7 @@ def _console(method, path, **kwargs):
     guest would look like 127.0.0.1 and the wrong device would be let onto the network.
     """
     if not CONSOLE_URL:
-        return jsonify({"error": "this branch has no console configured"}), 503
+        return jsonify({"error": "this perimeter has no console configured"}), 503
     try:
         r = _req.request(
             method,
@@ -336,7 +336,7 @@ def _console(method, path, **kwargs):
         # Not a refusal, and the page words it as an outage. A console that cannot be reached
         # must never read as "you are not a member".
         _log.warning("console unreachable: %s", exc)
-        return jsonify({"error": "the console could not be reached from this branch"}), 504
+        return jsonify({"error": "the console could not be reached from this perimeter"}), 504
     try:
         return jsonify(r.json()), r.status_code
     except ValueError:

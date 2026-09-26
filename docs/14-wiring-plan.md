@@ -13,7 +13,7 @@ in `web/`. Claims below marked "verified" were re-checked directly, not taken fr
 | # | Decision | Consequence |
 |---|---|---|
 | D1 | **Write-through from Next.js.** The `/api/ens/*` route does the chain tx, waits for the receipt, then mirrors into the enforcer in the same request. | Every mirror call must be idempotent. A reconcile endpoint repairs drift instead of a log listener. |
-| D2 | **One enforcer per branch.** Branch identity is config (`BRANCH_ENS`), not a table. | No `branches` table in SQLite. But group names must still be branch-qualified at the ENS boundary. |
+| D2 | **One enforcer per perimeter.** Perimeter identity is config (`BRANCH_ENS`), not a table. | No `branches` table in SQLite. But group names must still be perimeter-qualified at the ENS boundary. |
 | D3 | **Next.js portal is the face, Flask stays the enforcer.** | `PortalFlow.tsx` gets real endpoints; `portal/app.py` keeps iptables/tc and the session row, and gains `/internal/admit`. |
 
 ---
@@ -59,7 +59,7 @@ The gap between what the app claims and what it does is the real subject of this
   `useThroughput` returns `{samples: []}` whenever the proxy is unreachable — which is always, today.
 - **Verified:** `Wizard.tsx:314` — `onDone(body.label, null)`, and `createBranch` in `write.ts`
   returns only `{txHash, label}`. The `BranchCreated` event in the receipt carries `registry` and
-  `registrar` and is **thrown away**, so step 3 of the wizard re-discovers the branch through an
+  `registrar` and is **thrown away**, so step 3 of the wizard re-discovers the perimeter through an
   indexer that has not indexed the just-confirmed tx. The wizard's happy path does not work.
 - `resolveIdentity` reads entitlements from `ENS.resolver` rather than the name's own resolver. A
   member who points their name at their own resolver resolves to `{}` → HTTP 200 with an empty
@@ -137,8 +137,8 @@ quota). Never publish a bandwidth number on-chain and trust it.
 |---|---|---|---|
 | Person | wallet address (`Onboarded.owner`) | `users.wallet_address` | The only id that survives expiry, revocation and re-onboarding, and it is what a signature recovers to. |
 | Membership | full ENS name `<label>.<branch>.<org>` | `users.username` **and** `users.ens_name`, identical, lowercased | `/internal/ens-lookup` joins on `username`; `by-ens` joins on `ens_name`. Today only `seed_ens.py` keeps them equal. Write both or the two paths disagree. |
-| Group | `roleId = keccak256(name)` | `groups.name` = `<branch-label>:<role-name>` | `groups.name` is **globally UNIQUE** in SQLite, but two branches can each define `mentor`. Qualify the name. |
-| Branch | `BranchCreated.node` / registry address | config only (D2) | One enforcer per branch. |
+| Group | `roleId = keccak256(name)` | `groups.name` = `<branch-label>:<role-name>` | `groups.name` is **globally UNIQUE** in SQLite, but two perimeters can each define `mentor`. Qualify the name. |
+| Perimeter | `BranchCreated.node` / registry address | config only (D2) | One enforcer per perimeter. |
 
 ⚠️ **Do not** key on `tokenId` — it is regenerated on every role grant (`TokenRegenerated`). `resource`
 changes after expiry. Both are current-value columns, never keys.
@@ -158,7 +158,7 @@ Nothing else matters while the org key is world-spendable.
 - [ ] **[SEC]** Reject path traversal in `app/api/admin/[...path]/route.ts`: refuse any segment
       containing `/`, `..`, or a leading `.` **before** building the upstream URL.
 - [ ] **[SEC]** Allow-list `registrar`. Add `assertOurRegistrar(address)` in `lib/ens/` that checks
-      the address against the branch registrars discovered from ENS (or the branch's own
+      the address against the perimeter registrars discovered from ENS (or the perimeter's own
       `ensca.registrar` text record) and throws otherwise. Call it in `/api/ens/groups` POST and
       `/api/ens/onboard` POST before any write.
 - [ ] **[SEC]** Stop deriving the commit salt from the private key. `write.ts:146`
@@ -199,7 +199,7 @@ Every downstream bug in §1.2 comes from here.
 - [ ] Replace `NEXT_PUBLIC_BRANCH_LABEL` + `NEXT_PUBLIC_ORG_ENS` string-concatenation (four sites)
       with one `BRANCH_ENS` value. Delete `NEXT_PUBLIC_BRANCH_VENUE` and `_BRANCH_WINDOW` — they are
       fossils of the deleted `Branch` fixture type and render an empty ` · `.
-- [ ] Make the `ENSCA` wordmark one exported constant. It is currently hardcoded in
+- [ ] Make the `Radius` wordmark one exported constant. It is currently hardcoded in
       `SiteHeader.tsx:14`, `Sidebar.tsx:39`, `layout.tsx:17`, `app/page.tsx:21`, `PortalFlow.tsx:73`
       and `lib/config.ts:4` — six copies.
 - [ ] One `NEXT_PUBLIC_SSID` default. `lib/config.ts` says `"ENSCA"`, `PortalFlow.tsx:138` says
@@ -213,7 +213,7 @@ Every downstream bug in §1.2 comes from here.
 
 ## 5. PHASE 2 — Make the enforcer mirrorable
 
-The backend has **no concept of a branch or an organization** — the word `branch` appears once, as a
+The backend has **no concept of a perimeter or an organization** — the word `branch` appears once, as a
 pass-through field that is never stored. Under D2 we do not add those tables, but the group namespace
 still has to stop colliding.
 
@@ -221,7 +221,7 @@ still has to stop colliding.
 
 - [ ] `groups`: add `ens_role_id TEXT` (the `keccak256(name)` hex) and `branch_ens TEXT`.
       Index `(branch_ens, ens_role_id)`.
-- [ ] `groups.name`: keep the global UNIQUE, and write branch-qualified names
+- [ ] `groups.name`: keep the global UNIQUE, and write perimeter-qualified names
       (`tokyo:mentor`). Cheaper than a SQLite table rebuild and achieves the same thing.
       Document the format in `db.py` next to the column.
 - [ ] `users`: add `ens_owner TEXT` (the wallet that owns the name on-chain) distinct from the
@@ -257,7 +257,7 @@ still has to stop colliding.
       `data["..."]`, so any missing key is a `KeyError` → 500. Return 400.
 - [ ] Add `GET /admin/sync/state` — what is currently mirrored, with `last_synced_at`. There is no
       way today to ask the question.
-- [ ] `POST /admin/sync/reconcile` — accept the full desired state for this branch (groups + members)
+- [ ] `POST /admin/sync/reconcile` — accept the full desired state for this perimeter (groups + members)
       and converge. This is the listener's job done on demand, and it is how drift gets repaired
       after a half-failed write-through.
 - [ ] **Raise the token cap.** `auth.py:22` selects `LIMIT 20` with **no ORDER BY**. Past 20 live
@@ -308,13 +308,13 @@ still has to stop colliding.
 
 - [ ] Create `web/lib/enforcer/client.ts`: a typed client over `ENFORCER_URL` with `ENFORCER_TOKEN`,
       exposing `upsertGroup`, `upsertMember`, `putLimit`, `reconcile`. Server-only.
-- [ ] `POST /api/ens/groups` — after the receipt: `upsertGroup({name: "<branch>:<role>", ens_role_id,
+- [ ] `POST /api/ens/groups` — after the receipt: `upsertGroup({name: "<perimeter>:<role>", ens_role_id,
       branch_ens, network_tier: <default>})`. Then `putLimit` for each resource the group may reach.
-- [ ] `POST /api/ens/onboard` — after the receipt: `upsertMember({ens_name: "<label>.<branch>.<org>",
-      username: same, wallet_address: owner, group: "<branch>:<role>"})`.
-- [ ] `POST /api/ens/branch` — under D2 nothing to mirror, but **do** write the branch's
-      `ensca.registrar` record if the branch was created by a script rather than the factory
-      (`AddBranch.s.sol` never writes it, and without it the branch is undiscoverable).
+- [ ] `POST /api/ens/onboard` — after the receipt: `upsertMember({ens_name: "<label>.<perimeter>.<org>",
+      username: same, wallet_address: owner, group: "<perimeter>:<role>"})`.
+- [ ] `POST /api/ens/branch` — under D2 nothing to mirror, but **do** write the perimeter's
+      `ensca.registrar` record if the perimeter was created by a script rather than the factory
+      (`AddBranch.s.sol` never writes it, and without it the perimeter is undiscoverable).
 - [ ] **Mirror failures must not fail the request.** The chain write already landed and is the
       authority. Return `200 {ok: true, mirrored: false, reason}` and let reconcile repair it.
       Surface `mirrored: false` in the UI as a visible warning, not a silent success.
@@ -357,12 +357,12 @@ Each verified by repo-wide grep. ~350 lines, most of it fabricated policy.
       above the real form.
 - [ ] **[BLOCKER]** `lib/ens/read.ts:261-351` `fromChain` + the `getMemberships` try/catch +
       `lib/ens/config.ts:30-33` (the Tokyo quartet). This is the largest single deletion and it fixes
-      the wrong-branch bug. The fallback's stated purpose — "the indexer is a cache, never the
-      authority" — is not what it does: it substitutes one hardcoded branch's data for whatever was
+      the wrong-perimeter bug. The fallback's stated purpose — "the indexer is a cache, never the
+      authority" — is not what it does: it substitutes one hardcoded perimeter's data for whatever was
       asked, which is worse than the 502 the route would otherwise return. `EnsMemberships.tsx:53-61`
       already renders a correct failure state.
       *If* a chain fallback is wanted later, write one that takes `branchLabel` and derives the
-      registrar from the branch's `ensca.registrar` record.
+      registrar from the perimeter's `ensca.registrar` record.
 
 ### 7.2 Remove the remaining mock data
 
@@ -420,11 +420,11 @@ Each verified by repo-wide grep. ~350 lines, most of it fabricated policy.
       remounts the inputs and loses focus.
 - [ ] Surface `txHash` with an explorer link on every successful write. All four routes return it and
       every form discards it.
-- [ ] Extract one `useSelectedBranch()` hook. "Filter branches with a registrar, default to the
+- [ ] Extract one `useSelectedBranch()` hook. "Filter perimeters with a registrar, default to the
       first" is written four times (`GroupForm.tsx:26,37`, `OnboardForm.tsx:31`, `groups/page.tsx:22`,
       `Wizard.tsx:399`), and all four share the same stale-`target` bug: the `<select>` shows
-      branch[0] while state is `""`, so a reorder on revalidation changes the selection silently.
-- [ ] Replace `Wizard.tsx:405-416`'s hand-rolled branches effect with `useEnsBranches()`.
+      perimeter[0] while state is `""`, so a reorder on revalidation changes the selection silently.
+- [ ] Replace `Wizard.tsx:405-416`'s hand-rolled perimeters effect with `useEnsBranches()`.
 - [ ] One `RoleChip`. `RoleChip.tsx` is typed to the closed `RoleName` union (which is why the fake
       `TIER_ROLE` map exists to satisfy it) while `EnsMemberships.tsx:110-120` hand-rolls a second
       one for arbitrary on-chain names. Keep the second, delete the type constraint.
@@ -443,13 +443,13 @@ Each verified by repo-wide grep. ~350 lines, most of it fabricated policy.
       `/^[a-z0-9-]{1,32}$/` on GET; the POST one line down checks only `!body.label`, so
       `{"label":"tokyo.attacker"}` reaches a chain write. Same gap in `org/route.ts:22`.
       `branch/route.ts:44` casts `body.owner as Address` unchecked, and `expiry` is an unvalidated
-      number — `expiry: 0` opens a branch that is born closed.
+      number — `expiry: 0` opens a perimeter that is born closed.
 - [ ] `groups/route.ts` GET with no `registrar` silently falls through to
-      `read.ts:111`'s default `ENS.branchRegistrar` — a missing param returns **a different branch's
+      `read.ts:111`'s default `ENS.branchRegistrar` — a missing param returns **a different perimeter's
       groups**. Return 400.
 - [ ] Give `/api/ens/branches` the same honest failure as `/api/ens/memberships`. It is the only
-      branch-discovery path and has no fallback: when the staging indexer is down, the Sidebar,
-      Branches page, Groups page, both forms and the wizard all go empty at once, indistinguishable
+      perimeter-discovery path and has no fallback: when the staging indexer is down, the Sidebar,
+      Perimeters page, Groups page, both forms and the wizard all go empty at once, indistinguishable
       from a new org.
 - [ ] Rename the query param: `/api/ens/available?registry=` vs `/api/ens/groups?registrar=`. Two
       different addresses, near-identical names, adjacent routes.
@@ -545,7 +545,7 @@ Under D3: React is the face, Flask stays the enforcer.
       **different columns** today.
 - [ ] `resolveIdentity` against a name whose resolver is not the org resolver.
 - [ ] `/api/ens/memberships?branch=<x>` with the indexer stubbed down — assert it does **not** return
-      another branch's rows.
+      another perimeter's rows.
 - [ ] `ThroughputChart` with zero and with one sample.
 - [ ] Portal: unknown name vs unreachable proxy must produce **different** user-visible outcomes.
 - [ ] Portal: `TIER_MARK` covers every tier the enforcer can return — a table-driven test that reads
@@ -573,7 +573,7 @@ Under D3: React is the face, Flask stays the enforcer.
 |---|---|
 | Write-through drift when the mirror call fails after a landed tx | `mirrored: false` in the response, visible in the UI, plus `POST /admin/sync/reconcile`. |
 | Public RPC log-range caps break `resolveIdentity` under load | Bound the window (§7.6); until then a 502 correctly falls back to local SQLite rather than denying. |
-| Staging indexer (`staging-graphql.ens.dev`) disappears mid-demo | Branch discovery has no fallback today. Either add a real one that respects `branchLabel`, or cache the branch list server-side. |
+| Staging indexer (`staging-graphql.ens.dev`) disappears mid-demo | Perimeter discovery has no fallback today. Either add a real one that respects `branchLabel`, or cache the perimeter list server-side. |
 | 20-token bcrypt cap silently 401s the mirror | Keep live tokens under 20 until `auth.py` is fixed. |
 | `db._migrate()` rebuilds `users` silently on a failed copy | `ALTER TABLE` only; never re-trigger the rebuild path. |
 | Demo key in `.env` / `.env.local` | Both verified gitignored and never committed. Rotate before any public demo anyway. |

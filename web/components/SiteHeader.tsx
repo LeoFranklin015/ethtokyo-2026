@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WalletButton } from "@/components/WalletButton";
+import { WifiMark } from "@/components/WifiMark";
 
 const NAV = [
   { href: "/create", label: "Create org" },
   { href: "/console", label: "Console" },
-  { href: "/portal", label: "Portal" },
 ] as const;
 
 export function SiteHeader() {
@@ -22,8 +22,9 @@ export function SiteHeader() {
           control this page actually needs — stranded mid-row. So the grid places it beside the
           logo and gives the nav a line of its own. */}
       <div className="mx-auto grid min-h-14 w-full max-w-[1180px] grid-cols-[auto_1fr] items-center gap-x-4 gap-y-0.5 px-5 py-1.5 sm:flex sm:justify-between sm:gap-6 sm:py-0">
-        <Link href="/" className="flex items-center">
-          <span className="font-mono text-sm font-medium tracking-[0.18em] text-ink">ENSCA</span>
+        <Link href="/" className="flex items-center gap-1.5 text-ink">
+          <WifiMark className="shrink-0" />
+          <span className="font-mono text-sm font-medium tracking-[0.18em]">Radius</span>
         </Link>
 
         <span className="shrink-0 justify-self-end sm:order-3">

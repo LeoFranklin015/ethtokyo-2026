@@ -9,7 +9,9 @@ import { ENTITLEMENT_KEYS } from "./config";
  *   - a **Branch** is a name under the organization that has a *subregistry*; a Member name is one
  *     that does not. That distinction is the domain model, and the index exposes it directly.
  *   - a branch publishes its **registrar** as an `ensca.registrar` text record, because a registrar
- *     is only an EAC role holder and is otherwise invisible to any indexer.
+ *     is only an EAC role holder and is otherwise invisible to any indexer. That key keeps the
+ *     product's former name because it is already written on chain for every perimeter in
+ *     existence; renaming it would orphan all of them.
  *
  * So adding a branch requires no redeploy and no config change here — it appears as soon as it is
  * registered and its registrar record is written.

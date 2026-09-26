@@ -141,7 +141,7 @@ export function useEnsWrites() {
             // Logs from the registries and the resolver are in this receipt too; skip them.
           }
         }
-        throw new Error("the branch was created but the factory emitted no BranchCreated");
+        throw new Error("the perimeter was created but the factory emitted no BranchCreated");
       }),
     [publicClient, run, writeContractAsync],
   );
@@ -331,11 +331,11 @@ function readableError(e: unknown): string {
   if (!(e instanceof Error)) return "something went wrong";
   const m = e.message;
   if (/User rejected|denied transaction/i.test(m)) return "You rejected that request.";
-  if (/NotABranchCreator/.test(m)) return "This wallet may not open branches for this organization.";
-  if (/NotARoleEditor/.test(m)) return "This wallet may not edit this branch's groups.";
+  if (/NotABranchCreator/.test(m)) return "This wallet may not open perimeters for this organization.";
+  if (/NotARoleEditor/.test(m)) return "This wallet may not edit this perimeter's groups.";
   if (/CannotMintRole/.test(m)) return "This wallet may not onboard anyone into that group.";
   if (/NotARevoker/.test(m)) return "This wallet may not end memberships here.";
-  if (/AlreadyOnboarded/.test(m)) return "That wallet already holds a membership at this branch.";
+  if (/AlreadyOnboarded/.test(m)) return "That wallet already holds a membership at this perimeter.";
   if (/LabelUnavailable/.test(m)) return "That name is already taken here.";
   if (/insufficient funds/i.test(m)) return "This wallet has no Sepolia ETH for gas.";
   return m.split("\n")[0]!.slice(0, 160);

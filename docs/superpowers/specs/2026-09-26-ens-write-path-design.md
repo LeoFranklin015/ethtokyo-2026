@@ -30,7 +30,7 @@ Every layer must preserve this:
 3. **Write architecture:** client-signed; server stays read-only; a server pre-check route runs `simulateContract` before the wallet is prompted, so bad txs fail fast with a readable reason. The server holds no key and sends no tx.
 4. **Role type source:** on-chain catalogue only. Delete the hardcoded `RoleName` union; everything role-shaped derives from the `RoleDefined` catalogue.
 5. **Deploy:** fresh deploy onto an org `.eth` name the deployer already owns (no commit-reveal registration in scope). Deploy runs from this Mac; secrets live in shell env for the deploy session only — never in repo, ledger, or spec/plan files.
-6. **Branches:** created dynamically from the UI. A `BranchRegistrarV2` is immutable-bound to one branch node, so each dynamic branch deploys its own registry + registrar (mirrors the existing per-branch topology).
+6. **Perimeters:** created dynamically from the UI. A `BranchRegistrarV2` is immutable-bound to one perimeter node, so each dynamic perimeter deploys its own registry + registrar (mirrors the existing per-perimeter topology).
 
 ## Grounded On-Chain Facts
 
@@ -64,11 +64,11 @@ Immutables bound: `REGISTRY`, `RESOLVER`, `BRANCH_EXPIRY`, `ORG`, `BRANCH_NODE`.
 7. `resolver.grantRootRoles(1 << 4, registrar)`
 8. `resolver.setText(branchNode, "ensca.registrar", registrarAddress)` — **NEW, load-bearing**
 
-`branchNode = namehash(label + "." + org)`, computed per branch (AddBranch currently hardcodes it).
+`branchNode = namehash(label + "." + org)`, computed per perimeter (AddBranch currently hardcodes it).
 
 ### Discovery-record gap (load-bearing)
 
-No current script writes the `ensca.registrar` text record; it exists only as a doc-comment in `web/lib/ens/indexer.ts`. But branch discovery depends on it: the indexer reads `text(key: "ensca.registrar")` to learn a branch's registrar address. Without it a dynamic branch is invisible to the console (the chain fallback only reads the single default branch). Step 8 above closes this, and the deploy script must write it for the default branch too.
+No current script writes the `ensca.registrar` text record; it exists only as a doc-comment in `web/lib/ens/indexer.ts`. But perimeter discovery depends on it: the indexer reads `text(key: "ensca.registrar")` to learn a perimeter's registrar address. Without it a dynamic perimeter is invisible to the console (the chain fallback only reads the single default perimeter). Step 8 above closes this, and the deploy script must write it for the default perimeter too.
 
 ### Submodule blocker
 
@@ -82,7 +82,7 @@ Initialize the `@ens-v2` submodule recursively; `forge build` green. No Solidity
 
 ### Phase 2 — Deploy onto owned name
 
-Adapt `DeployV2.s.sol`: read the owned org name's registry state, confirm the deployer key owns it, stand up org registry (`setSubregistry` / `setParent`), deploy resolver proxy (`setResolver`), deploy `OrgRegistrar` + a default `BranchRegistrarV2`, grant `REQUIRED_REGISTRY_ROLES` + `ROLE_ENROL` + resolver `ROLE_SET_TEXT`, write the default branch's `ensca.registrar` record, run SeedRoles (hacker / volunteer / mentor). Rewrite `contracts/deployments/sepolia.json`.
+Adapt `DeployV2.s.sol`: read the owned org name's registry state, confirm the deployer key owns it, stand up org registry (`setSubregistry` / `setParent`), deploy resolver proxy (`setResolver`), deploy `OrgRegistrar` + a default `BranchRegistrarV2`, grant `REQUIRED_REGISTRY_ROLES` + `ROLE_ENROL` + resolver `ROLE_SET_TEXT`, write the default perimeter's `ensca.registrar` record, run SeedRoles (hacker / volunteer / mentor). Rewrite `contracts/deployments/sepolia.json`.
 
 **Invariant tests (forge, local, no network):** deploy the stack in `setUp()`; assert (a) a hacker wallet reverts on `onboard` and `setOwnRecord`; (b) a volunteer onboards a hacker successfully; (c) a mentor edits `avatar` but reverts on a non-`selfEditable` key.
 
@@ -100,7 +100,7 @@ Add wagmi + viem + WalletConnect connector (`NEXT_PUBLIC_WC_PROJECT_ID` env). Cl
 - **Client role gate:** read the connected wallet's `effectiveRole`; render write controls only where the role can act (convenience — contract still enforces).
 - **Onboard flow:** the dead "Onboard member" button becomes a modal (role filtered by mintability + label/owner/memberLabel) → simulate → sign `onboard` → revalidate. A hacker wallet sees no mintable roles.
 - **Self-edit flow:** edit control shown only for keys in the role's `selfEditable` set (hacker → none). → simulate → sign `setOwnRecord`.
-- **Dynamic branch creation (staff):** the 8-step sequence above, signed in order, with a **resumable step sequencer** keyed off on-chain state (registry exists? name registered? registrar deployed? roles granted? text record written?), so a mid-sequence failure resumes rather than orphaning a registry or re-registering a name.
+- **Dynamic perimeter creation (staff):** the 8-step sequence above, signed in order, with a **resumable step sequencer** keyed off on-chain state (registry exists? name registered? registrar deployed? roles granted? text record written?), so a mid-sequence failure resumes rather than orphaning a registry or re-registering a name.
 
 Before writing any web code, read `node_modules/next/dist/docs/` (Next 16, per `web/AGENTS.md`). Tests: role-filter logic (hacker → empty), self-edit gate (hacker → none / mentor → avatar+ssh.pubkey), branch-create resume-point computation.
 
@@ -111,7 +111,7 @@ Runs on live Sepolia against the fresh deploy.
 - **Deploy verification:** on-chain confirm org/resolver/registrar wiring and seeded roles; Etherscan-verify; confirm `sepolia.json` ↔ `config.ts` match.
 - **Read verification:** `/api/ens/branch` + `/api/ens/memberships`; confirm `source` (indexer vs chain) and that roles/entitlements/`selfEditable` resolve.
 - **Invariant proof (real wallets, funded from the deploy key):** create test wallets, fund with Sepolia ETH; hacker wallet — no mintable roles, forced `onboard` reverts, no editable keys, forced `setOwnRecord` reverts `CannotEditKey`; volunteer onboards a hacker (succeeds); mentor edits `avatar` (succeeds) but reverts on `role`. Record tx hashes — these are the evidence.
-- **Full flows:** staff onboard a member (appears after revalidate, entitlement texts resolve); staff create a dynamic branch (8 steps land, `ensca.registrar` written, branch discovered or documented as pending indexer catch-up); mentor self-edits `avatar` from the browser.
+- **Full flows:** staff onboard a member (appears after revalidate, entitlement texts resolve); staff create a dynamic perimeter (8 steps land, `ensca.registrar` written, perimeter discovered or documented as pending indexer catch-up); mentor self-edits `avatar` from the browser.
 - **Browser check:** `next dev`, connect a wallet, exercise every flow + watch for regressions in read-only views. If live signing can't be fully exercised, say so rather than claim success.
 
 ## Open Item

@@ -50,7 +50,7 @@ This requires a **one-time manual CA install per device** (there is no browser/J
 - The `sessions` table columns `ip`, `ens_name`, `wallet_address` exist and are returned by `_session_dict` (proxy.py:109-123) and `internal_get_session` (proxy.py:1326-1334). Session creation already accepts `wallet_address` (proxy.py:1271-1312).
 - `_resolve_via_ens` (proxy.py:1195-1219) already calls `ENSCA_WEB_URL + "/api/ens/resolve"`. The announce endpoint reuses this route; `resolveIdentity` returns `owner`.
 - `GET /api/ens/resolve?name=<name>` returns `200` with `{ owner, ... }`, `404` for no membership (definite deny), `502` on read failure (fall back, never silent deny) — the `force-dynamic` try/catch→status pattern in `web/app/api/ens/resolve/route.ts`.
-- `RPC_URL` and `SEPOLIA_CHAIN_ID = 11155111` are in `web/lib/ens/config.ts`. `organization: "ethglobal2.eth"`, default branch `tokyo.ethglobal2.eth`.
+- `RPC_URL` and `SEPOLIA_CHAIN_ID = 11155111` are in `web/lib/ens/config.ts`. `organization: "ethglobal2.eth"`, default perimeter `tokyo.ethglobal2.eth`.
 - This feature touches **proxy (Python/Flask) + web (Next.js 16) + a browser provider script**. It writes no Solidity, so the `@ens-v2` submodule / `forge build` blocker that gates the write path does NOT gate this feature.
 - Web code: `web/AGENTS.md` — "This is NOT the Next.js you know"; read `node_modules/next/dist/docs/` before writing any web code.
 

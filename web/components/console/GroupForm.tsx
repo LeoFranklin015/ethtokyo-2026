@@ -88,14 +88,14 @@ export function GroupForm({ org, onDone }: { org: string; onDone?: () => void })
     <Panel as="section">
       <PanelHeader>Define a group</PanelHeader>
       <div className="space-y-4 px-4 py-5">
-        <Field label="Branch">
+        <Field label="Perimeter">
           <select
             value={target}
             onChange={(e) => setRegistrar(e.target.value)}
             className="h-11 w-full rounded-sharp border border-rule bg-paper px-2 font-mono text-xs text-ink"
           >
             {withRegistrar.length === 0 ? (
-              <option value="">{branchesLoading ? "discovering…" : "no branches yet"}</option>
+              <option value="">{branchesLoading ? "discovering…" : "no perimeters yet"}</option>
             ) : null}
             {withRegistrar.map((b) => (
               <option key={b.name} value={b.registrar ?? ""}>
@@ -194,7 +194,7 @@ export function GroupForm({ org, onDone }: { org: string; onDone?: () => void })
         </Button>
         {!address ? (
           <p className="text-xs text-ink-muted">
-            Connect the wallet that owns this branch — it signs the transaction, and the
+            Connect the wallet that owns this perimeter — it signs the transaction, and the
             registrar checks its roles on chain.
           </p>
         ) : null}

@@ -4,7 +4,7 @@ import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { useEnsMemberships } from "@/lib/hooks/useEns";
 import { explorer } from "@/lib/ens/config";
 
-const COLUMNS = ["Membership", "Branch", "Member name", "Role", "Own roles", "Entitlements"];
+const COLUMNS = ["Membership", "Perimeter", "Member name", "Role", "Own roles", "Entitlements"];
 
 function short(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -43,12 +43,12 @@ export function EnsMemberships({ org }: { org: string }) {
           </span>
         }
       >
-        On-chain memberships · all branches
+        On-chain memberships · all perimeters
       </PanelHeader>
 
       {isLoading ? (
         <p className="px-4 py-10 text-center font-mono text-xs text-ink-muted">
-          Reading the branch registry…
+          Reading the perimeter registry…
         </p>
       ) : error ? (
         <div role="status" className="px-4 py-10 text-center">
@@ -61,17 +61,17 @@ export function EnsMemberships({ org }: { org: string }) {
         </div>
       ) : !memberships || memberships.length === 0 ? (
         <div role="status" className="px-4 py-10 text-center">
-          <p className="text-sm text-ink">No memberships in this branch</p>
+          <p className="text-sm text-ink">No memberships in this perimeter</p>
           <p className="mx-auto mt-1.5 max-w-[44ch] text-sm text-ink-muted">
-            Onboarding mints a subname under the branch registry and writes its entitlements in the
-            same transaction.
+            Onboarding mints a subname under the perimeter registry and writes its entitlements
+            in the same transaction.
           </p>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse text-left">
             <caption className="sr-only">
-              Memberships read from the branch registry, with role, registry permissions and
+              Memberships read from the perimeter registry, with role, registry permissions and
               resolver entitlements
             </caption>
             <thead>
@@ -148,10 +148,11 @@ export function EnsMemberships({ org }: { org: string }) {
       )}
 
       <p className="border-t border-rule px-4 py-3 text-xs leading-relaxed text-ink-muted">
-        Branches are discovered from ENS — a branch is a name with a subregistry, and it publishes
-        its registrar as an <code className="font-mono">ensca.registrar</code> record. Names, owners
-        and entitlements come from the indexer in one query across every branch; role names and the
-        registry bitmap are read from each branch&rsquo;s own registrar, because a role id is{" "}
+        Perimeters are discovered from ENS — a perimeter is a name with a subregistry, and it
+        publishes its registrar as an <code className="font-mono">ensca.registrar</code> record.
+        Names, owners and entitlements come from the indexer in one query across every perimeter;
+        role names and the registry bitmap are read from each perimeter&rsquo;s own registrar,
+        because a role id is{" "}
         <code className="font-mono">keccak256(name)</code>.
       </p>
     </Panel>

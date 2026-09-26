@@ -18,7 +18,7 @@ export default function Home() {
             <p className="label">Identity-gated infrastructure</p>
 
             <h1 className="mt-6 font-mono text-6xl font-medium leading-[0.9] tracking-[-0.04em] text-ink sm:text-7xl lg:text-8xl">
-              ENSCA
+              Radius
             </h1>
 
             <p className="mt-7 max-w-[24ch] text-balance text-2xl leading-[1.15] tracking-[-0.01em] text-ink sm:text-3xl lg:text-4xl">
@@ -35,7 +35,6 @@ export default function Home() {
               <ButtonLink href="/console" variant="solid">
                 Open console
               </ButtonLink>
-              <ButtonLink href="/portal">See the portal</ButtonLink>
             </div>
           </div>
 
