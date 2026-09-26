@@ -9,7 +9,7 @@ import {
   type Hex,
 } from "viem";
 import { sepolia } from "viem/chains";
-import { orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
+import { branchFactoryAbi, orgRegistrarAbi, registrarV2Abi, registryAbi, resolverAbi } from "./abis";
 import { ENS, ENTITLEMENT_KEYS, RPC_URL } from "./config";
 import { getIndexedBranches, getIndexedMemberships } from "./indexer";
 
@@ -376,24 +376,18 @@ export async function resolveIdentity(name: string): Promise<ResolvedIdentity | 
  * Asking them to type their own ENS name would be both worse UX and weaker: a typed name proves
  * nothing, which is exactly how the current portal ends up treating a public name as a password.
  *
- * The branch list comes from the indexer, which is the one thing here that can be stale — so a
- * miss is deliberately NOT treated as "not a member". If any branch could not be inspected, this
- * throws rather than returning null, because the caller turns null into a 403 (a deny) and a
- * throw into a 502 (an outage). Denying a real member because an indexer lagged is precisely the
- * failure this distinction exists to prevent.
+ * Branches come from the factory's own `BranchCreated` logs, not the indexer. This is the
+ * admission path: a person onboarded at the desk must be able to reach the network on the walk
+ * to the door, and an indexer that has not caught up would deny them. Logs are visible in the
+ * same block the branch is created in.
  */
 export async function resolveByWallet(wallet: Address): Promise<ResolvedIdentity | null> {
-  const branches = await getIndexedBranches();
-  if (branches.length === 0) throw new Error("no branches could be read; cannot rule out a membership");
+  const branches = await chainBranches();
+  if (branches.length === 0) {
+    throw new Error("no branches could be read; cannot rule out a membership");
+  }
 
-  const unreadable: string[] = [];
   for (const branch of branches) {
-    if (!branch.registrar) {
-      // Indexed, but its registrar record has not been picked up yet. We cannot say this wallet
-      // is not a member here — only that we could not check.
-      unreadable.push(branch.name);
-      continue;
-    }
     const resource = await client.readContract({
       address: branch.registrar as Address,
       abi: registrarV2Abi,
@@ -413,9 +407,31 @@ export async function resolveByWallet(wallet: Address): Promise<ResolvedIdentity
     // Round-trip through the name so the answer is exactly what an enforcer would resolve.
     return await resolveIdentity(`${label}.${branch.name}`);
   }
-
-  if (unreadable.length > 0) {
-    throw new Error(`could not inspect ${unreadable.join(", ")}; membership is unconfirmed`);
-  }
   return null;
+}
+
+/**
+ * Every branch this organization has opened, read from the factory's logs.
+ *
+ * The indexer is the nicer source — one query, entitlements included — but it is a cache, and
+ * on the admission path a cache miss is indistinguishable from "not a member". `BranchCreated`
+ * carries the label, the registry and the registrar, so no follow-up read is needed to know
+ * where to look.
+ */
+async function chainBranches(): Promise<{ name: string; registrar: Address }[]> {
+  const logs = await client.getContractEvents({
+    address: ENS.branchFactory as Address,
+    abi: branchFactoryAbi,
+    eventName: "BranchCreated",
+    fromBlock: ENS.fromBlock,
+    toBlock: "latest",
+  });
+
+  const branches = new Map<string, Address>();
+  for (const log of logs) {
+    const { label, registrar } = log.args as { label?: string; registrar?: Address };
+    // Later entries win: a label re-opened points at its newest registrar.
+    if (label && registrar) branches.set(`${label}.${ENS.organization}`, registrar);
+  }
+  return [...branches].map(([name, registrar]) => ({ name, registrar }));
 }

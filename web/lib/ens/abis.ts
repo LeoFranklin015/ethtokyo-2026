@@ -11,6 +11,9 @@ export const registryAbi = [
 ] as const;
 
 export const registrarV2Abi = [
+  { type: "function", name: "BRANCH_DNS_NAME", stateMutability: "view", inputs: [], outputs: [{ type: "bytes" }] },
+  { type: "function", name: "BRANCH_NODE", stateMutability: "view", inputs: [], outputs: [{ type: "bytes32" }] },
+  { type: "function", name: "REGISTRY", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "labelOf", stateMutability: "view", inputs: [{ name: "resource", type: "uint256" }], outputs: [{ type: "string" }] },
   { type: "function", name: "roleOf", stateMutability: "view", inputs: [{ name: "resource", type: "uint256" }], outputs: [{ type: "bytes32" }] },
   { type: "function", name: "membershipOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] },

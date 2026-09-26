@@ -10,9 +10,14 @@ export const maxDuration = 300;
 
 /** The groups a branch defines. `?registrar=0x…` selects the branch. */
 export async function GET(req: NextRequest) {
+  // No default. `getRoles()` falls back to a hardcoded registrar, so a missing parameter used
+  // to return a different branch's catalogue with HTTP 200.
   const registrar = req.nextUrl.searchParams.get("registrar");
+  if (!registrar || !/^0x[0-9a-fA-F]{40}$/.test(registrar)) {
+    return NextResponse.json({ error: "registrar required" }, { status: 400 });
+  }
   try {
-    const groups = await getRoles(registrar ? (registrar as Address) : undefined);
+    const groups = await getRoles(registrar as Address);
     return NextResponse.json({ groups });
   } catch (error) {
     return NextResponse.json(

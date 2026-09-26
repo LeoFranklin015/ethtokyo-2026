@@ -28,6 +28,11 @@ contract MockPermissionedResolver is IBranchResolver {
         return true;
     }
 
+    function revokeRootRoles(uint256, address account) external returns (bool) {
+        rootWriter[account] = false;
+        return true;
+    }
+
     function authorizeTextRoles(bytes calldata toName, string calldata key, address account, bool grant)
         external
         returns (bool updated)

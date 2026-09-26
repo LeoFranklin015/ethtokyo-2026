@@ -17,6 +17,7 @@ import {OrgRegistrar} from "./OrgRegistrar.sol";
 interface IResolverAdmin {
     function setText(bytes32 node, string calldata key, string calldata value) external;
     function grantRootRoles(uint256 roleBitmap, address account) external returns (bool);
+    function revokeRootRoles(uint256 roleBitmap, address account) external returns (bool);
 }
 
 /// @title BranchFactory
@@ -77,6 +78,8 @@ contract BranchFactory is EnhancedAccessControl {
     uint256 private constant RESOLVER_ROLE_SET_TEXT = 1 << 4;
     uint256 private constant RESOLVER_ROLE_SET_TEXT_ADMIN = RESOLVER_ROLE_SET_TEXT << 128;
 
+    event BranchRetired(address indexed registrar);
+
     event BranchCreated(
         string label,
         bytes32 indexed node,
@@ -86,6 +89,7 @@ contract BranchFactory is EnhancedAccessControl {
     );
 
     error NotABranchCreator(address account);
+    error NotABranch(address registrar);
     error InvalidLabel(string label);
     error LabelUnavailable(string label);
     error InvalidExpiry(uint64 expiry);
@@ -201,6 +205,30 @@ contract BranchFactory is EnhancedAccessControl {
         PermissionedRegistry(registry).revokeRootRoles(EACBaseRolesLib.ALL_ROLES, address(this));
 
         emit BranchCreated(label, branchNode(label), registry, registrar, owner);
+    }
+
+    /// @notice Hand back the shared-contract grants a branch holds, when it closes.
+    ///
+    /// @dev This is not housekeeping, it is a hard requirement. EAC counts assignees per role
+    ///      per resource in a **4-bit nybble** and reverts `EACMaxAssignees` at 15. Every branch
+    ///      takes one slot of `ROLE_SET_TEXT` on the shared resolver and one of `ROLE_ENROL` on
+    ///      the shared OrgRegistrar, at `ROOT_RESOURCE` — so without this, the **16th branch an
+    ///      organization ever opens reverts, permanently**. That is not a theoretical limit: it
+    ///      was hit in testing, and the only remedy was revoking by hand.
+    ///
+    ///      The real fix is one resolver per branch, which is also what ENS recommends — the
+    ///      resolver instance is the trust boundary. Until then, retiring a branch frees its slot.
+    function retireBranch(address registrar) external {
+        if (!hasRootRoles(ROLE_CREATE_BRANCH, msg.sender)) revert NotABranchCreator(msg.sender);
+        // Only something that looks like one of ours; a bad address here would revoke a grant
+        // belonging to a contract we did not create.
+        if (BranchRegistrarV2(registrar).BRANCH_NODE() == bytes32(0)) revert NotABranch(registrar);
+
+        ORG_REGISTRAR.revokeRootRoles(ORG_REGISTRAR.ROLE_ENROL(), registrar);
+        IResolverAdmin(RESOLVER).revokeRootRoles(
+            RESOLVER_ROLE_SET_TEXT | RESOLVER_ROLE_SET_TEXT_ADMIN, registrar
+        );
+        emit BranchRetired(registrar);
     }
 
     /// @dev `[a-z0-9-]`, 1-32 chars, no leading or trailing hyphen — the same restriction the

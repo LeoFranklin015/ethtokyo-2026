@@ -238,6 +238,60 @@ contract BranchFactoryTest is Test {
     }
 
     ////////////////////////////////////////////////////////////////////////
+    // The assignee ceiling
+    ////////////////////////////////////////////////////////////////////////
+
+    /// EAC counts assignees in a 4-bit nybble and reverts at 15. Every branch takes a slot of
+    /// ROLE_ENROL on the shared OrgRegistrar, so without retiring, the 16th branch an
+    /// organization ever opens fails permanently. This was hit for real on Sepolia.
+    function test_the_assignee_ceiling_is_real() public {
+        // EAC counts assignees per role per resource in a 4-bit nybble and reverts at 15. Every
+        // branch takes one slot of ROLE_ENROL on the shared OrgRegistrar, so an organization can
+        // open a bounded number of branches, ever. This was hit for real on Sepolia — the 16th
+        // `createBranch` reverted EACMaxAssignees and the only remedy was revoking by hand.
+        uint256 enrol = orgRegistrar.ROLE_ENROL();
+        uint256 granted;
+        for (uint256 i = 1; i < 32; ++i) {
+            vm.prank(org);
+            try orgRegistrar.grantRootRoles(enrol, address(uint160(0xE000 + i))) {
+                granted++;
+            } catch {
+                break;
+            }
+        }
+        // The constructor already granted one, so the ceiling is reached before 15 more.
+        assertLt(granted, 15, "the nybble saturates");
+        assertGt(granted, 0, "but not immediately");
+    }
+
+    /// Retiring a branch hands its slot back, which is the only reason the ceiling is survivable.
+    function test_retiring_a_branch_frees_its_slot() public {
+        (, address registrar) = _create("tokyo");
+        assertTrue(
+            orgRegistrar.hasRootRoles(orgRegistrar.ROLE_ENROL(), registrar),
+            "a live branch may enrol Members"
+        );
+
+        vm.prank(org);
+        factory.retireBranch(registrar);
+
+        assertFalse(
+            orgRegistrar.hasRootRoles(orgRegistrar.ROLE_ENROL(), registrar),
+            "a retired one may not"
+        );
+        assertFalse(resolver.rootWriter(registrar), "and may no longer write records");
+    }
+
+    function test_only_a_branch_creator_may_retire_one() public {
+        (, address registrar) = _create("tokyo");
+        vm.prank(outsider);
+        vm.expectRevert(
+            abi.encodeWithSelector(BranchFactory.NotABranchCreator.selector, outsider)
+        );
+        factory.retireBranch(registrar);
+    }
+
+    ////////////////////////////////////////////////////////////////////////
     // Two branches coexist
     ////////////////////////////////////////////////////////////////////////
 
