@@ -523,38 +523,54 @@
     $("open-scanner").disabled = true;
     $("open-scanner").textContent = "Checking…";
 
-    var apiUrl = "/api/badge?id=" + encodeURIComponent(id);
-    if (rawUrl) apiUrl += "&url=" + encodeURIComponent(rawUrl);
-    fetch(apiUrl, { cache: "no-store" }).then(function (res) {
-      return res.json().catch(function () { return {}; }).then(function (body) {
-        if (res.status === 404) {
-          trouble(
-            "Badge " + id + " is not a membership",
-            "Nobody at this organization holds that badge. Check you scanned your own, or ask an " +
-            "organizer to onboard you at the desk."
-          );
-          return;
-        }
-        if (res.status === 502 || res.status === 504) {
-          trouble(
-            "That badge could not be checked",
-            "The branch could not reach what it needs to check your badge, so this is not a " +
-            "refusal. Wait a moment and scan again."
-          );
-          return;
-        }
-        if (!res.ok) {
-          trouble(
-            "This portal is not set up",
-            (body.error || "The portal could not look up a badge.") +
-            " An organizer has to fix this — scanning again will not help."
-          );
-          return;
-        }
-        state.badge = body;
-        renderWallet();
-        setStep("wallet");
+    var badgePromise = fetch("/api/badge?id=" + encodeURIComponent(id), { cache: "no-store" })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (body) {
+          return { status: res.status, body: body };
+        });
       });
+
+    var scraperPromise = rawUrl
+      ? fetch("/api/scrape?url=" + encodeURIComponent(rawUrl), { cache: "no-store" })
+          .then(function (r) { return r.json().catch(function () { return {}; }); })
+          .catch(function () { return {}; })
+      : Promise.resolve({});
+
+    Promise.all([badgePromise, scraperPromise]).then(function (results) {
+      var badge = results[0];
+      var scraper = results[1];
+      var res = badge.status;
+      var body = badge.body;
+
+      if (res === 404) {
+        trouble(
+          "Badge " + id + " is not a membership",
+          "Nobody at this organization holds that badge. Check you scanned your own, or ask an " +
+          "organizer to onboard you at the desk."
+        );
+        return;
+      }
+      if (res === 502 || res === 504) {
+        trouble(
+          "That badge could not be checked",
+          "The branch could not reach what it needs to check your badge, so this is not a " +
+          "refusal. Wait a moment and scan again."
+        );
+        return;
+      }
+      if (res !== 200) {
+        trouble(
+          "This portal is not set up",
+          (body.error || "The portal could not look up a badge.") +
+          " An organizer has to fix this — scanning again will not help."
+        );
+        return;
+      }
+      body.scraperName = scraper.name || body.scraperName || null;
+      body.scraperImage = scraper.image || body.scraperImage || null;
+      state.badge = body;
+      renderWallet();
+      setStep("wallet");
     }).catch(function () {
       trouble(
         "The portal did not answer",

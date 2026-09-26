@@ -419,6 +419,16 @@ def _scrape_profile(badge_url: str) -> dict:
     return {}
 
 
+@app.route("/api/scrape", methods=["GET"])
+def api_scrape():
+    """Scrape an ETHGlobal profile and return {name, image}."""
+    badge_url = request.args.get("url", "").strip()
+    if not badge_url:
+        return jsonify({"error": "url required"}), 400
+    result = _scrape_profile(badge_url)
+    return jsonify({"name": result.get("name"), "image": result.get("image")})
+
+
 @app.route("/api/badge", methods=["GET"])
 def api_badge():
     """Which membership does this badge belong to, and whose wallet holds it?"""

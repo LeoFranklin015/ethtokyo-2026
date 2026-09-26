@@ -57,19 +57,18 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   const groups = (groupData?.groups ?? []).filter((g) => g.active);
   const selectedGroup = group || groups[0]?.name || "";
 
-  async function fetchBadgeProfile(id: string, rawUrl?: string) {
+  async function fetchBadgeProfile(_id: string, rawUrl?: string) {
     setProfile(null);
+    if (!rawUrl) return;
     try {
-      const url = `/api/portal/badge?id=${encodeURIComponent(id)}` +
-        (rawUrl ? `&url=${encodeURIComponent(rawUrl)}` : "");
-      const res = await fetch(url);
+      const res = await fetch(`/api/portal/scrape?url=${encodeURIComponent(rawUrl)}`);
       if (!res.ok) return;
-      const body = await res.json() as { scraperName?: string | null; scraperImage?: string | null };
-      if (body.scraperName || body.scraperImage) {
-        setProfile({ name: body.scraperName ?? null, image: body.scraperImage ?? null });
+      const body = await res.json() as { name?: string | null; image?: string | null };
+      if (body.name || body.image) {
+        setProfile({ name: body.name ?? null, image: body.image ?? null });
       }
     } catch {
-      // scraper unavailable — silently ignore, not critical
+      // scraper unavailable — not critical
     }
   }
 
