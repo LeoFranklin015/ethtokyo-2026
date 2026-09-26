@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
-import { useOrgRegistration } from "@/lib/ens/useOrgRegistration";
+import { ensAppLink, useOrgName } from "@/lib/ens/useOrgName";
 import { useEnsWrites } from "@/lib/ens/useEnsWrites";
 import type { Address } from "viem";
 import { sepolia } from "wagmi/chains";
@@ -24,7 +24,7 @@ type StepId = "connect" | "name" | "branch" | "groups" | "done";
 
 const STEPS: { id: StepId; title: string; blurb: string }[] = [
   { id: "connect", title: "Wallet", blurb: "Connect the wallet that will own the organization." },
-  { id: "name", title: "Name", blurb: "Claim the .eth name the organization is built on." },
+  { id: "name", title: "Name", blurb: "The .eth name the organization is built on." },
   { id: "branch", title: "Branch", blurb: "Open a location. It gets its own registry." },
   { id: "groups", title: "Groups", blurb: "Define the categories people are onboarded into." },
   { id: "done", title: "Open", blurb: "Start admitting people." },
@@ -229,86 +229,25 @@ function ConnectStep({ onDone }: { onDone: () => void }) {
 
 function NameStep({ onDone }: { onDone: (name: string) => void }) {
   const { address } = useAccount();
-  const reg = useOrgRegistration();
   const [label, setLabel] = useState("");
-  const [check, setCheck] = useState<{
-    valid: boolean;
-    reason?: string;
-    name?: string;
-    available?: boolean;
-    price?: string;
-    priceFormatted?: string;
-  } | null>(null);
-
-  useEffect(() => {
-    const value = label.trim().toLowerCase();
-    if (!value) return;
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ens/available?label=${value}`);
-        if (!res.ok) throw new Error("registrar unreachable");
-        setCheck(await res.json());
-      } catch {
-        setCheck({ valid: false, reason: "could not reach the registrar" });
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [label]);
-
-  const price = check?.price ? BigInt(check.price) : null;
-  const usdc = (v: bigint) => (Number(v) / 1e6).toFixed(2);
-  const pending = reg.pending;
-  const short = reg.balance !== null && price !== null && reg.balance < price;
+  const { status, recheck } = useOrgName(label);
 
   return (
     <Panel as="section">
       <div className="px-5 py-6">
-        <h2 className="text-lg tracking-[-0.01em] text-ink">Claim the organization name</h2>
-        <p className="mt-2 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
+        <h2 className="text-lg tracking-[-0.01em] text-ink">Choose the organization name</h2>
+        <p className="mt-2 max-w-[56ch] text-sm leading-relaxed text-ink-muted">
           This name is the trust root. Every branch is registered beneath it and every membership
-          resolves through it, so it is the one name that has to be bought — by you, from your own
-          wallet. Nobody holds it on your behalf.
+          resolves through it, so it has to be a name you own. Search for one here; if it is free,
+          the ENS app registers it — that is its job, and it does the commit-and-reveal dance
+          properly.
         </p>
-
-        {pending ? (
-          <div className="mt-5 rounded-sharp border border-rule px-4 py-3">
-            <p className="text-sm text-ink">
-              You have an unfinished claim on <span className="font-mono">{pending.label}.eth</span>.
-            </p>
-            <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
-              Its commitment is already on chain. Finish it rather than starting again — a new
-              commitment means waiting out the window a second time.
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button
-                variant="solid"
-                onClick={async () => {
-                  const name = await reg.register();
-                  if (name) onDone(name);
-                }}
-                disabled={reg.phase === "registering"}
-              >
-                {reg.phase === "registering" ? "Claiming…" : `Finish claiming ${pending.label}.eth`}
-              </Button>
-              <button
-                type="button"
-                onClick={reg.discardPending}
-                className="font-mono text-[0.6875rem] text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
-              >
-                discard it
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         <div className="mt-5 flex items-center gap-2">
           <input
             value={label}
-            onChange={(e) => {
-              setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase());
-              setCheck(null);
-            }}
-            placeholder="acme"
+            onChange={(e) => setLabel(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())}
+            placeholder="search for a name"
             aria-label="Organization name"
             autoComplete="off"
             className="h-12 min-w-0 flex-1 rounded-sharp border border-rule bg-paper px-3 font-mono text-base text-ink placeholder:text-ink-faint"
@@ -316,100 +255,76 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
           <span className="shrink-0 font-mono text-base text-ink-muted">.eth</span>
         </div>
 
-        <div className="mt-2 min-h-[1.25rem]" role="status" aria-live="polite">
-          {check === null ? null : !check.valid ? (
-            <span className="font-mono text-xs" style={{ color: "var(--alert)" }}>
-              {check.reason ?? "not a usable name"}
-            </span>
-          ) : check.available ? (
-            <span className="font-mono text-xs" style={{ color: "var(--signal)" }}>
-              available · {check.priceFormatted} / year
-            </span>
-          ) : (
-            <span className="font-mono text-xs" style={{ color: "var(--alert)" }}>
-              already taken
-            </span>
-          )}
-        </div>
-
-        {address && price !== null && check?.available ? (
-          <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">
-            this wallet holds {reg.balance === null ? "…" : `${usdc(reg.balance)} USDC`}
-          </p>
-        ) : null}
-
-        {address && short ? (
-          <div className="mt-4 rounded-sharp border border-rule px-4 py-3">
-            <p className="text-sm text-ink">This wallet cannot cover the fee yet.</p>
-            <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
-              Sepolia names are paid for in a mock token whose mint is open to anyone, so you can
-              top yourself up. On mainnet this would be a real purchase.
+        <div className="mt-4" role="status" aria-live="polite">
+          {status.state === "idle" ? (
+            <p className="text-xs text-ink-muted">
+              Already run one? Type its name and we will check whether this wallet holds it.
             </p>
-            <div className="mt-3">
-              <Button variant="solid" onClick={reg.mintTestFunds}>
-                Mint 100 test USDC
-              </Button>
+          ) : status.state === "checking" ? (
+            <p className="font-mono text-xs text-ink-muted">checking…</p>
+          ) : status.state === "invalid" ? (
+            <p className="font-mono text-xs" style={{ color: "var(--alert)" }}>
+              {status.reason}
+            </p>
+          ) : status.state === "yours" ? (
+            <div className="rounded-sharp border border-rule px-4 py-3">
+              <p className="text-sm text-ink">
+                <span className="font-mono">{status.name}</span> is yours.
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+                This wallet owns it, so you can build the organization on it.
+              </p>
+              <div className="mt-3">
+                <Button variant="solid" onClick={() => onDone(status.name)}>
+                  Use {status.name}
+                </Button>
+              </div>
             </div>
-          </div>
-        ) : null}
-
-        {reg.phase === "waiting" && !pending ? null : null}
-
-        {reg.phase === "waiting" ? (
-          <p className="mt-4 max-w-[54ch] text-sm leading-relaxed text-ink-muted">
-            Committed. ENS makes you wait{" "}
-            <span className="font-mono text-ink">{reg.countdown}s</span> before revealing, so
-            nobody watching the mempool can take the name ahead of you.
-          </p>
-        ) : null}
-
-        {reg.error ? (
-          <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--alert)" }} role="status">
-            {reg.error}
-          </p>
-        ) : null}
-
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          {!address ? (
-            <p className="font-mono text-xs text-ink-muted">Connect a wallet first.</p>
-          ) : reg.phase === "waiting" ? (
-            <Button
-              variant="solid"
-              onClick={async () => {
-                const name = await reg.register();
-                if (name) onDone(name);
-              }}
-              disabled={reg.countdown > 0}
-            >
-              {reg.countdown > 0 ? `Reveal in ${reg.countdown}s` : "Claim this name"}
-            </Button>
+          ) : status.state === "available" ? (
+            <div className="rounded-sharp border border-rule px-4 py-3">
+              <p className="text-sm text-ink">
+                <span className="font-mono">{status.name}</span> is available
+                {status.priceFormatted ? ` · ${status.priceFormatted} / year` : ""}.
+              </p>
+              <p className="mt-1 max-w-[52ch] text-xs leading-relaxed text-ink-muted">
+                Register it on the ENS app, then come back. Registration takes two transactions
+                and a short wait, which is worth doing in the tool built for it rather than a
+                second implementation here.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <ButtonLink href={ensAppLink(status.name)} target="_blank" rel="noreferrer">
+                  Register on the ENS app ↗
+                </ButtonLink>
+                <button
+                  type="button"
+                  onClick={recheck}
+                  className="font-mono text-xs text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
+                >
+                  I have registered it
+                </button>
+              </div>
+            </div>
           ) : (
-            <Button
-              variant="solid"
-              onClick={() => price !== null && reg.commit(label.trim().toLowerCase(), price)}
-              disabled={
-                !check?.available ||
-                price === null ||
-                short ||
-                reg.phase === "committing" ||
-                reg.phase === "approving"
-              }
-            >
-              {reg.phase === "approving"
-                ? "Approving…"
-                : reg.phase === "committing"
-                  ? "Committing…"
-                  : "Claim this name"}
-            </Button>
+            <div className="rounded-sharp border border-rule px-4 py-3">
+              <p className="text-sm text-ink">
+                <span className="font-mono">{status.name}</span> is already registered
+                {address ? ", and not to this wallet" : ""}.
+              </p>
+              <p className="mt-1 font-mono text-[0.6875rem] text-ink-muted">
+                owner {status.owner.slice(0, 6)}…{status.owner.slice(-4)}
+              </p>
+              {!address ? (
+                <p className="mt-1 text-xs text-ink-muted">
+                  Connect the wallet that holds it and this will say so.
+                </p>
+              ) : null}
+              <div className="mt-3">
+                <ButtonLink href={ensAppLink(status.name)} target="_blank" rel="noreferrer">
+                  View it on the ENS app ↗
+                </ButtonLink>
+              </div>
+            </div>
           )}
-
-          <button
-            type="button"
-            onClick={() => onDone("")}
-            className="font-mono text-xs text-ink-muted underline decoration-rule underline-offset-2 hover:text-ink"
-          >
-            I already have one
-          </button>
         </div>
       </div>
     </Panel>
