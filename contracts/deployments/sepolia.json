@@ -24,5 +24,7 @@
       "registrar": "0xDB4De9b4fa494f79a5261736BdcB744F52E872C0",
       "node": "0xcb93dc254db4ff713d8261ba97870b6ceac90fe3dc7f2885799a1ec724788897"
     }
-  }
+  },
+  "branchFactory": "0x9ab4aFB832b7669eA427df486287D75bb936b67f",
+  "orgNode": "0x291def960cdeed286467d6beeaad1ab15faeb706a2dcd0126a3a6a22ef3e3aef"
 }
