@@ -19,3 +19,6 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/*/dry-run/
 contracts/lib/
+
+# Generated at mitm launch by mitm/gen_provider.py (machine-specific base URL)
+web/public/wallet/provider.l2.js
