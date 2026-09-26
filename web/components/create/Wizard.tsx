@@ -271,7 +271,9 @@ function NameStep({ onDone }: { onDone: (name: string) => void }) {
                 None yet. Search below, then register one on the ENS app.
               </p>
             ) : (
-              <ul className="mt-2 divide-y divide-rule rounded-sharp border border-rule">
+              // Capped and scrollable: a wallet with a dozen names pushed the search box — the
+              // way to reach a name this list does not have — off the bottom of the screen.
+              <ul className="mt-2 max-h-[17rem] divide-y divide-rule overflow-y-auto rounded-sharp border border-rule">
                 {roots.map((n) => (
                   <li key={n.name} className="flex items-center justify-between gap-3 px-3 py-2.5">
                     <span className="min-w-0">
