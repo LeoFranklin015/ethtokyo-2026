@@ -576,6 +576,12 @@ def list_ens_names():
         if not ORG_LABEL.match(branch):
             return jsonify({"error": "invalid_param"}), 400
         where.append("branch_label=?"); params.append(branch)
+    owner = qp.get("owner")
+    if owner is not None:
+        owner = owner.strip().lower()
+        if not HEX_ADDRESS.match(owner):
+            return jsonify({"error": "invalid_param"}), 400
+        where.append("owner=?"); params.append(owner)
 
     db = get_db()
     rows = db.execute(
