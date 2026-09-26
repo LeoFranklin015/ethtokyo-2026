@@ -4,10 +4,6 @@ import useSWR from "swr";
 type ProxyStatus = {
   status: string;
   ts: number;
-  db: string;
-  active_sessions: number;
-  resources_total: number;
-  resources_enabled: number;
 };
 
 export function useProxyStatus() {
