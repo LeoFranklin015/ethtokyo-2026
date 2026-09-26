@@ -39,14 +39,33 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // The chain decides which branches exist; the indexer only enriches them.
+  //
+  // It used to be the other way round — the indexer's row won wherever it had one — and that is
+  // how a branch from a registry the organization no longer points at stayed on screen. Setting
+  // a name up a second time deploys a fresh registry, and an indexer that has not caught up
+  // still lists the old one's children. `sairann.eth` showed `tokyo` from a superseded registry
+  // while the factory's own list said `tokyoo, bggg`: a branch that could be picked, and that
+  // nothing would resolve through.
+  //
+  // `allBranchLabels()` is the factory's own list, so the chain answer is complete rather than a
+  // best effort — there is no reason to let a stale row outvote it.
   const merged = new Map<string, Record<string, unknown>>();
   if (chainOk) {
+    const enrichment = new Map(indexedOk ? indexed.map((b) => [b.label, b]) : []);
     for (const b of fromChain) {
-      merged.set(b.label, { ...b, memberCount: null, source: "chain" });
+      const extra = enrichment.get(b.label);
+      merged.set(b.label, {
+        ...b,
+        // Only the indexer counts members, so without it that figure is unknown, not zero.
+        memberCount: extra?.memberCount ?? null,
+        registrar: b.registrar ?? extra?.registrar ?? null,
+        source: extra ? "indexer" : "chain",
+      });
     }
-  }
-  if (indexedOk) {
-    // The indexer's row wins where it exists: same identity, more detail.
+  } else if (indexedOk) {
+    // The chain could not be read. The indexer is all there is, and it may be behind — so the
+    // caller is told the list came from it alone rather than being handed it as settled fact.
     for (const b of indexed) merged.set(b.label, { ...b, source: "indexer" });
   }
 
