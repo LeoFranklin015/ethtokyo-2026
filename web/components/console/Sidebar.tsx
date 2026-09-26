@@ -14,7 +14,7 @@ const SECTIONS = [
     heading: "Operate",
     items: [
       { href: "/console", label: "Overview" },
-      { href: "/console/members", label: "Memberships" },
+      { href: "/console/people", label: "People" },
     ],
   },
   {
@@ -26,13 +26,15 @@ const SECTIONS = [
   },
   {
     // The enforcer is one deployment, not one organization — it has no organization column, so
-    // these three are deliberately not `?org=`-scoped and each says so on screen.
+    // these are deliberately not `?org=`-scoped and each says so on screen. Users is the
+    // exception: its rows are people, which the enforcer matches by the ENS name's suffix, so
+    // that page does need the organization and carries it.
     heading: "Enforcer",
     orgScoped: false,
     items: [
       { href: "/console/resources", label: "Resources" },
       { href: "/console/access", label: "Access" },
-      { href: "/console/users", label: "Users" },
+      { href: "/console/users", label: "Users", orgScoped: true },
     ],
   },
 ] as const;
@@ -96,7 +98,11 @@ export function Sidebar() {
                 return (
                   <li key={item.href}>
                     <Link
-                      href={"orgScoped" in section && !section.orgScoped ? item.href : withOrg(item.href, org)}
+                      href={
+                        ("orgScoped" in item ? item.orgScoped : !("orgScoped" in section) || section.orgScoped)
+                          ? withOrg(item.href, org)
+                          : item.href
+                      }
                       aria-current={active ? "page" : undefined}
                       className={`flex min-h-11 items-center gap-2.5 rounded-sharp px-2 text-sm transition-colors ${
                         active ? "bg-ink/8 font-medium text-ink" : "text-ink-muted hover:bg-ink/5 hover:text-ink"

@@ -71,6 +71,16 @@ export function SignalDither({
   useEffect(() => {
     const el = canvasRef.current?.parentElement;
     if (!el) return;
+
+    // Measure once, here, rather than waiting to be told. Nothing is painted at a size of 0, so
+    // an environment where the observer's first callback is late or never arrives — a headless
+    // capture, a print, a thumbnail — left the canvas permanently blank with no error anywhere.
+    // The observer is for changes; the mount is ours to measure.
+    const box = el.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) {
+      setSize({ width: Math.round(box.width), height: Math.round(box.height) });
+    }
+
     const resize = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       setSize({ width: Math.round(width), height: Math.round(height) });

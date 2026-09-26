@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { ensAppLink, useOrgName, useOwnedNames } from "@/lib/ens/useOrgName";
+import { withOrg } from "@/lib/hooks/useOrg";
 import { useOrgSetup, type OrgAddresses } from "@/lib/ens/useOrgSetup";
 import { useEnsWrites } from "@/lib/ens/useEnsWrites";
 import type { Address } from "viem";
@@ -946,7 +947,7 @@ function DoneStep({ org, branch }: { org: string | null; branch: string | null }
             : "Open a branch and onboard someone, and their name, role and entitlements are written in one transaction."}
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
-          <ButtonLink href="/console/members" variant="solid">
+          <ButtonLink href={withOrg("/console/people", org?.replace(/\.eth$/, "") ?? null)} variant="solid">
             Onboard someone
           </ButtonLink>
           <ButtonLink href="/console">Open the console</ButtonLink>
