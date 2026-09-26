@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { PageHeader } from "@/components/console/PageHeader";
 import { NoOrgSelected } from "@/components/console/OrgPicker";
 import { OnboardForm } from "@/components/console/OnboardForm";
@@ -126,6 +126,27 @@ export default function PeoplePage() {
   const shown = onlyDisagreements ? disagreeing : people;
 
   const registrarFor = new Map((branches ?? []).map((b) => [b.name, b.registrar]));
+
+  // Scraper profiles keyed by badge label (the first segment of their ENS name)
+  const [scraperProfiles, setScraperProfiles] = useState<Record<string, { name: string | null; image: string | null }>>({});
+  const fetchedLabels = useRef(new Set<string>());
+
+  useEffect(() => {
+    for (const p of shown) {
+      const label = p.ensName?.split(".")[0];
+      if (!label || fetchedLabels.current.has(label)) continue;
+      fetchedLabels.current.add(label);
+      const badgeUrl = `https://ethglob.al/${label}`;
+      fetch(`/api/portal/scrape?url=${encodeURIComponent(badgeUrl)}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((body: { name?: string | null; image?: string | null } | null) => {
+          if (!body) return;
+          setScraperProfiles((prev) => ({ ...prev, [label]: { name: body.name ?? null, image: body.image ?? null } }));
+        })
+        .catch(() => undefined);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown]);
 
   /** Retrying goes through `/api/ens/mirror`, which re-reads the chain rather than trusting us. */
   async function retryMirror(person: Person) {
@@ -303,19 +324,41 @@ export default function PeoplePage() {
                     return (
                       <tr key={p.key} className="transition-colors hover:bg-ink/5">
                         <th scope="row" className="px-4 py-3 text-left font-normal">
-                          {p.enforcerId ? (
-                            <button
-                              type="button"
-                              onClick={() => setSelected(p.enforcerId)}
-                              className="max-w-[28ch] truncate text-left font-mono text-sm text-ink underline decoration-rule underline-offset-2 hover:decoration-ink"
-                            >
-                              {p.ensName ?? p.username}
-                            </button>
-                          ) : (
-                            <span className="block max-w-[28ch] truncate font-mono text-sm text-ink">
-                              {p.ensName ?? p.username}
-                            </span>
-                          )}
+                          {(() => {
+                            const badgeLabel = p.ensName?.split(".")[0];
+                            const sp = badgeLabel ? scraperProfiles[badgeLabel] : undefined;
+                            const inner = (
+                              <span className="flex items-center gap-2">
+                                {sp?.image ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={sp.image}
+                                    alt=""
+                                    className="size-8 shrink-0 rounded-full border border-rule object-cover"
+                                  />
+                                ) : null}
+                                <span className="min-w-0">
+                                  {sp?.name ? (
+                                    <span className="block truncate text-xs font-medium text-ink">{sp.name}</span>
+                                  ) : null}
+                                  <span className="block max-w-[28ch] truncate font-mono text-xs text-ink-muted">
+                                    {p.ensName ?? p.username}
+                                  </span>
+                                </span>
+                              </span>
+                            );
+                            return p.enforcerId ? (
+                              <button
+                                type="button"
+                                onClick={() => setSelected(p.enforcerId)}
+                                className="text-left"
+                              >
+                                {inner}
+                              </button>
+                            ) : (
+                              <span>{inner}</span>
+                            );
+                          })()}
                           {p.owner ? (
                             <span className="mt-0.5 block font-mono text-[0.625rem] text-ink-muted">
                               {p.owner.slice(0, 6)}…{p.owner.slice(-4)}

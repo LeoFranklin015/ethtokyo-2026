@@ -57,6 +57,7 @@ export const orgRegistrarAbi = [
 
 export const resolverAbi = [
   { type: "function", name: "text", stateMutability: "view", inputs: [{ name: "node", type: "bytes32" }, { name: "key", type: "string" }], outputs: [{ type: "string" }] },
+  { type: "function", name: "setText", stateMutability: "nonpayable", inputs: [{ name: "node", type: "bytes32" }, { name: "key", type: "string" }, { name: "value", type: "string" }], outputs: [] },
 ] as const;
 
 /** ENSv2 ETHRegistrar — commit/reveal registration of a `.eth` name. */

@@ -8,7 +8,10 @@ import { QrScanner } from "@/components/QrScanner";
 import { useEnsBranches } from "@/lib/hooks/useEns";
 import { useEnsWrites } from "@/lib/ens/useEnsWrites";
 import { useAccount } from "wagmi";
-import { keccak256, toHex, type Address, type Hex } from "viem";
+import { keccak256, namehash, toHex, type Address, type Hex } from "viem";
+import { useWriteContract } from "wagmi";
+import { resolverAbi } from "@/lib/ens/abis";
+import { resolveOrg } from "@/lib/ens/org";
 import type { RoleInfo } from "@/lib/ens/read";
 
 /**
@@ -33,6 +36,7 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   // Derived rather than synced from an effect: the first group is the default until one is picked.
   const { address } = useAccount();
   const writes = useEnsWrites();
+  const { writeContractAsync } = useWriteContract();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [free, setFree] = useState<boolean | null>(null);
@@ -56,6 +60,27 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
   );
   const groups = (groupData?.groups ?? []).filter((g) => g.active);
   const selectedGroup = group || groups[0]?.name || "";
+
+  async function setProfileRecords(memberLabel: string, branchName: string, scraperName: string | null, scraperImage: string | null) {
+    if (!scraperName && !scraperImage) return;
+    try {
+      const orgRes = await fetch(`/api/ens/org?name=${encodeURIComponent(org)}.eth`);
+      if (!orgRes.ok) return;
+      const orgData = await orgRes.json() as { organization?: { resolver?: string } };
+      const resolver = orgData.organization?.resolver;
+      if (!resolver) return;
+      const fullName = `${memberLabel}.${branchName}.${org}.eth`;
+      const node = namehash(fullName);
+      if (scraperName) {
+        await writeContractAsync({ address: resolver as `0x${string}`, abi: resolverAbi, functionName: "setText", args: [node, "name", scraperName] });
+      }
+      if (scraperImage) {
+        await writeContractAsync({ address: resolver as `0x${string}`, abi: resolverAbi, functionName: "setText", args: [node, "avatar", scraperImage] });
+      }
+    } catch {
+      // best-effort — not critical if text records fail
+    }
+  }
 
   async function fetchBadgeProfile(_id: string, rawUrl?: string) {
     setProfile(null);
@@ -188,9 +213,13 @@ export function OnboardForm({ org, onDone }: { org: string; onDone?: () => void 
       setMessage({
         ok: true,
         text: body.mirrored
-          ? `${label}.${branch?.name} is live, in group “${selectedGroup}”.`
+          ? `${label}.${branch?.name} is live, in group "${selectedGroup}".`
           : `${label}.${branch?.name} is minted on ENS, but the enforcer was not updated (${body.reason ?? "unknown"}). They will not be admitted to the network until it is.`,
       });
+      // Set ENS text records for name and avatar from scraped profile — best-effort
+      if (profile && branch?.name) {
+        void setProfileRecords(label, branch.name, profile.name, profile.image);
+      }
       setLabel("");
       setOwner("");
       setProfile(null);
